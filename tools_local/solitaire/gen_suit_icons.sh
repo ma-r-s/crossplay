@@ -1,5 +1,6 @@
 #!/bin/bash
-# Regenerate src/apps_local/solitaire/SolitaireSuits.h, Solitaire's suit pips.
+# Regenerate src/apps_local/cards/CardSuits.h, the deck's suit pips. Shared by
+# every card game; the SVGs it reads still live under solitaire/.
 #
 #   brew install librsvg          # rsvg-convert, the only external dependency
 #   ./tools_local/solitaire/gen_suit_icons.sh
@@ -22,7 +23,7 @@ REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 cd "$REPO"
 
 ART=src/apps_local/solitaire/art
-OUT=src/apps_local/solitaire/SolitaireSuits.h
+OUT=src/apps_local/cards/CardSuits.h
 SOLID="$(mktemp -t suits_solid).h"
 OUTLINE="$(mktemp -t suits_outline).h"
 trap 'rm -f "$SOLID" "$OUTLINE"' EXIT

@@ -31,6 +31,8 @@ import logging
 import os
 import pathlib
 import sys
+import threading
+import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -273,6 +275,86 @@ def main():
     ok("502" in line, "and the log names the status it got")
     ok("unexpected" in line and "note" in line, "and the keys it got")
     ok("html error page" not in line, "and not the values")
+
+    # The Instaparser key (card #655) rides in the request body. A refusal
+    # must log Instapaper's error code, which five days of "400" did not,
+    # and never the key.
+    class Refused1044:
+        status_code = 400
+        content = b"x"
+        text = ""
+
+        def json(self):
+            return [{"type": "error", "error_code": 1044, "message": "key required"}]
+
+    sent = {}
+
+    def capture(path, body, extra=None):
+        sent.update(body)
+        return Refused1044()
+
+    os.environ["INSTAPARSER_API_KEY"] = "ipk-secret-value"
+    try:
+        client._post = capture
+        cap.lines.clear()
+        try:
+            client.get_text(7)
+            ok(False, "get_text refuses error 1044")
+        except ip.ApiError as e:
+            ok(e.code == 1044, "get_text refuses error 1044 with its code")
+            ok("1044" not in str(e), "and the reader's sentence carries no code")
+    finally:
+        os.environ.pop("INSTAPARSER_API_KEY", None)
+    ok(sent.get("instaparser_api_key") == "ipk-secret-value", "the key is sent in the body")
+    line = " ".join(cap.lines)
+    ok("1044" in line, "the log names the error code")
+    ok("ipk-secret-value" not in line, "and never the key")
+
+    sent.clear()
+    try:
+        client.get_text(8)
+    except ip.ApiError:
+        pass
+    ok("instaparser_api_key" not in sent, "with no key set, nothing extra is sent")
+
+    # Two users' syncs run in two threads and spend one key, so the gap
+    # between parses holds across clients, not within one.
+    class Arrived:
+        status_code = 200
+        text = "<p>x</p>"
+        content = b"x"
+
+    starts = []
+
+    def timed(path, body, extra=None):
+        starts.append(time.monotonic())
+        time.sleep(0.02)
+        return Arrived()
+
+    os.environ["INSTAPARSER_API_KEY"] = "ipk-secret-value"
+    original_gap = ip.PARSE_GAP_S
+    ip.PARSE_GAP_S = 0.2
+    try:
+        first, second = ip.Instapaper("t1", "s1"), ip.Instapaper("t2", "s2")
+        first._post = timed
+        second._post = timed
+        workers = [
+            threading.Thread(target=lambda c=c: [c.get_text(i) for i in range(3)])
+            for c in (first, second)
+        ]
+        for w in workers:
+            w.start()
+        for w in workers:
+            w.join()
+    finally:
+        ip.PARSE_GAP_S = original_gap
+        os.environ.pop("INSTAPARSER_API_KEY", None)
+    starts.sort()
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    ok(
+        len(starts) == 6 and min(gaps) >= 0.2,
+        f"two clients in two threads share one gap (closest {min(gaps):.3f}s)",
+    )
 
     print(f"{checks} checks, {failures} failed")
     return 1 if failures else 0

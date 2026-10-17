@@ -86,6 +86,21 @@ def _deck_files():
     return sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file())
 
 
+def template_faces():
+    """The media filenames make_fonts' media mode builds faces from, read out
+    of its FACES table. Parsed rather than imported, so opening a package does
+    not load fontTools before anyone asks for a face."""
+    import ast
+
+    tree = ast.parse((HERE / "make_fonts.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "FACES" for t in node.targets
+        ):
+            return {filename for filename, _family in ast.literal_eval(node.value)}
+    raise RuntimeError("make_fonts.py has no FACES table")
+
+
 def open_apkg():
     """Unwrap /work/deck.apkg and describe what is inside, for the page."""
     unpacked = WORK / "unpacked"
@@ -101,7 +116,16 @@ def open_apkg():
         return json.dumps({"error": "this package contains no cards"})
     sched = apkg.scheduling_summary(info["collection"])
     media = sorted(info["media_dir"].iterdir())
-    fonts = [p.name for p in media if p.suffix.lower() in apkg.FONT_SUFFIXES]
+    all_fonts = [p.name for p in media if p.suffix.lower() in apkg.FONT_SUFFIXES]
+    # "fonts" is what the page decides with: whether the package carries its
+    # template's own faces, the only files make_fonts' media mode can build
+    # from. Any font file used to count, so a Chinese package that happened to
+    # hold an unrelated _inter-regular.ttf went to the media build, found none
+    # of the five, failed "no faces built" and left the write button held --
+    # where a package with no fonts at all would have got the bundled Noto.
+    # The sync bridge had the same test and lost three users' decks to it.
+    faces = template_faces()
+    fonts = [name for name in all_fonts if name in faces]
     return json.dumps(
         {
             "decks": [{"name": name, "cards": cards} for name, cards in decks],
@@ -109,7 +133,7 @@ def open_apkg():
             "cardsWithState": sched["cards_with_state"],
             "reviews": sched["reviews"],
             "fonts": fonts,
-            "images": len(media) - len(fonts),
+            "images": len(media) - len(all_fonts),
             "mediaSkipped": info["media_skipped"],
             "audio": info["audio"],
             "pictures": info["pictures"],

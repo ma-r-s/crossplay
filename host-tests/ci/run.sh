@@ -22,6 +22,34 @@ trap 'rm -rf "$WORK"' EXIT
 
 [ -f "$YML" ] || { echo "FAIL cannot find $YML"; exit 1; }
 
+# ---------------------------------------------------------------------------
+# THE TRIGGER INVARIANT, and it is why much of the rest of this file is now
+# conditional.
+#
+# Until 2026-09-21 this workflow ran on every pull request and every push to
+# xteink, crossplay-autorelease.yml fired on its completion, tagged, and
+# pushed a version-bump commit that started it AGAIN. One change compiled four
+# times from cold: ~4,955 runner-minutes over 13 days, 92 per merged pull
+# request, forty minutes between a merge and the assets existing. The local
+# gate already built the same two release envs, in 113 seconds against 867
+# here, so all four were re-runs of a build that had already passed.
+#
+# The workflow is now a nightly audit and blocks nothing. ADDING A push OR
+# pull_request TRIGGER BACK RESTORES THE WHOLE PIPELINE, so that is the thing
+# asserted here, and it is strictly stronger than every paths-ignore check
+# further down: a trigger that does not exist needs no paths to ignore.
+#
+# The blocks reasoning about concurrency, superseding and paths-ignore are
+# kept rather than deleted and re-arm themselves the moment a blocking trigger
+# reappears. Each encodes a failure that cost a night and none is
+# re-derivable from the yaml.
+# ---------------------------------------------------------------------------
+TRIGGERS="$(sed -n '/^on:/,/^[a-z]/p' "$YML")"
+BLOCKING_TRIGGER=no
+case "$TRIGGERS" in
+  *"  push:"*|*"  pull_request:"*) BLOCKING_TRIGGER=yes ;;
+esac
+
 # Lift a named step's shell body out of a workflow and dedent it, so these
 # tests cannot drift from the text the runner actually executes.
 #
@@ -64,6 +92,21 @@ fake() {  # name, exit code, stdout
 
 checks=0
 failed=0
+
+checks=$((checks + 1))
+if [ "$BLOCKING_TRIGGER" = yes ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml has a push or pull_request trigger again. It is a nightly audit: a blocking trigger puts a 20-minute cross-compile back in front of every merge, and with crossplay-autorelease.yml gone nothing downstream waits for its verdict anyway. Landing and publishing are scripts_local/ship.sh."
+fi
+
+checks=$((checks + 1))
+case "$TRIGGERS" in
+  *schedule:*) ;;
+  *)
+    failed=$((failed + 1))
+    echo "FAIL ci  crossplay-ci.yml has no schedule trigger, so the one thing it still exists for -- proving xteink builds on a machine that is not Mario's, from a clean checkout, with nothing of his installed -- never runs"
+    ;;
+esac
 expect() {  # label, pass|fail
   local label="$1" want="$2" code got
   # bash -eo pipefail is what GitHub Actions gives a `run:` block.
@@ -123,6 +166,12 @@ if [ "$inis" -eq 0 ]; then
   echo "FAIL ci  no platformio*.ini found, so the git-pin check examined nothing"
 fi
 
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
 # The release trigger, which is a concurrency setting three files away.
 #
 # crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
@@ -303,396 +352,45 @@ if [ "$cancel_pr" != "true" ]; then
   echo "FAIL ci  crossplay-ci.yml evaluates cancel-in-progress to '$cancel_pr' on a pull request ref; superseding is off and five runs of one branch share the runners"
 fi
 
-# The release is built once per tag. host-tests/release asserts the SHAPE
-# (the dispatch is conditional on RELEASE_TOKEN, and crossplay-release.yml
-# keeps its tag trigger); this runs the step's own text, lifted from the
-# yaml, with a fake gh that records every call, so a condition that is
-# present but inverted fails here and nowhere else. v1.12.16 was built and
-# published twice on 2026-09-04, one run per path, before either existed.
-AYML="$HERE/../../.github/workflows/crossplay-autorelease.yml"
-lift_step "$AYML" 'Build and publish the release' >"$WORK/publish.sh"
-[ -s "$WORK/publish.sh" ] || { echo "FAIL could not extract the publish step from crossplay-autorelease.yml"; exit 1; }
-mkdir -p "$WORK/bin"
-printf '#!/bin/sh\necho "gh $*" >> "%s/gh.calls"\n' "$WORK" >"$WORK/bin/gh"; chmod +x "$WORK/bin/gh"
-publish() {  # label, PUSH_STARTS_IT value, wanted number of dispatches
-  rm -f "$WORK/gh.calls"
-  ( cd "$WORK" && PATH="$WORK/bin:$PATH" PUSH_STARTS_IT="$2" NEXT=1.2.3 bash -eo pipefail publish.sh >"$WORK/out" 2>&1 )
-  local n; n=$(grep -c 'workflow run crossplay-release.yml --ref v1.2.3' "$WORK/gh.calls" 2>/dev/null || true); [ -n "$n" ] || n=0
-  checks=$((checks + 1))
-  if [ "$n" -ne "$3" ]; then
-    failed=$((failed + 1))
-    echo "FAIL ci-autorelease  $1: crossplay-release.yml dispatched $n times, wanted $3"
-    sed 's/^/       /' "$WORK/out"
-  fi
-}
-publish "a tag pushed with RELEASE_TOKEN is not dispatched again"      true  0
-publish "a tag pushed with the workflow token is dispatched once"      false 1
-publish "no flag at all (no secret, older text) still dispatches once" ""    1
+fi  # BLOCKING_TRIGGER
 
-# -- the tip check must ask what MOVED, not what the commit called itself -----
+# -- the autorelease gate: deleted with the workflow it tested ---------------
 #
-# The gate refuses to release when xteink has moved past the commit CI
-# verified, and it has to: releasing a tip nothing verified is exactly the
-# thing it exists to stop. But this workflow carries
-# `paths-ignore: site/emulator/**` (above), so the emulator rebuild that
-# crossplay-emulator.yml commits after every merge gets NO CI run and never
-# will. If the gate refuses on that commit, the tip is stuck behind a run that
-# cannot exist, and the only thing that ever releases anything again is an
-# unrelated push -- which is why the stall heals itself often enough to read as
-# weather rather than as a deadlock.
+# About 390 lines and ~30 cases lived here, exercising
+# crossplay-autorelease.yml's own text with a fake gh: whether a tip that had
+# moved still released, whether an emulator rebuild counted as a move,
+# whether an unclassified path in the gap refused rather than guessed, and
+# whether a query that failed refused rather than assuming. Every one of them
+# was earned. The workflow is gone (2026-09-21) and so is the whole
+# release-on-a-green-CI-run mechanism they described.
 #
-# It was excused by `git log --format=%s | grep -vq '^chore: emulator rebuilt'`:
-# a copy of a string that lives in another workflow file, deciding a question
-# about content by reading a subject line. Both halves are asserted here, and
-# each one is a different way for that to be wrong:
+# WHERE EACH PART WENT, because "the tests were deleted" is not the same
+# claim as "the behaviour is still checked":
 #
-#   a gap that reaches nothing releases WHATEVER its commits are titled, so
-#   renaming the emulator commit cannot silently stop every release;
-#   a gap that reaches something refuses WHATEVER it titles itself, so a commit
-#   claiming to be an emulator rebuild cannot carry src/ past the gate.
-#
-# EXECUTED, against real repositories and the real classification table, for
-# the reason at the top of this file.
-#
-# THE EXTRACTOR BELOW IS A COPY, and it should not survive contact with the
-# branch that collapses the other three into a `lift_step` helper (board #235,
-# wt/cigaps). The two changes do not overlap textually, so git will merge them
-# without a word and leave this here as a fourth copy. Whoever lands second:
-# delete the heredoc and write
-#   lift_step "$AYML" 'Decide whether to release' >"$WORK/gate.sh"
-python3 - "$AYML" 'Decide whether to release' >"$WORK/gate.sh" <<'PY'
-import sys
-lines = open(sys.argv[1]).read().splitlines()
-i = next(i for i, l in enumerate(lines) if l.strip() == '- name: ' + sys.argv[2])
-j = next(j for j in range(i, len(lines)) if lines[j].strip() == 'run: |')
-body, indent = [], None
-for l in lines[j + 1:]:
-    if not l.strip():
-        body.append('')
-        continue
-    cur = len(l) - len(l.lstrip())
-    if indent is None:
-        indent = cur
-    if cur < indent:
-        break
-    body.append(l[indent:])
-print('\n'.join(body))
-PY
-[ -s "$WORK/gate.sh" ] || { echo "FAIL could not extract the gate step from crossplay-autorelease.yml"; exit 1; }
+#   "does anything since the tag reach a user"  -> scripts_local/release-needed.sh,
+#       which ship.sh calls and which already answers three ways (release,
+#       nothing to release, REFUSED because a changed path is in no row of
+#       the table). Its table is asserted by host-tests/gatepath.
+#   "has the tip moved since what was verified"  -> ship.sh's fast-forward
+#       guard, asserted by host-tests/ship. This is BLUNTER than what was
+#       here, deliberately: the old gate reasoned about whether a move was
+#       harmless (an emulator rebuild was), and ship.sh refuses any branch
+#       that cannot fast-forward and asks for a rebase. That costs a rebase
+#       in the case the old gate waved through, and it removes the whole
+#       class of "we decided the move was harmless and were wrong". A rebase
+#       is cheap now the gate is 113 seconds.
+#   "one dispatch per tag, never two"  -> gone with the two paths that could
+#       race. ship.sh publishes once, in one process, on this Mac.
+#   RELEASE_HOLD  -> ship.sh reads it and treats ANY non-empty value as held
+#       rather than the literal "1" (card #572, where the documented format
+#       sailed straight through the brake). host-tests/ship asserts that.
 
-# One fixture repository, rebuilt per case. The classification table is the
-# REAL one -- the whole point is that the gate reads it rather than restating
-# it -- and release-needed.sh is a stub that always says yes, so what this
-# measures is the tip check alone. Whether a range warrants a release at all is
-# host-tests/autorelease's subject and is answered by the same table.
-gate_repo() {  # <path>  -> a repo whose HEAD is the base, with the table in it
-  rm -rf "$1"; mkdir -p "$1/scripts_local"
-  cp "$HERE/../../scripts_local/device-build-needed.sh" "$1/scripts_local/"
-  printf '#!/bin/sh\necho "reaches a user: yes (stubbed)"\nexit 0\n' >"$1/scripts_local/release-needed.sh"
-  mkdir -p "$1/src"; echo 'int base;' >"$1/src/base.cpp"
-  ( cd "$1" && git init -q -b xteink && git config user.email t@t && git config user.name t \
-    && git add -A && git commit -qm "base" ) >/dev/null 2>&1
-}
-gate_commit() {  # <repo> <path> <subject>
-  mkdir -p "$(dirname "$1/$2")"; echo "$(date +%s%N)" >>"$1/$2"
-  ( cd "$1" && git add -A && git commit -qm "$3" ) >/dev/null 2>&1
-}
-# The gate asks GitHub one question -- does the TIP have a successful run of
-# the CI workflow -- so every case here answers it with a fake `gh` on PATH,
-# which also records the call. The DEFAULT answer is 0, meaning nothing green
-# has seen the tip, so the eight cases below keep measuring the tip check alone.
-# FAKE_GREEN=error makes the query fail, which is the fail-closed path.
-mkdir -p "$WORK/gatebin"
-cat >"$WORK/gatebin/gh" <<'FAKEGH'
-#!/bin/sh
-echo "gh $*" >>"$FAKE_GH_CALLS"
-if [ "$FAKE_GREEN" = "error" ]; then
-  echo "HTTP 403: Resource not accessible by integration"
-  exit 1
-fi
-echo "${FAKE_GREEN:-0}"
-FAKEGH
-chmod +x "$WORK/gatebin/gh"
-
-gate_expect() {  # <label> <repo> <VERIFIED> <true|false wanted go> <substring wanted in the log> [green]
-  local label="$1" repo="$2" verified="$3" want="$4" msg="$5" green="${6:-0}" got
-  : >"$WORK/gh_output"; : >"$WORK/gate.gh.calls"
-  ( cd "$repo" && GITHUB_OUTPUT="$WORK/gh_output" VERIFIED="$verified" HOLD="" \
-      PATH="$WORK/gatebin:$PATH" FAKE_GREEN="$green" FAKE_GH_CALLS="$WORK/gate.gh.calls" \
-      GITHUB_REPOSITORY="ma-r-s/crossplay" CI_WORKFLOW_ID="${GATE_WORKFLOW_ID-4242}" CI_BRANCH=xteink \
-      bash -eo pipefail "$WORK/gate.sh" ) >"$WORK/out" 2>&1
-  got="$(grep -o 'go=[a-z]*' "$WORK/gh_output" | tail -1 | cut -d= -f2)"
-  checks=$((checks + 1))
-  if [ "$got" != "$want" ]; then
-    failed=$((failed + 1))
-    echo "FAIL ci-autorelease  $label: gate said go=${got:-<nothing>}, wanted go=$want"
-    sed 's/^/       /' "$WORK/out"
-    return
-  fi
-  checks=$((checks + 1))
-  if ! grep -q "$msg" "$WORK/out"; then
-    failed=$((failed + 1))
-    echo "FAIL ci-autorelease  $label: right answer, wrong reason -- the log never says '$msg'"
-    sed 's/^/       /' "$WORK/out"
-  fi
-}
-
-G="$WORK/gate-repo"
-
-# (1) The tip has not moved. Nothing to excuse; the gate never reaches the
-#     comparison at all.
-gate_repo "$G"
-gate_expect "an unmoved tip releases" "$G" "$(git -C "$G" rev-parse HEAD)" true "reaches a user"
-
-# (2) The tip moved by an emulator rebuild and nothing else. This is the case
-#     no CI run can ever arrive for.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" site/emulator/crossplay.wasm "chore: emulator rebuilt for $V"
-gate_expect "a tip that moved only by an emulator rebuild releases" "$G" "$V" true \
-  "only by commits no device build and no release can see"
-
-# (3) The tip moved by real firmware. The protection, unchanged: nothing
-#     verified src/ at this tip, so nothing releases it.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-gate_expect "a tip that moved by firmware refuses" "$G" "$V" false \
-  "moved past the commit CI verified"
-
-# (4) The same firmware change, TITLED as an emulator rebuild. The subject grep
-#     released this; the table cannot be talked to.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "chore: emulator rebuilt for $V"
-gate_expect "a firmware commit calling itself an emulator rebuild still refuses" "$G" "$V" false \
-  "moved past the commit CI verified"
-
-# (5) The same emulator rebuild under any other name. The subject grep refused
-#     this forever, silently, from the first time somebody reworded the commit
-#     crossplay-emulator.yml writes.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" site/emulator/crossplay.wasm "build(site): wasm refreshed"
-gate_expect "an emulator rebuild under another name still releases" "$G" "$V" true \
-  "only by commits no device build and no release can see"
-
-# (6) The gap builds but does not ship, and the gap ships but does not build.
-#     One column would answer no to each of these; the gate asks both.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" scripts_local/check.sh "gate: trim the cache harder"
-gate_expect "a gap that breaks a build but ships nothing refuses" "$G" "$V" false \
-  "moved past the commit CI verified"
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" .github/workflows/crossplay-release.yml "ci: publish the merged image"
-gate_expect "a gap that changes what the release publishes refuses" "$G" "$V" false \
-  "moved past the commit CI verified"
-
-# (7) A path in no row of the table. The tool refuses to classify it and the
-#     gate must inherit that refusal rather than reading it as "inert".
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" brandnew/thing.c "feat: a directory nobody has classified"
-gate_expect "an unclassified path in the gap refuses" "$G" "$V" false \
-  "moved past the commit CI verified"
-
-# (8) A verified commit that is not in the tip's history at all. --range diffs
-#     from the merge base, so without the ancestry check this could answer
-#     "nothing changed" about a history CI never saw.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-( cd "$G" && git checkout -q -b sideline && mkdir -p src && echo 'int side;' >src/side.cpp \
-  && git add -A && git commit -qm "feat: on a branch of its own" ) >/dev/null 2>&1
-SIDE="$(git -C "$G" rev-parse HEAD)"
-( cd "$G" && git checkout -q xteink ) >/dev/null 2>&1
-gate_commit "$G" site/emulator/crossplay.wasm "chore: emulator rebuilt for $V"
-gate_expect "a verified commit outside the tip's history refuses" "$G" "$SIDE" false \
-  "is not in the history of"
-
-# -- and the case the eight above cannot reach: the run for the new tip -------
-#
-# Cases 3, 4, 6 and 7 all refuse for the same stated reason: "the run for the
-# new tip releases it". That was a claim about GitHub's concurrency, and it was
-# false. A concurrency group holds one run in progress and one run pending, and
-# a third arrival cancels the pending one -- `cancel-in-progress: false` governs
-# the first half only. crossplay-ci.yml lost 41 runs to exactly that in 36
-# hours, and this workflow's own `crossplay-release` group can lose an
-# autorelease the same way. That group is KEPT, deliberately: two publishers at
-# once built v1.12.16 twice. What changes is that the survivor no longer needs
-# to be the one for the tip.
-#
-# So the gate stopped asking "am I the run for the tip" and started asking "has
-# anything green verified the tip". Four cases, and the last two matter most:
-# the failure mode of a check like this is silence, and silence must refuse.
-#
-# (9) The tip moved by firmware, and the tip has its own successful CI run.
-#     This is the release that used to be lost, every time the autorelease that
-#     would have cut it was the one GitHub trimmed out of the queue.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-gate_expect "a moved tip that has its OWN green run releases" "$G" "$V" true \
-  "successful run(s) of its own" 1
-
-# And it must not ALSO claim the gap was inert. The reason lives one line below
-# the branch it belongs to, and written as a trailing echo it ran on both paths:
-# the log said the tip had a green run of its own and then, in the next
-# sentence, that nothing in the gap could reach a device. Both cannot be true,
-# the second is the one that reads like the explanation, and `gate_expect` alone
-# never sees it because it only asks whether the sentence it wants is present.
-checks=$((checks + 1))
-if grep -q "only by commits no device build" "$WORK/out"; then
-  failed=$((failed + 1))
-  echo "FAIL ci-autorelease  the gate released a tip on its own green run and then told the log the gap was inert; the two sentences contradict each other and the wrong one is the one that looks like the reason"
-  sed 's/^/       /' "$WORK/out"
-fi
-
-# The query has to be about the tip. A copy of this line asking about $VERIFIED
-# would answer yes on every run that triggered it, which is the same as deleting
-# the gate -- and every case above would still pass.
-TIP="$(git -C "$G" rev-parse HEAD)"
-checks=$((checks + 1))
-if ! grep -q "head_sha=$TIP" "$WORK/gate.gh.calls"; then
-  failed=$((failed + 1))
-  echo "FAIL ci-autorelease  the gate asked GitHub about something other than the tip ($TIP); it must ask whether the TIP is verified, not whether the commit that triggered it is"
-  sed 's/^/       /' "$WORK/gate.gh.calls"
-fi
-
-# And about the right RUNS. The fake gh answers whatever it is told to answer
-# and ignores the URL, so every case above passes on a query missing any filter
-# -- which is not a hypothetical: against the real repository, sha f5115b01
-# (a run cancelled while pending) answers total_count 0 with `status=success`
-# and total_count 1 without it. Dropping that one parameter releases from a
-# commit whose CI never ran, which is the failure this whole change exists to
-# stop. `branch` is asserted for the same reason one step weaker: a run on
-# another ref is not a verdict on this one.
-for want in "status=success" "branch=xteink"; do
-  checks=$((checks + 1))
-  if ! grep -q "$want" "$WORK/gate.gh.calls"; then
-    failed=$((failed + 1))
-    echo "FAIL ci-autorelease  the gate's query does not carry '$want', so it counts runs that are not a green verdict on this branch"
-    sed 's/^/       /' "$WORK/gate.gh.calls"
-  fi
-done
-
-# (10) The same tip, with no green run of its own. The protection, unchanged.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-gate_expect "a moved tip nothing has verified still refuses" "$G" "$V" false \
-  "nothing green has verified" 0
-
-# (11) The query itself fails -- no actions:read, a rate limit, GitHub down.
-#      An answer that is not a number is not a yes.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-gate_expect "a query that fails refuses rather than assuming" "$G" "$V" false \
-  "could not be asked" error
-
-# (12) No workflow id in the event at all. The gate must not ask GitHub about
-#      `workflows//runs`, and must not read whatever that returns as a yes.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-GATE_WORKFLOW_ID="" gate_expect "an empty workflow id refuses" "$G" "$V" false \
-  "could not be asked" 1
-checks=$((checks + 1))
-if [ -s "$WORK/gate.gh.calls" ]; then
-  failed=$((failed + 1))
-  echo "FAIL ci-autorelease  the gate called gh with no workflow id in the event; the URL names no workflow, GitHub answers 404, and the only thing standing between that and a released tip is that a 404 is not a number"
-  sed 's/^/       /' "$WORK/gate.gh.calls"
-fi
-
-# (13) The case above that this DOES change, said out loud. Case 7 refuses an
-#      unclassified path in the gap, and reads as an unconditional refusal.
-#      It is not one any more, and the reason is that the two questions are
-#      different: the table answers "can CI's verdict on an OLDER commit be
-#      trusted for this tip", and a tip with a green run of its own has a
-#      verdict of its own, so nothing is being inherited. The unclassified path
-#      is still caught -- by release-needed.sh, which sees the whole range since
-#      the newest tag and fails the job loudly on exit 2 -- and is stubbed out
-#      here, which is why this case measures the tip check and not that one.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" brandnew/thing.c "feat: a directory nobody has classified"
-gate_expect "an unclassified gap under a tip with its own green run releases" "$G" "$V" true \
-  "successful run(s) of its own" 1
-
-# (14) THE SHAPE THIS BRANCH IS ACTUALLY FOR, and the one the first draft could
-#      not answer. crossplay-ci.yml carries `paths-ignore: site/emulator/**`
-#      and `site/emulator-manifest.json`, so the rebuild crossplay-emulator.yml
-#      pushes after every merge has no CI run and never will -- and after most
-#      merges that rebuild IS the tip. A gate that asks GitHub about the tip
-#      gets 0 for it forever, so the rescue would have fired for every shape
-#      except the commonest one on this branch.
-#
-#      Here: a firmware merge the run did not cover, then an emulator rebuild on
-#      top. The gap is not inert (it contains the firmware), the tip has no run
-#      and cannot have one, and the merge underneath it does. The gate must walk
-#      the invisible commit off the tip and ask about the merge.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-MERGE="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" site/emulator-manifest.json "chore: emulator rebuilt for $MERGE"
-gate_expect "a tip that is an emulator rebuild asks about the merge under it" "$G" "$V" true \
-  "successful run(s) of its own" 1
-checks=$((checks + 1))
-if ! grep -q "head_sha=$MERGE" "$WORK/gate.gh.calls"; then
-  failed=$((failed + 1))
-  echo "FAIL ci-autorelease  the tip was an emulator rebuild, which CI is configured never to run for, and the gate asked GitHub about it anyway; it must ask about $MERGE, the commit under the invisible ones"
-  sed 's/^/       /' "$WORK/gate.gh.calls"
-fi
-
-# The walk must stop at something visible. A firmware commit ABOVE the merge is
-# not invisible, so the tip is the thing to ask about and the answer is no.
-gate_repo "$G"; V="$(git -C "$G" rev-parse HEAD)"
-gate_commit "$G" src/apps_local/Sudoku.cpp "fix(sudoku): the givens survive a rotate"
-gate_commit "$G" src/apps_local/Chess.cpp "fix(chess): the clock survives a sleep"
-TIP2="$(git -C "$G" rev-parse HEAD)"
-gate_expect "the walk does not step over a visible commit" "$G" "$V" false \
-  "nothing green has verified" 0
-checks=$((checks + 1))
-if ! grep -q "head_sha=$TIP2" "$WORK/gate.gh.calls"; then
-  failed=$((failed + 1))
-  echo "FAIL ci-autorelease  the walk stepped past a commit a device build can see; with firmware on top of firmware the only commit worth asking about is the tip ($TIP2)"
-  sed 's/^/       /' "$WORK/gate.gh.calls"
-fi
-
-# The two stack-checked device envs build in ONE pio run invocation.
-#
-# pio run wipes the whole .pio/build root on every invocation
-# (clean_build_dir, whose checksum changes because the build generates
-# gitignored headers). Split across two invocations, the x4pro stack check
-# passes only because it is sequenced before the sticky build that deletes its
-# directory -- correct today, guaranteed by nothing, and one moved step from
-# reading a directory that no longer exists.
-#
-# Asserting the grouping rather than the spacing, because the spacing is
-# satisfied by the broken arrangement too: each check already follows its own
-# build. What is missing there is the guarantee, not the order.
-#
-# stack_budget.py refuses rather than passing empty (it exits on no frames and
-# fails an unchecked task), so the split would have gone red rather than
-# silent. That is why this is fragility and not a defect -- and why it is
-# asserted here instead of waiting for someone to trip it.
-checks=$((checks + 1))
-stack_builds=$(grep -c 'fstack-usage.*pio run' "$YML")
-if [ "$stack_builds" -ne 1 ]; then
-  failed=$((failed + 1))
-  echo "FAIL ci  expected ONE stack-flagged pio run covering both device envs, found $stack_builds; each extra invocation wipes .pio/build and leaves the stack checks depending on step order"
-else
-  # Which envs must that invocation cover? Ask the stack checks, do not name
-  # them. They were x4pro and sticky, they are gh_release_x4pro and
-  # gh_release_sticky now that CI builds only what ships, and a hardcoded pair
-  # here would have gone quietly wrong at exactly that rename -- asserting a
-  # grouping over envs the workflow no longer builds.
-  stack_line=$(grep 'fstack-usage.*pio run' "$YML")
-  for env in $(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML" | sed 's#.*/##'); do
-    checks=$((checks + 1))
-    case "$stack_line" in
-      *"-e $env"*) ;;
-      *)
-        failed=$((failed + 1))
-        echo "FAIL ci  $env has a stack check but is not built by the stack-flagged invocation"
-        ;;
-    esac
-  done
-  if [ -z "$(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML")" ]; then
-    failed=$((failed + 1))
-    echo "FAIL ci  no stack checks found at all; this assertion just checked nothing"
-  fi
-fi
-
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
 # -- the packaging change must say what is new -------------------------------
 #
 # scripts_local/device-build-needed.sh calls
@@ -767,6 +465,8 @@ else
     echo "FAIL ci  the step demands release prose from a pull request that publishes nothing"
   fi
 fi
+
+fi  # BLOCKING_TRIGGER
 
 # -- the emulator rebuild must be able to FAIL -------------------------------
 #
@@ -916,8 +616,11 @@ TMO
 # other two do, and more so: it shallow-clones emsdk from GitHub, installs a
 # toolchain, runs pio and builds wasm. It was the job that best fit the argument
 # and the one job the first version of this left out.
+# crossplay-release.yml was the third entry here and is gone with the
+# workflow. The cap it asserted has no equivalent to keep: ship.sh runs in a
+# terminal on Mario's Mac, where a hung build is a cursor that stopped moving
+# rather than a runner quietly held for six hours with nobody looking.
 for pair in "$YML:build" \
-            "$HERE/../../.github/workflows/crossplay-release.yml:release" \
             "$HERE/../../.github/workflows/crossplay-emulator.yml:rebuild"; do
   f="${pair%:*}"; j="${pair##*:}"
   checks=$((checks + 1))
@@ -983,6 +686,86 @@ if [ "$seen" -eq 0 ]; then
   failed=$((failed + 1))
   echo "FAIL ci  found no workflow files at all; the fork-marker rule just checked nothing"
 fi
+
+# -- what the pull_request filter may and may not silence (card #547) ---------
+#
+# Mario, 2026-09-20: a documentation change should not run a pipeline. The
+# filter that does that is four lines of glob in another file, and the way it
+# fails is SILENT IN THE RIGHT DIRECTION: a pattern one character too wide
+# (`'**/*.*'`, `'src/**'` pasted in by mistake) does not break a build, it
+# stops one from ever running, and a pull request that changed firmware then
+# merges with no check having looked at it. Nothing else in this repository
+# would notice. So the property is constructed here from sample paths rather
+# than read off the file: the paths that MUST still run CI, and the ones that
+# must not.
+#
+# The matcher below is GitHub's rule as this filter uses it: later pattern
+# wins, `!` un-ignores. It is deliberately a few lines, because a test that
+# reimplements a glob engine tests the reimplementation.
+ci_ignored() {  # path -- prints yes/no against the pull_request block
+  local path="$1" verdict=no p core
+  # set -f, because the patterns are globs and an unquoted expansion makes the
+  # SHELL expand them against this working directory first: `docs/**` became a
+  # list of real files and every sample then read as "not covered". It runs in
+  # a subshell (the caller uses $( )), so nothing outside sees the flag.
+  set -f
+  for p in $PR_IGNORE; do
+    case "$p" in
+      '!'*) core="${p#!}"; case "$path" in $core) verdict=no ;; esac ;;
+      *)    case "$path" in $p) verdict=yes ;; esac ;;
+    esac
+  done
+  printf '%s' "$verdict"
+}
+
+# DORMANT WHILE THIS IS A NIGHTLY AUDIT, live again the moment a push or
+# pull_request trigger returns. Every check in this block reasons about a
+# trigger the workflow no longer has, and each encodes a night lost to it, so
+# they are re-armed rather than deleted. Not re-indented: the bodies contain
+# heredocs whose terminators must stay at column 0.
+if [ "$BLOCKING_TRIGGER" = yes ]; then
+CI_WF="$HERE/../../.github/workflows/crossplay-ci.yml"
+PR_IGNORE="$(sed -n '/^  pull_request:/,/^  [a-z_]*:/p' "$CI_WF" | grep -oE "'[^']+'" | tr -d "'")"
+
+checks=$((checks + 1))
+if [ -z "$PR_IGNORE" ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  crossplay-ci.yml's pull_request trigger has no paths-ignore, so every documentation change runs four cross-compiles and every host suite again (card #547)"
+fi
+
+for path in \
+  src/main.cpp \
+  src/apps_local/wikipedia/WikipediaCore.cpp \
+  lib/hal/HalDisplay.h \
+  platformio.ini \
+  scripts_local/check.sh \
+  host-tests/ci/run.sh \
+  site/wikipedia/plan.js \
+  .github/workflows/crossplay-ci.yml \
+  .github/workflows/crossplay-release.yml \
+  docs/release-notes.md \
+  docs/release-body.md
+do
+  checks=$((checks + 1))
+  if [ "$(ci_ignored "$path")" = yes ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  the pull_request paths-ignore silences $path, so a pull request changing it would merge with no run at all"
+  fi
+done
+
+for path in \
+  docs/apps/wikipedia-plan.md \
+  docs/workflow/worker-contract.md \
+  README.md
+do
+  checks=$((checks + 1))
+  if [ "$(ci_ignored "$path")" != yes ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  the pull_request paths-ignore does not cover $path, which is the documentation case card #547 exists to stop building"
+  fi
+done
+
+fi  # BLOCKING_TRIGGER
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

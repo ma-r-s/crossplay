@@ -1,12 +1,9 @@
 #include "OpdsParser.h"
 
 #include <Logging.h>
-#include <Utf8.h>
 #include <XmlParserUtils.h>
 
-#include <cctype>
 #include <cstring>
-#include <string>
 
 namespace {
 constexpr size_t ENTRY_STORAGE_CAPACITY = 64;
@@ -14,24 +11,9 @@ constexpr size_t MAX_ENTRIES = ENTRY_STORAGE_CAPACITY - 2;
 constexpr size_t MAX_TITLE_CHARS = 160;
 constexpr size_t MAX_AUTHOR_CHARS = 120;
 constexpr size_t MAX_ID_CHARS = 128;
-constexpr size_t MAX_LANGUAGE_CHARS = 16;
-constexpr size_t MAX_SUMMARY_CHARS = 400;
 constexpr size_t MAX_HREF_CHARS = 768;
 constexpr size_t MAX_SEARCH_TEMPLATE_CHARS = 768;
 constexpr size_t MAX_PAGE_URL_CHARS = 768;
-
-// "en-US" -> "en", "EN" -> "en". Feeds are inconsistent about both region
-// subtags and case, and a filter comparing raw values matches almost nothing.
-std::string primaryLanguageSubtag(const std::string& raw) {
-  std::string out;
-  out.reserve(raw.size());
-  for (const char c : raw) {
-    if (c == '-' || c == '_') break;
-    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
-    out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  }
-  return out;
-}
 }  // namespace
 
 OpdsParser::OpdsParser() {
@@ -96,15 +78,11 @@ bool OpdsParser::error() const { return errorOccured; }
 void OpdsParser::clear() {
   entries.clear();
   searchTemplate.clear();
-  subtitle.clear();
-  searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
-  inEntry = inTitle = inAuthor = inAuthorName = inId = inLanguage = inSummary = false;
-  inSubtitle = false;
-  coverIsThumbnail = false;
+  inEntry = inTitle = inAuthor = inAuthorName = inId = false;
   collectCurrentEntry = false;
   feedTruncated = false;
 }
@@ -147,9 +125,7 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     self->feedTruncated = self->feedTruncated || !self->collectCurrentEntry;
     self->currentEntry = OpdsEntry{};
     self->currentText.clear();
-    self->inTitle = self->inAuthor = self->inAuthorName = self->inId = self->inLanguage = false;
-    self->inSummary = false;
-    self->coverIsThumbnail = false;
+    self->inTitle = self->inAuthor = self->inAuthorName = self->inId = false;
     return;
   }
 
@@ -162,12 +138,6 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       if (rel && strcmp(rel, "search") == 0) {
         if (strstr(href, "{searchTerms}") != nullptr) {
           assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
-        } else {
-          // The spec's usual form points at an OpenSearch description document
-          // rather than inlining the template, which is what Standard Ebooks,
-          // Calibre-Web, Kavita and Komga all emit. Remember it so the caller
-          // can fetch it; the parser itself cannot do I/O.
-          assignBounded(self->searchDescriptionUrl, href, MAX_SEARCH_TEMPLATE_CHARS);
         }
       } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
         assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);
@@ -188,17 +158,6 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
             self->currentEntry.type = OpdsEntryType::BOOK;
             assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
           }
-        } else if (rel && strstr(rel, "opds-spec.org/image") != nullptr && type && strncmp(type, "image/", 6) == 0) {
-          // A feed may carry both, and the FULL image wins. The thumbnail used
-          // to, on the reasoning that the detail screen draws small -- but
-          // Gutenberg's thumbnail is 66x93, and scaled into a 200-wide box it
-          // dithers to a black blob. Nothing upscales, so a too-small source
-          // cannot be recovered; a too-large one costs only bytes.
-          const bool isThumbnail = strstr(rel, "/thumbnail") != nullptr;
-          if (!isThumbnail || self->currentEntry.coverHref.empty()) {
-            assignBounded(self->currentEntry.coverHref, href, MAX_HREF_CHARS);
-            self->coverIsThumbnail = isThumbnail;
-          }
         } else if (type && strstr(type, "application/atom+xml") != nullptr) {
           if (self->currentEntry.type != OpdsEntryType::BOOK) {
             self->currentEntry.type = OpdsEntryType::NAVIGATION;
@@ -207,14 +166,6 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
         }
       }
     }
-  }
-
-  // Feed-level <subtitle>, before the entry gate below: it never sits inside
-  // an entry, so it has to be read here or not at all.
-  if (!self->inEntry && (strcmp(name, "subtitle") == 0 || strstr(name, ":subtitle") != nullptr)) {
-    self->inSubtitle = true;
-    self->currentText.clear();
-    return;
   }
 
   if (!self->inEntry || !self->collectCurrentEntry) return;
@@ -230,19 +181,6 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
   } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
     self->inId = true;
     self->currentText.clear();
-  } else if (strcmp(name, "language") == 0 || strstr(name, ":language") != nullptr) {
-    // Matches dc:language and dcterms:language alike; the suffix test covers
-    // whichever prefix a feed happens to bind.
-    self->inLanguage = true;
-    self->currentText.clear();
-  } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr || strcmp(name, "content") == 0 ||
-             strstr(name, ":content") != nullptr) {
-    // Whichever the feed uses; summary wins when both appear because it is the
-    // short form and the box on the detail screen is small.
-    if (self->currentEntry.summary.empty()) {
-      self->inSummary = true;
-      self->currentText.clear();
-    }
   }
 }
 
@@ -255,38 +193,24 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     }
     self->inEntry = false;
     self->collectCurrentEntry = false;
-  } else if (self->inSubtitle && (strcmp(name, "subtitle") == 0 || strstr(name, ":subtitle") != nullptr)) {
-    self->subtitle = utf8CollapseWhitespace(self->currentText);
-    self->inSubtitle = false;
   } else if (self->inEntry) {
     if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
-      if (self->inTitle) self->currentEntry.title = utf8CollapseWhitespace(self->currentText);
+      if (self->inTitle) self->currentEntry.title = self->currentText;
       self->inTitle = false;
     } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
       self->inAuthor = false;
     } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
-      self->currentEntry.author = utf8CollapseWhitespace(self->currentText);
+      self->currentEntry.author = self->currentText;
       self->inAuthorName = false;
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
       if (self->inId) self->currentEntry.id = self->currentText;
       self->inId = false;
-    } else if (strcmp(name, "language") == 0 || strstr(name, ":language") != nullptr) {
-      if (self->inLanguage) self->currentEntry.language = primaryLanguageSubtag(self->currentText);
-      self->inLanguage = false;
-    } else if (self->inSummary && (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr ||
-                                   strcmp(name, "content") == 0 || strstr(name, ":content") != nullptr)) {
-      self->currentEntry.summary = utf8CollapseWhitespace(self->currentText);
-      self->inSummary = false;
     }
   }
 }
 
 void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const int len) {
   auto* self = static_cast<OpdsParser*>(userData);
-  if (self->inSubtitle) {
-    appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
-    return;
-  }
   if (!self->collectCurrentEntry) return;
   if (self->inTitle) {
     appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
@@ -294,9 +218,5 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
     appendBounded(self->currentText, s, len, MAX_AUTHOR_CHARS);
   } else if (self->inId) {
     appendBounded(self->currentText, s, len, MAX_ID_CHARS);
-  } else if (self->inLanguage) {
-    appendBounded(self->currentText, s, len, MAX_LANGUAGE_CHARS);
-  } else if (self->inSummary) {
-    appendBounded(self->currentText, s, len, MAX_SUMMARY_CHARS);
   }
 }

@@ -29,6 +29,17 @@ An **Instapaper OAuth consumer token**, from instapaper.com. Without
 `READ_CONSUMER_KEY` / `READ_CONSUMER_SECRET` the service starts, logs the
 reason loudly, and refuses sign-in with a sentence rather than crash-looping.
 
+An **Instaparser API key** (`INSTAPARSER_API_KEY`), from instaparser.com.
+Since 2026-09-30 Instapaper's `get_text` answers error 1044 for every
+article of every account but the developer's own unless the request carries
+one, so without it a sync lists articles and prepares none ("0 new or
+updated. 12 Instapaper could not prepare", GitHub #298). Each article
+prepared spends one credit, once: the text is cached per bookmark, and an
+article Instapaper has no text for is remembered rather than retried. The free
+tier is 1,000 credits a month at one request a second, and the bridge keeps
+to that rate whenever a key is set. September 2026, before the change: 604
+articles for 38 accounts.
+
 **Registration is instant; the human review gates OTHER PEOPLE only.** This
 file used to say the token itself waits on a review, and that was wrong in a
 way that cost real time: two sessions planned around a blocker that did not
@@ -177,7 +188,7 @@ change is a recreate and not a rebuild), then check for `events on` in
 `.env` lives on the pi only, at `/srv/readbridge/.env`, mode 600, never in
 git, never rsync'd in either direction (`deploy.sh` excludes it). Keys:
 `READ_FERNET_KEY`, `READ_ALLOWLIST`, `READ_CONSUMER_KEY`,
-`READ_CONSUMER_SECRET`, `CLOUDFLARE_TUNNEL_TOKEN`, and the optional
+`READ_CONSUMER_SECRET`, `INSTAPARSER_API_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`, and the optional
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` pair above.
 
 Generate the Fernet key **on the pi** so it never lands in a transcript:

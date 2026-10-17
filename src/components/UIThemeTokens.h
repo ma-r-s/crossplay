@@ -34,7 +34,9 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   // viewable insets into the fui safe area, and every list band derives from
   // safeRect()). Adding the same inset here doubled the compensation and
   // floated the track a full bezel-width inside the visible edge.
-  tokens.listScrollInset = 0;
+  // fork-local: 6, not 0. At 0 the track hugged the glass's right edge (3px
+  // from it in Library); it sits inside the rows' own side margin either way.
+  tokens.listScrollInset = 6;
   // Screen::header()/status() band height. Without this the SDK's
   // line-height-derived default applies and fui-drawn headers (OPDS) come out
   // a different height than every GUI.drawHeader band.

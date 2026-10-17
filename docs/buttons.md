@@ -90,12 +90,9 @@ the X4 Pro was targeted and nothing depended on it.
 ## 3. What we actually use
 
 Counted across `src/apps_local/`, excluding the shared modules that are not apps
-(`link`, `player`, `sample`, `ui`, `bridge`). **That scope is not the shelf.**
-GET BOOKS is on the shelf and its activity is upstream's
-`src/activities/browser/OpdsBookBrowserActivity.cpp`, outside `apps_local`
-entirely; it reads Back, Confirm and Left, so the shelf's real Confirm and
-Left/Right figures are each one higher than the table below. The table counts
-the directories this fork owns, which is the question this section asks.
+(`link`, `player`, `sample`, `ui`, `bridge`). Every app on the shelf lives
+there since GET BOOKS was retired (2026-09-30), so the table is also the
+shelf's.
 
 `host-tests/docsclaims/` walks the same directories and fails when these numbers
 drift. To see it by hand:
@@ -106,12 +103,12 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 
 | Button       | Apps that read it | Exists on X4 Pro |
 | ------------ | ----------------- | ---------------- |
-| Back         | 28                | as a swipe       |
+| Back         | 33                | as a swipe       |
 | Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
-| Up / Down    | 13                | **yes**          |
+| Up / Down    | 14                | **yes**          |
 
-Twelve of the twenty-six directories use Back and nothing else.
+Eighteen of the thirty-six directories use Back and nothing else.
 
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we

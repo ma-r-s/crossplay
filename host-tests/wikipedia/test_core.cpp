@@ -289,46 +289,6 @@ class SparseSource final : public ByteSource {
   uint32_t recordBytes_;
 };
 
-void testOpenCost() {
-  OpenCost cost;
-  // Nothing measured yet: no prediction, so the first article of a session can
-  // never be made slower by a cue drawn from a guess.
-  CHECK(cost.predictMs(200 * 1024) == 0);
-  CHECK(cost.samples() == 0);
-
-  // The reading that broke the first attempt: 84 KB in 14ms is 0ms per KiB in
-  // integer milliseconds, and a rate of zero predicts zero forever. In
-  // microseconds it is 170us per KiB, and it predicts.
-  cost.note(84 * 1024, 14);
-  CHECK(cost.samples() == 1);
-  CHECK(cost.usPerKib() > 0);
-  // Within a millisecond of what it measured: the rate truncates (14ms over
-  // 84 KiB is 166us per KiB, not 166.67), so this is an estimate, not an
-  // identity, and the test says so.
-  CHECK(cost.predictMs(84 * 1024) >= 13 && cost.predictMs(84 * 1024) <= 15);
-  // Ten times the article, ten times the cost.
-  CHECK(cost.predictMs(840 * 1024) >= 138 && cost.predictMs(840 * 1024) <= 142);
-
-  // A device-shaped reading moves it, and the estimate lands between the two
-  // rather than jumping: halfway each time.
-  const uint32_t before = cost.usPerKib();
-  cost.note(84 * 1024, 700);
-  CHECK(cost.usPerKib() > before);
-  CHECK(cost.samples() == 2);
-  cost.note(84 * 1024, 700);
-  cost.note(84 * 1024, 700);
-  cost.note(84 * 1024, 700);
-  // Settled near the device reading, so a 84 KB article predicts about one
-  // waveform and earns its cue.
-  CHECK(cost.predictMs(84 * 1024) >= 600);
-
-  // Sub-kilobyte articles teach nothing and are never predicted for.
-  OpenCost tiny;
-  tiny.note(500, 40);
-  CHECK(tiny.samples() == 0);
-  CHECK(tiny.predictMs(500) == 0);
-}
-
 void testBlocksDir() {
   std::vector<uint8_t> bytes;
   putStr(bytes, "WKBD");
@@ -506,7 +466,6 @@ int main(const int argc, char** argv) {
   testFold(argc > 1 ? argv[1] : nullptr);
   testManifest();
   testBlocksDir();
-  testOpenCost();
   testBlock();
   testIndex();
   testState();

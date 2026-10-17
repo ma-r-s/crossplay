@@ -411,31 +411,284 @@
         "updated_at": "2026-08-25T13:50:00Z"
       }
     ],
-    "triage": {
-      "waiting": 36,
-      "claimed": 1,
-      "for_mario": 2,
-      "oldest_h": 47,
-      "last_triaged_at": "2026-09-04T05:04:11+00:00",
-      "since_triage_h": 25
-    }
+    "now": {
+      "from_people": 35,
+      "in_progress": 13,
+      "alarms": 18,
+      "notices": 4
+    },
+    "recurring": [
+      {
+        "id": 7,
+        "app": "shelf",
+        "what": "The shelf draws one pixel into the bezel on its last row",
+        "seen": 3,
+        "first_seen": "2026-09-18T10:00:00Z",
+        "last_seen": "2026-09-20T09:00:00Z"
+      }
+    ]
   },
   "numbers": {
-    "heard": { "h24": 15, "d7": 51, "d30": 51, "d90": 51 },
-    "fresh": { "this_week": 9, "last_week": 6 },
+    "heard": {
+      "h24": 6,
+      "d7": 12,
+      "d30": 18,
+      "d90": 18
+    },
+    "fresh": {
+      "this_week": 3,
+      "last_week": 2
+    },
     "now": [
-      { "version": "1.12.50", "board": "x4pro", "devices": 21 },
-      { "version": "1.12.48", "board": "x4pro", "devices": 6 },
-      { "version": "1.12.50", "board": "sticky", "devices": 5 }
+      {
+        "version": "1.13.15",
+        "devices": 6,
+        "boards": {
+          "x4pro": 4,
+          "sticky": 2
+        }
+      },
+      {
+        "version": "1.13.9",
+        "devices": 3,
+        "boards": {
+          "x4pro": 2,
+          "unknown": 1
+        }
+      },
+      {
+        "version": "1.13.2",
+        "devices": 1,
+        "boards": {
+          "sticky": 1
+        }
+      },
+      {
+        "version": "1.12.50",
+        "devices": 2,
+        "boards": {
+          "x4pro": 2
+        }
+      },
+      {
+        "version": "1.12.48",
+        "devices": 2,
+        "boards": {
+          "lilygo": 1,
+          "x4pro": 1
+        }
+      },
+      {
+        "version": "1.9.4",
+        "devices": 1,
+        "boards": {
+          "sticky": 1
+        }
+      },
+      {
+        "version": "1.6.0",
+        "devices": 1,
+        "boards": {
+          "papermono": 1
+        }
+      },
+      {
+        "version": "dev-local",
+        "devices": 1,
+        "boards": {
+          "x4pro": 1
+        }
+      },
+      {
+        "version": "slim-sd",
+        "devices": 1,
+        "boards": {
+          "x4pro": 1
+        }
+      }
     ],
     "devices": [
-      { "device": "a2c219f7e1c9a0b4d8f2c6e3b7a1d5f9c0e4b8a2d6f0c4e8b2a6d0f4c8e2b6a0", "board": "sticky", "version": "1.12.50", "since": "2026-09-11T01:54:00Z", "first_seen": "2026-09-11T01:54:00Z", "last_seen": "2026-09-11T02:30:00Z", "versions_run": 1 },
-      { "device": "d42c28cb0e5a9f3b7c1d6e2a8f4b0c9d5e1a7f3b9c5d1e7a3f9b5c1d7e3a9f5b", "board": "x4pro", "version": "1.12.50", "since": "2026-09-09T23:24:00Z", "first_seen": "2026-09-04T23:19:00Z", "last_seen": "2026-09-10T21:00:00Z", "versions_run": 4 }
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "board": "x4pro",
+        "version": "1.13.15",
+        "since": "2026-09-18T09:30:00Z",
+        "first_seen": "2026-08-02T08:05:00Z",
+        "last_seen": "2026-09-21T17:40:00Z",
+        "versions_run": 5
+      },
+      {
+        "device": "eda1ae17dc58a36780bec0862e0c2bec6e95ed62a690fe3afff3ee62b5e1182b",
+        "board": "x4pro",
+        "version": "1.13.15",
+        "since": "2026-09-17T09:30:00Z",
+        "first_seen": "2026-09-01T08:05:00Z",
+        "last_seen": "2026-09-21T17:40:00Z",
+        "versions_run": 2
+      },
+      {
+        "device": "991afbce023f2ffba977209695469970bb77305782148b40a9534b659f045109",
+        "board": "x4pro",
+        "version": "1.13.15",
+        "since": "2026-09-11T09:30:00Z",
+        "first_seen": "2026-09-11T08:05:00Z",
+        "last_seen": "2026-09-21T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "7971b48c05bc4d2ab00812331453116751e49f642eae83420a1fc75b2ecd967e",
+        "board": "sticky",
+        "version": "1.13.15",
+        "since": "2026-09-15T09:30:00Z",
+        "first_seen": "2026-08-20T08:05:00Z",
+        "last_seen": "2026-09-21T17:40:00Z",
+        "versions_run": 2
+      },
+      {
+        "device": "ce5dfbf490efb0c5132dabef3377300b9f3a216bb5b064ff323d258c48e0301b",
+        "board": "x4pro",
+        "version": "dev-local",
+        "since": "2026-09-19T09:30:00Z",
+        "first_seen": "2026-09-19T08:05:00Z",
+        "last_seen": "2026-09-21T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "f8290af83d8c643630c54c3f7e36403a79f69274775760ffeecd1f0f59640193",
+        "board": "x4pro",
+        "version": "1.13.15",
+        "since": "2026-09-16T09:30:00Z",
+        "first_seen": "2026-09-05T08:05:00Z",
+        "last_seen": "2026-09-20T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "board": "x4pro",
+        "version": "slim-sd",
+        "since": "2026-09-20T09:30:00Z",
+        "first_seen": "2026-09-20T08:05:00Z",
+        "last_seen": "2026-09-20T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "b78a23ff97c0b5687645cf015b076f9745eeadb4ec179d49deaba34e76b9b28a",
+        "board": "sticky",
+        "version": "1.13.15",
+        "since": "2026-09-14T09:30:00Z",
+        "first_seen": "2026-09-14T08:05:00Z",
+        "last_seen": "2026-09-19T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "1e246abe112c0d4a7f121810c58c049de2841979890080b9bb35a486d2510682",
+        "board": "x4pro",
+        "version": "1.13.9",
+        "since": "2026-09-02T09:30:00Z",
+        "first_seen": "2026-07-30T08:05:00Z",
+        "last_seen": "2026-09-17T17:40:00Z",
+        "versions_run": 2
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "board": "unknown",
+        "version": "1.13.9",
+        "since": "2026-09-16T09:30:00Z",
+        "first_seen": "2026-09-16T08:05:00Z",
+        "last_seen": "2026-09-16T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "18f8e6ed2139b81b0f9c23092894aae220e974db5ace7d71305daf34fcbba94b",
+        "board": "x4pro",
+        "version": "1.13.9",
+        "since": "2026-09-08T09:30:00Z",
+        "first_seen": "2026-09-08T08:05:00Z",
+        "last_seen": "2026-09-15T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "488805f382cbefe409e68b0ae9b22f29c3dd2b6270394d5ceb410582bc024306",
+        "board": "sticky",
+        "version": "1.13.2",
+        "since": "2026-08-25T09:30:00Z",
+        "first_seen": "2026-08-11T08:05:00Z",
+        "last_seen": "2026-09-13T17:40:00Z",
+        "versions_run": 2
+      },
+      {
+        "device": "796690d3d284ec098f0f30b58c66f95a70ac32e7c2ec38d39a504a29dc9f376b",
+        "board": "x4pro",
+        "version": "1.12.50",
+        "since": "2026-07-19T09:30:00Z",
+        "first_seen": "2026-07-19T08:05:00Z",
+        "last_seen": "2026-09-10T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "93c6cdd33a610f6c0c4372d7450a80dc03745b214a704bd257392c1e8b3043f4",
+        "board": "x4pro",
+        "version": "1.12.50",
+        "since": "2026-08-03T09:30:00Z",
+        "first_seen": "2026-08-03T08:05:00Z",
+        "last_seen": "2026-09-06T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "board": "lilygo",
+        "version": "1.12.48",
+        "since": "2026-09-02T09:30:00Z",
+        "first_seen": "2026-09-02T08:05:00Z",
+        "last_seen": "2026-09-02T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "38e8289de72938d2d082d24158f2d6f3961d26de7e9736fbafcc3d07bc20f8f7",
+        "board": "x4pro",
+        "version": "1.12.48",
+        "since": "2026-07-02T09:30:00Z",
+        "first_seen": "2026-07-02T08:05:00Z",
+        "last_seen": "2026-08-29T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "f4f50ded403f5b85058cd4322887c5276c2f1c32c385c18c578020b7f482d2df",
+        "board": "sticky",
+        "version": "1.9.4",
+        "since": "2026-06-14T09:30:00Z",
+        "first_seen": "2026-06-14T08:05:00Z",
+        "last_seen": "2026-08-25T17:40:00Z",
+        "versions_run": 1
+      },
+      {
+        "device": "45415bc117ae92dd968f64dd9b8a35bb7c6a90a030422206fb99277460fa45ed",
+        "board": "papermono",
+        "version": "1.6.0",
+        "since": "2026-07-21T09:30:00Z",
+        "first_seen": "2026-07-21T08:05:00Z",
+        "last_seen": "2026-07-21T17:40:00Z",
+        "versions_run": 1
+      }
     ],
-    "field": { "crashed": 18, "update_failed": 1, "updated": 15 },
+    "field": {
+      "crashed": 2,
+      "update_failed": 1,
+      "updated": 9
+    },
     "crashes": [
-      { "message": "panic without a recorded reason (reset: panic; last log: XKCD)", "devices": 10, "times": 10, "last": "2026-09-10T20:00:00Z" },
-      { "message": "abort() was called at PC 0x4037e6eb on core 0 (reset: panic)", "devices": 1, "times": 1, "last": "2026-09-09T11:00:00Z" }
+      {
+        "message": "panic without a recorded reason (reset: panic; last log: XKCD)",
+        "devices": 10,
+        "times": 10,
+        "last": "2026-09-10T20:00:00Z"
+      },
+      {
+        "message": "abort() was called at PC 0x4037e6eb on core 0 (reset: panic)",
+        "devices": 1,
+        "times": 1,
+        "last": "2026-09-09T11:00:00Z"
+      }
     ],
     "byVersion": [
       {
@@ -960,6 +1213,510 @@
         "devices": 2,
         "n": 5
       }
-    ]
+    ],
+    "deviceVersions": [
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "version": "1.13.15",
+        "first_at": "2026-09-18T09:30:00Z",
+        "last_at": "2026-09-21T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "version": "1.13.9",
+        "first_at": "2026-09-09T09:30:00Z",
+        "last_at": "2026-09-18T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "version": "1.13.2",
+        "first_at": "2026-08-28T09:30:00Z",
+        "last_at": "2026-09-09T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "version": "1.12.50",
+        "first_at": "2026-08-14T09:30:00Z",
+        "last_at": "2026-08-28T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "version": "1.12.48",
+        "first_at": "2026-08-02T09:30:00Z",
+        "last_at": "2026-08-14T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "eda1ae17dc58a36780bec0862e0c2bec6e95ed62a690fe3afff3ee62b5e1182b",
+        "version": "1.13.15",
+        "first_at": "2026-09-17T09:30:00Z",
+        "last_at": "2026-09-21T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "eda1ae17dc58a36780bec0862e0c2bec6e95ed62a690fe3afff3ee62b5e1182b",
+        "version": "1.13.9",
+        "first_at": "2026-09-01T09:30:00Z",
+        "last_at": "2026-09-17T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "f8290af83d8c643630c54c3f7e36403a79f69274775760ffeecd1f0f59640193",
+        "version": "1.13.15",
+        "first_at": "2026-09-16T09:30:00Z",
+        "last_at": "2026-09-20T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "991afbce023f2ffba977209695469970bb77305782148b40a9534b659f045109",
+        "version": "1.13.15",
+        "first_at": "2026-09-11T09:30:00Z",
+        "last_at": "2026-09-21T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "7971b48c05bc4d2ab00812331453116751e49f642eae83420a1fc75b2ecd967e",
+        "version": "1.13.15",
+        "first_at": "2026-09-15T09:30:00Z",
+        "last_at": "2026-09-21T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "7971b48c05bc4d2ab00812331453116751e49f642eae83420a1fc75b2ecd967e",
+        "version": "1.13.2",
+        "first_at": "2026-08-20T09:30:00Z",
+        "last_at": "2026-09-15T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "b78a23ff97c0b5687645cf015b076f9745eeadb4ec179d49deaba34e76b9b28a",
+        "version": "1.13.15",
+        "first_at": "2026-09-14T09:30:00Z",
+        "last_at": "2026-09-19T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1e246abe112c0d4a7f121810c58c049de2841979890080b9bb35a486d2510682",
+        "version": "1.13.9",
+        "first_at": "2026-09-02T09:30:00Z",
+        "last_at": "2026-09-17T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "1e246abe112c0d4a7f121810c58c049de2841979890080b9bb35a486d2510682",
+        "version": "1.12.50",
+        "first_at": "2026-07-30T09:30:00Z",
+        "last_at": "2026-09-02T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "18f8e6ed2139b81b0f9c23092894aae220e974db5ace7d71305daf34fcbba94b",
+        "version": "1.13.9",
+        "first_at": "2026-09-08T09:30:00Z",
+        "last_at": "2026-09-15T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "488805f382cbefe409e68b0ae9b22f29c3dd2b6270394d5ceb410582bc024306",
+        "version": "1.13.2",
+        "first_at": "2026-08-25T09:30:00Z",
+        "last_at": "2026-09-13T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "488805f382cbefe409e68b0ae9b22f29c3dd2b6270394d5ceb410582bc024306",
+        "version": "1.12.50",
+        "first_at": "2026-08-11T09:30:00Z",
+        "last_at": "2026-08-25T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "796690d3d284ec098f0f30b58c66f95a70ac32e7c2ec38d39a504a29dc9f376b",
+        "version": "1.12.50",
+        "first_at": "2026-07-19T09:30:00Z",
+        "last_at": "2026-09-10T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "93c6cdd33a610f6c0c4372d7450a80dc03745b214a704bd257392c1e8b3043f4",
+        "version": "1.12.50",
+        "first_at": "2026-08-03T09:30:00Z",
+        "last_at": "2026-09-06T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "38e8289de72938d2d082d24158f2d6f3961d26de7e9736fbafcc3d07bc20f8f7",
+        "version": "1.12.48",
+        "first_at": "2026-07-02T09:30:00Z",
+        "last_at": "2026-08-29T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "f4f50ded403f5b85058cd4322887c5276c2f1c32c385c18c578020b7f482d2df",
+        "version": "1.9.4",
+        "first_at": "2026-06-14T09:30:00Z",
+        "last_at": "2026-08-25T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "ce5dfbf490efb0c5132dabef3377300b9f3a216bb5b064ff323d258c48e0301b",
+        "version": "dev-local",
+        "first_at": "2026-09-19T09:30:00Z",
+        "last_at": "2026-09-21T17:40:00Z",
+        "events": 7
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "version": "1.13.9",
+        "first_at": "2026-09-16T09:30:00Z",
+        "last_at": "2026-09-16T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "version": "1.12.48",
+        "first_at": "2026-09-02T09:30:00Z",
+        "last_at": "2026-09-02T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "45415bc117ae92dd968f64dd9b8a35bb7c6a90a030422206fb99277460fa45ed",
+        "version": "1.6.0",
+        "first_at": "2026-07-21T09:30:00Z",
+        "last_at": "2026-07-21T17:40:00Z",
+        "events": 3
+      },
+      {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "version": "slim-sd",
+        "first_at": "2026-09-20T09:30:00Z",
+        "last_at": "2026-09-20T17:40:00Z",
+        "events": 3
+      }
+    ],
+    "deviceServices": [
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "service": "site",
+        "events": 212,
+        "first_at": "2026-08-02T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "service": "getbooks",
+        "events": 34,
+        "first_at": "2026-08-05T10:15:00Z",
+        "last_at": "2026-09-20T16:20:00Z",
+        "errors": 1
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "service": "anki",
+        "events": 96,
+        "first_at": "2026-08-09T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "1f20ae512cd7124ed87cd1b9066525a757efbe8c8e11ed57415b43e1e54a1cbf",
+        "service": "live",
+        "events": 18,
+        "first_at": "2026-09-19T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "eda1ae17dc58a36780bec0862e0c2bec6e95ed62a690fe3afff3ee62b5e1182b",
+        "service": "site",
+        "events": 88,
+        "first_at": "2026-09-01T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "eda1ae17dc58a36780bec0862e0c2bec6e95ed62a690fe3afff3ee62b5e1182b",
+        "service": "getbooks",
+        "events": 12,
+        "first_at": "2026-09-03T10:15:00Z",
+        "last_at": "2026-09-19T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "f8290af83d8c643630c54c3f7e36403a79f69274775760ffeecd1f0f59640193",
+        "service": "site",
+        "events": 41,
+        "first_at": "2026-09-05T10:15:00Z",
+        "last_at": "2026-09-20T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "f8290af83d8c643630c54c3f7e36403a79f69274775760ffeecd1f0f59640193",
+        "service": "instapaper",
+        "events": 7,
+        "first_at": "2026-09-12T10:15:00Z",
+        "last_at": "2026-09-18T16:20:00Z",
+        "errors": 2
+      },
+      {
+        "device": "991afbce023f2ffba977209695469970bb77305782148b40a9534b659f045109",
+        "service": "site",
+        "events": 29,
+        "first_at": "2026-09-11T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "7971b48c05bc4d2ab00812331453116751e49f642eae83420a1fc75b2ecd967e",
+        "service": "site",
+        "events": 64,
+        "first_at": "2026-08-20T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "7971b48c05bc4d2ab00812331453116751e49f642eae83420a1fc75b2ecd967e",
+        "service": "anki",
+        "events": 23,
+        "first_at": "2026-08-22T10:15:00Z",
+        "last_at": "2026-09-20T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "b78a23ff97c0b5687645cf015b076f9745eeadb4ec179d49deaba34e76b9b28a",
+        "service": "site",
+        "events": 11,
+        "first_at": "2026-09-14T10:15:00Z",
+        "last_at": "2026-09-19T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "b78a23ff97c0b5687645cf015b076f9745eeadb4ec179d49deaba34e76b9b28a",
+        "service": "live",
+        "events": 4,
+        "first_at": "2026-09-18T10:15:00Z",
+        "last_at": "2026-09-19T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "1e246abe112c0d4a7f121810c58c049de2841979890080b9bb35a486d2510682",
+        "service": "site",
+        "events": 73,
+        "first_at": "2026-07-30T10:15:00Z",
+        "last_at": "2026-09-17T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "1e246abe112c0d4a7f121810c58c049de2841979890080b9bb35a486d2510682",
+        "service": "getbooks",
+        "events": 55,
+        "first_at": "2026-08-01T10:15:00Z",
+        "last_at": "2026-09-16T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "18f8e6ed2139b81b0f9c23092894aae220e974db5ace7d71305daf34fcbba94b",
+        "service": "site",
+        "events": 19,
+        "first_at": "2026-09-08T10:15:00Z",
+        "last_at": "2026-09-15T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "488805f382cbefe409e68b0ae9b22f29c3dd2b6270394d5ceb410582bc024306",
+        "service": "site",
+        "events": 47,
+        "first_at": "2026-08-11T10:15:00Z",
+        "last_at": "2026-09-13T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "488805f382cbefe409e68b0ae9b22f29c3dd2b6270394d5ceb410582bc024306",
+        "service": "getbooks",
+        "events": 9,
+        "first_at": "2026-08-30T10:15:00Z",
+        "last_at": "2026-09-12T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "796690d3d284ec098f0f30b58c66f95a70ac32e7c2ec38d39a504a29dc9f376b",
+        "service": "site",
+        "events": 38,
+        "first_at": "2026-07-19T10:15:00Z",
+        "last_at": "2026-09-10T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "796690d3d284ec098f0f30b58c66f95a70ac32e7c2ec38d39a504a29dc9f376b",
+        "service": "anki",
+        "events": 140,
+        "first_at": "2026-07-20T10:15:00Z",
+        "last_at": "2026-09-10T16:20:00Z",
+        "errors": 3
+      },
+      {
+        "device": "93c6cdd33a610f6c0c4372d7450a80dc03745b214a704bd257392c1e8b3043f4",
+        "service": "site",
+        "events": 22,
+        "first_at": "2026-08-03T10:15:00Z",
+        "last_at": "2026-09-06T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "38e8289de72938d2d082d24158f2d6f3961d26de7e9736fbafcc3d07bc20f8f7",
+        "service": "site",
+        "events": 16,
+        "first_at": "2026-07-02T10:15:00Z",
+        "last_at": "2026-08-29T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "38e8289de72938d2d082d24158f2d6f3961d26de7e9736fbafcc3d07bc20f8f7",
+        "service": "getbooks",
+        "events": 3,
+        "first_at": "2026-07-04T10:15:00Z",
+        "last_at": "2026-08-20T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "ce5dfbf490efb0c5132dabef3377300b9f3a216bb5b064ff323d258c48e0301b",
+        "service": "site",
+        "events": 6,
+        "first_at": "2026-09-19T10:15:00Z",
+        "last_at": "2026-09-21T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "bb0ec63bac973cad2d8735a0261ee386c9e1e7be6f4b6ac7d85c25ca754581da",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-16T10:15:00Z",
+        "last_at": "2026-09-16T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "5b82a3069343d3c9ec3e471ee8a57f300595ab6d2de08d9d2a46bda2375c7fb4",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-02T10:15:00Z",
+        "last_at": "2026-09-02T16:20:00Z",
+        "errors": 0
+      },
+      {
+        "device": "55858555296ede56c89a74e708b5bddb7855bd91f47140a440618c0f2bd74c6d",
+        "service": "site",
+        "events": 5,
+        "first_at": "2026-09-20T10:15:00Z",
+        "last_at": "2026-09-20T16:20:00Z",
+        "errors": 0
+      }
+    ],
+    "serviceMetrics": [
+      {
+        "service": "site",
+        "devices_7d": 11,
+        "devices_30d": 14,
+        "events_7d": 402,
+        "events_30d": 1811,
+        "errors_7d": 2,
+        "first_at": "2026-06-14T12:00:00Z",
+        "last_at": "2026-09-21T17:40:00Z"
+      },
+      {
+        "service": "anki",
+        "devices_7d": 3,
+        "devices_30d": 3,
+        "events_7d": 61,
+        "events_30d": 259,
+        "errors_7d": 1,
+        "first_at": "2026-07-20T12:00:00Z",
+        "last_at": "2026-09-21T16:20:00Z"
+      },
+      {
+        "service": "getbooks",
+        "devices_7d": 4,
+        "devices_30d": 5,
+        "events_7d": 28,
+        "events_30d": 113,
+        "errors_7d": 0,
+        "first_at": "2026-07-04T12:00:00Z",
+        "last_at": "2026-09-20T16:20:00Z"
+      },
+      {
+        "service": "live",
+        "devices_7d": 2,
+        "devices_30d": 2,
+        "events_7d": 22,
+        "events_30d": 22,
+        "errors_7d": 0,
+        "first_at": "2026-09-18T12:00:00Z",
+        "last_at": "2026-09-21T16:20:00Z"
+      },
+      {
+        "service": "firmware",
+        "devices_7d": 2,
+        "devices_30d": 4,
+        "events_7d": 5,
+        "events_30d": 17,
+        "errors_7d": 3,
+        "first_at": "2026-07-02T12:00:00Z",
+        "last_at": "2026-09-19T12:00:00Z"
+      },
+      {
+        "service": "pulse",
+        "devices_7d": 0,
+        "devices_30d": 0,
+        "events_7d": 1344,
+        "events_30d": 5760,
+        "errors_7d": 4,
+        "first_at": "2026-06-01T12:00:00Z",
+        "last_at": "2026-09-21T17:00:00Z"
+      },
+      {
+        "service": "release",
+        "devices_7d": 0,
+        "devices_30d": 0,
+        "events_7d": 3,
+        "events_30d": 19,
+        "errors_7d": 0,
+        "first_at": "2026-06-01T12:00:00Z",
+        "last_at": "2026-09-20T12:00:00Z"
+      },
+      {
+        "service": "workflow",
+        "devices_7d": 0,
+        "devices_30d": 0,
+        "events_7d": 96,
+        "events_30d": 402,
+        "errors_7d": 0,
+        "first_at": "2026-06-01T12:00:00Z",
+        "last_at": "2026-09-21T15:00:00Z"
+      },
+      {
+        "service": "trivia",
+        "devices_7d": 0,
+        "devices_30d": 0,
+        "events_7d": 0,
+        "events_30d": 4,
+        "errors_7d": 0,
+        "first_at": "2026-08-30T12:00:00Z",
+        "last_at": "2026-09-02T12:00:00Z"
+      }
+    ],
+    "live": {
+      "codes_shown": 67,
+      "paired": 45,
+      "checked_in": 20,
+      "returning": 0,
+      "reader_devices": 2,
+      "pictures_sent": 16,
+      "last_at": "2026-09-21T16:20:00Z"
+    },
+    "rowLimit": 1000
   }
 }

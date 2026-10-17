@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CrossPlay</title>
-<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
 <meta property="og:title" content="CrossPlay">
-<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky.">
+<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crossplay.ma-r-s.com/">
 <!-- Absolute, or no unfurler resolves it. Stamped by site/set-host.py; the
@@ -73,6 +73,7 @@
     <a href="#nearby">Play nearby</a>
     <a href="/study/">Anki decks</a>
     <a href="/wikipedia/">Wikipedia</a>
+    <a href="/live/">Live</a>
     <a href="#get">Install</a>
     <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
       <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
@@ -86,11 +87,11 @@
 <header class="hero wrap" id="top">
   <div class="hero-grid">
     <div class="hero-text">
-      <p class="eyebrow">Xteink X4 Pro <span class="eyebrow-sep">&middot;</span> Seeed reTerminal Sticky</p>
+      <p class="eyebrow">Xteink X4 Pro <span class="eyebrow-sep">&middot;</span> Seeed reTerminal Sticky <span class="eyebrow-sep">&middot;</span> M5Stack PaperMono / Lite</p>
       <h1>E-ink is good at waiting.</h1>
       <p class="lede">
         So is a chess position, a flashcard, a puzzle you are halfway through.
-        The Xteink X4 Pro and the Seeed reTerminal Sticky are cheap e-ink
+        The Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite are e-ink
         devices, and <a href="https://crosspointreader.com/">CrossPoint</a>
         already makes them good at reading. CrossPlay is firmware that adds
         everything else, and lets two of them find each other with nothing to
@@ -266,7 +267,28 @@
       <div class="shot-wrap"><img class="shot" src="assets/shots/go.png" width="480" height="800" loading="lazy" decoding="async" alt="A nine-by-nine game of Go part way through: a ruled board inside a heavy border, black and white stones on the line crossings, a small ring marking the stone just played. One crossing near the middle holds a dithered grey stone inside four corner brackets, aimed but not yet placed. Above the board an outlined band reads THEM and WHITE 1 TAKEN; below it a black band reads YOU and BLACK 0 TAKEN, filled because it is that side&rsquo;s turn. A PASS button runs along the bottom."></div>
       <span class="tag">Game &middot; plays nearby</span>
       <h3>Go</h3>
-      <p>Nine by nine, which is the size that finishes on one train journey, or thirteen by thirteen when you have longer. A stone is aimed before it is placed, so the board can warn you before you fill your own eye. Two passes and it counts for you, and you settle which stones are dead by tapping them.</p>
+      <p>Nine by nine, which is the size that finishes on one train journey, thirteen by thirteen when you have longer, or the full nineteen. A stone is aimed before it is placed, so the board can warn you before you fill your own eye. Two passes and it counts for you, and you settle which stones are dead by tapping them.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/hex.png" width="480" height="800" loading="lazy" decoding="async" alt="A game of Hex part way through: an eleven-by-eleven rhombus of hexagons filling the panel corner to corner, its top and bottom edges banded in solid black and its left and right edges outlined. Four black stones run down the middle in a short chain and three white ones cut across them, the last move ringed. In the notch above the board an outlined card reads THEM and LEFT TO RIGHT; in the notch below, a filled black card reads YOU and TOP TO BOTTOM because it is that side&#39;s turn."></div>
+      <span class="tag">Game &middot; plays nearby</span>
+      <h3>Hex</h3>
+      <p>Put a stone on any empty cell. Join your two edges before your opponent joins theirs. Nothing is ever captured and nothing ever moves, there are no draws at all, and the rules are that sentence -- against the device at three strengths, across the table, or against someone next to you.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/underhand.png" width="480" height="800" loading="lazy" decoding="async" alt="An Underhand card under a black UNDERHAND band that reads DECK 10: the card ORGAN HARVEST and its line, The most important organ is the organization. Three option boxes follow. We need the cash and We&rsquo;ve got the meats each offer three ways to pay joined by OR, the first filled black: one prisoner, one cultist or one relic, with what the option gives at the right, two money and a prisoner, or two food and a prisoner. The third, Save the slaughter for another day, costs nothing. A small question mark sits above the right end of the bar, which runs along the bottom: six symbols with counts, a gem 1, coins 3, a person 2, wheat 4, a locked person 2, an eye 2."></div>
+      <span class="tag">Game</span>
+      <h3>Underhand</h3>
+      <p>The cult card game from 2017, every card of it, with no art and nothing animated. Each card asks something of your cult, paid in relics, money, cultists, food, prisoners or suspicion. Keep the police and the gods&rsquo; wrath off your back long enough for a chain of cards to end with a god answering.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/wordle.png" width="480" height="800" loading="lazy" decoding="async" alt="A Wordle from the archive, two guesses in, under a black WORDLE band dated SEP 8. CRANE has C, R and A on dithered grey squares and N and E in heavy outlines with a dot in the corner. AISLE has A and S grey, I solid black with a white letter, and L and E outlined with a dot. Four empty rows follow, then a QWERTY keyboard whose keys carry the same marks, a greyed tick key at the bottom left and a backspace key at the bottom right."></div>
+      <span class="tag">Game</span>
+      <h3>Wordle</h3>
+      <p>Six guesses for the day&rsquo;s word, the same word as the New York Times&rsquo; that day. One download holds every past day, so the archive goes back to the first one.</p>
     </article>
 
     <article class="card">
@@ -325,6 +347,13 @@
       <p>Klondike, turned sideways because that is the shape of a tableau. Your last sixteen deals are drawn from your own record.</p>
     </article>
 
+    <article class="card wide">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/hearts.png" width="800" height="480" loading="lazy" decoding="async" alt="A Hearts trick in landscape: a rail of four seats down the left with YOU on 14 and a +14 badge, the queen of spades framed as the winning card in a diamond of four played cards, the line YOU TAKE IT, 14 POINTS, the state HEARTS BROKEN and QUEEN SEEN, and nine cards fanned along the bottom."></div>
+      <span class="tag">Game &middot; landscape</span>
+      <h3>Hearts</h3>
+      <p>Duck the tricks. Every heart you take costs one and the queen of spades costs thirteen, so the lowest score wins. Three opponents who count what has gone, read who is void, and will shoot the moon if you let them. A card the rules will not take is greyed before you touch it.</p>
+    </article>
+
     <article class="card">
       <div class="shot-wrap"><img class="shot" src="assets/shots/study.png" width="480" height="800" loading="lazy" decoding="async" alt="A Study flashcard with the answer shown: the character 了, its pinyin le, the meaning &quot;indicates a completed or finished action&quot;, an example sentence with translation, a line reading SEEN 6 LAPSED 0 NOW 21d, and four grading buttons -- AGAIN 10m, HARD 1.3mo, GOOD 2.5mo, EASY 6.2mo."></div>
       <span class="tag">App · spaced repetition</span>
@@ -347,13 +376,6 @@
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/getbooks.png" width="480" height="800" loading="lazy" decoding="async" alt="The Get Books catalog browser showing Project Gutenberg's Popular list on the device: Pride and Prejudice selected at the top on a dithered band, then Moby Dick; Or, The Whale, Crime and Punishment, The Odyssey, The Secret of Chimneys, A Room with a View, The Mysteries of Udolpho, Romeo and Juliet, The Adventures of Sherlock Holmes and Carmen, each with a folder mark and a chevron, and a scrollbar down the right edge."></div>
-      <span class="tag">App · books over Wi-Fi</span>
-      <h3>Get Books</h3>
-      <p>Any OPDS catalog, browsed and downloaded on the device with no computer in the middle. Two are set up already: Project Gutenberg, which you browse, and a search-only one that opens straight on the keyboard. Anything else that speaks OPDS is a URL away.</p>
-    </article>
-
-    <article class="card">
       <div class="shot-wrap"><img class="shot" src="assets/shots/instapaper.png" width="480" height="800" loading="lazy" decoding="async" alt="The Instapaper queue on the device: four saved articles, each with its title on one line and its reading time and source below -- Notes on building a compiler at 8 min from jamiebrandon.net selected on a black band, then The case for reading on paper at 4 min from newyorker.com marked DONE, The long slow death of the RSS reader at 14 min from arstechnica.com marked 42 per cent, and How the ESP32-S3 draws to an e-ink panel at 6 min from hackaday.com. A SYNC button sits across the bottom."></div>
       <span class="tag">App &middot; read later</span>
       <h3>Instapaper</h3>
@@ -361,10 +383,24 @@
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/wallpapers.png" width="480" height="800" loading="lazy" decoding="async" alt="The Wallpapers picker on the device: an inked banner reading SLEEP SCREEN night.bmp, then a list of wallpaper file names -- checker.bmp, hatch.bmp, night.bmp selected on a black band and marked ON, peaks.bmp, rings.bmp and waves.bmp."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/wallpapers.png" width="480" height="800" loading="lazy" decoding="async" alt="The Wallpapers gallery on the device: a banner reading WALLPAPERS 1 / 6 with a CHOOSE button, the line Tap one to set your sleep screen, and a grid of four tiles -- an Add wallpaper placeholder marked with a plus, then Bauhaus, Bulge and Celestial Chart drawn as one-bit patterns -- above six page dots."></div>
       <span class="tag">App &middot; sleep screen</span>
       <h3>Wallpapers</h3>
-      <p>Pick any image on the card as the reader's sleep screen. One tap sets it, and a banner keeps the current one in view. Make one from a photo in the browser: <a href="/wallpapers/">turn a picture into a wallpaper &rsaquo;</a></p>
+      <p>Twenty-one patterns the device fetches over Wi-Fi, about a megabyte for the set, and one tap sets any of them as the sleep screen. Or bring your own: <a href="/wallpapers/">turn a picture into a wallpaper &rsaquo;</a></p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/live.png" width="480" height="800" loading="lazy" decoding="async" alt="The Live screen on the device: a black LIVE banner, the code 010 747 in large digits, a rule, the address crossplay.ma-r-s.com/live/, the lines Type this code on your phone to send pictures and Waiting for a phone, a QR code beneath, and BACK RETURNS at the foot."></div>
+      <span class="tag">App &middot; a note from anywhere</span>
+      <h3>Live</h3>
+      <p>Leave a handwritten note on a reader sitting on somebody&rsquo;s fridge, from your phone, from anywhere. It shows six digits once; read them down the telephone and whoever has them can draw, write or send a picture to that screen. The reader sleeps the rest of the time and wakes on its own schedule to look, so a message you send tonight is there in the morning. <a href="/live/">Send one &rsaquo;</a></p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/wikipedia.png" width="480" height="800" loading="lazy" decoding="async" alt="A Wikipedia article on the device: a black bar with a back arrow, the title Mir Sayyid Ali and a contents button, then the article set in a reading serif with links underlined, a Family heading partway down, and a footer reading Family, 1 of 15, above a progress bar."></div>
+      <span class="tag">App &middot; the whole encyclopedia</span>
+      <h3>Wikipedia</h3>
+      <p>English Wikipedia on the SD card, read with the radio off. Seven million articles if you fill the card from a computer, or a smaller essentials pack over the cable. Search it, or open a random one and see where it goes. <a href="/wikipedia/">Put it on the card &rsaquo;</a></p>
     </article>
 
     <article class="card">
@@ -372,6 +408,12 @@
       <span class="tag">App &middot; arithmetic</span>
       <h3>Calculator</h3>
       <p>Keys the size of a thumb, and arithmetic that is actually decimal: 0.1 + 0.2 &minus; 0.3 is zero here, the way it is on a Casio and is not on most phones. Ten digits, with hidden guard digits so a third times three comes back as one.</p>
+    </article>
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/notes.png" width="480" height="800" loading="lazy" decoding="async" alt="A packing list open on the device: a black bar reading Packing with a settings cog, the line 4 LEFT OF 6 beside a progress bar, then six rows -- Passport and Charger and cable ticked, their boxes filled and their words struck through, then Reader charged, Adaptor for the socket, Book for the plane and Sunglasses with empty boxes -- above an ADD button and a CLEAR DONE button."></div>
+      <span class="tag">App &middot; lists and notes</span>
+      <h3>Notes</h3>
+      <p>Two kinds, and you pick which: a list counts down as you tick it off, a note is just words you want to keep. Both are plain Markdown files on the card, so one written on a computer opens here with nothing to import.</p>
     </article>
 
   </div>
@@ -482,30 +524,9 @@
       <p class="eyebrow">Open firmware</p>
       <p class="hed">Nothing here asks permission.</p>
       <p>
-        There is no store between you and the device, no review, no account and
-        no subscription. It is a binary you flash and source you can read.
+        No store, no review, no account, no subscription. A binary you flash
+        and source you can read.
       </p>
-      <p>
-        The reasoning is written down beside it:
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/identity.md">what this is for</a> for why a screen that
-        holds still is the point rather than a limitation,
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/design-language.md">the design language</a> for what that means
-        on a 1-bit panel and the ink budget that governs it,
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/buttons.md">the two buttons</a> for why there are only
-        two and what that costs, and
-        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/games-at-scale.md">games at scale</a> for how one gets
-        built and torn apart before it ships.
-      </p>
-      <p class="untested">
-      <strong>This runs on real hardware.</strong> A person flashed v1.2.1,
-      played most of the shelf, and found three real problems; the fixes
-      shipped in v1.2.2 within the week. Since v1.3.0 there is an X4 Pro
-      on my own desk, joined on 2026-08-25 by a reTerminal Sticky, and
-      releases are flashed to both before they ship. That is still a
-      small record:
-      <a href="/report/" data-report-open>say what you
-      find</a>, either way. One box, under a minute, no account.
-    </p>
     <!-- The button that does the whole thing. It is first, and short, because
          the first person who could not install this said on Reddit that he had
          been looking for a tutorial. Anything a person does not need before
@@ -513,14 +534,15 @@
          the reasoning. -->
     <div class="installer" id="installer">
         <p class="installer-hed">Install it from this page</p>
-        <p class="installer-sub">Plug the device in, wake it, press the button.
-          Chrome or Edge, on a computer.</p>
+        <p class="installer-sub">Chrome or Edge, on a computer. Plug the device in and wake it.</p>
         <p class="installer-warn" id="installUnsupported" hidden></p>
         <fieldset class="installer-devices">
           <legend>Which device</legend>
           <label><input type="radio" name="install-device" value="x4pro" checked> Xteink X4 Pro</label>
           <label><input type="radio" name="install-device" value="sticky"> Seeed reTerminal Sticky</label>
+          <label><input type="radio" name="install-device" value="papermono"> M5Stack PaperMono / Lite</label>
         </fieldset>
+        <p class="installer-fine">PaperMono / Lite: hold the power button for about two seconds until the red LED flashes, then release it to enter download mode.</p>
         <button class="btn primary" type="button" id="installButton">Install on Xteink X4 Pro</button>
         <div class="installer-bar" id="installBar" hidden><span id="installBarFill"></span></div>
         <p class="installer-status" id="installStatus" role="status" aria-live="polite"></p>
@@ -530,31 +552,43 @@
           <summary>Show the log</summary>
           <pre id="installLog"></pre>
         </details>
-        <p class="installer-fine">Your books stay. The SD card is not touched.</p>
-        <p class="installer-fine">When your device talks to CrossPlay's own services it includes an anonymous device id, its version and board, and any crash it just recovered from; nothing else calls home, and <strong>Settings &rarr; System</strong> turns it off.</p>
+        <p class="installer-fine">Your books stay.</p>
       </div>
 
-      <ol class="steps">
-        <li><strong>These two devices only.</strong> The <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer and is excellent.</li>
-        <li><strong>After this, no more cables.</strong> <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
-        <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
-      </ol>
+      <details class="by-hand">
+        <summary>What it changes</summary>
+        <ul class="steps">
+          <li>Only the <strong>Xteink X4 Pro</strong>, the <strong>Seeed reTerminal Sticky</strong> and the <strong>M5Stack PaperMono / Lite</strong>. For any other device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer.</li>
+          <li>After this, no more cables: <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
+          <li>Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
+        </ul>
+      </details>
 
       <details class="by-hand">
         <summary>Or install it by hand</summary>
         <ol class="steps">
-          <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code> or <code>crossplay-&lt;version&gt;-sticky-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
-          <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; swap in the sticky filename on a Sticky):
+          <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code>, <code>crossplay-&lt;version&gt;-sticky-full.bin</code> or <code>crossplay-&lt;version&gt;-papermono-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
+          <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; use your device’s filename):
             <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
           </li>
-          <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
+          <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky, <code>firmware-papermono.bin</code> for PaperMono / Lite -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
         </ol>
+      </details>
+
+      <details class="locked">
+        <summary>Got a locked device?</summary>
+        <p>Some X4 Pros from third-party stores refuse USB flashing, so the picker above never shows them. Install stock CrossPoint with the <a href="https://crosspointreader.com/unlocker">Xteink Unlocker</a>, copy CrossPlay's <code>firmware.bin</code> to the root of the SD card, then <strong>Settings &rarr; System &rarr; SD Card Firmware Update</strong>. <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md#a-usb-locked-x4-pro">The details, and what each refusal means.</a></p>
       </details>
 
       <div class="cta-row">
         <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
         <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
       </div>
+      <p class="why-links">Why it is built this way:
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/identity.md">what this is for</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/design-language.md">the design language</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/buttons.md">the two buttons</a>,
+        <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/games-at-scale.md">games at scale</a>.</p>
       <p class="release-stamp" id="releaseStamp" hidden></p>
     </div>
     <div class="bracket">
@@ -580,7 +614,7 @@
     <div class="foot-grid">
       <div>
         <h4>CrossPlay</h4>
-        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Built by one person, in the open. MIT licensed, like the project it forks.</p>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro, Seeed reTerminal Sticky, and M5Stack PaperMono / Lite. Built by one person, in the open. MIT licensed, like the project it forks.</p>
       </div>
       <div>
         <h4>Project</h4>
@@ -611,8 +645,10 @@
       <h4>Credits</h4>
       <div class="foot-fine-cols">
         <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and fetches the archive, when you ask it to, from the community mirror at <a href="https://github.com/Eyefyre/NYT-Connections-Answers">Eyefyre/NYT-Connections-Answers</a>.</p>
+        <p>Wordle&rsquo;s answers and accepted guesses are the New York Times&rsquo; too; CrossPlay ships none of them and fetches them, when you ask, from <a href="https://github.com/mfilej/wrdl">mfilej/wrdl</a> and, for the newest days, from the Times&rsquo; own daily answer.</p>
         <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
+        <p>CrossPlay's own services are told an anonymous device id, the version and board it is running, and any crash it just recovered from. Nothing else calls home, and <strong>Settings &rarr; System</strong> turns it off.</p>
         <p>Where a game on the shelf carries the name of a published game, that name is its owner's trademark and is used to say what the thing is; game mechanics are not copyrightable. D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams, and Trivia is built from a community transcription of aired Jeopardy! clues. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of their owners. Every notice is in <a href="https://github.com/ma-r-s/crossplay/blob/xteink/THIRD-PARTY-NOTICES.md">THIRD-PARTY-NOTICES.md</a>.</p>
         <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
       </div>

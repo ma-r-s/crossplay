@@ -39,11 +39,15 @@ Import("env")  # noqa: F821  -- injected by SCons/PlatformIO
 def _workspace(start):
     """The directory holding .xteink-workspace, or None outside one."""
     d = os.path.abspath(start)
-    while d != "/":
+    while True:
         if os.path.exists(os.path.join(d, ".xteink-workspace")):
             return d
-        d = os.path.dirname(d)
-    return None
+        # A root is its own parent: "/" here, "C:\" on Windows, which a
+        # test for "/" alone never reaches.
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
 
 
 def _alive(pid):

@@ -47,11 +47,16 @@ LIB=../../lib
   -c "$LIB/uzlib/src/tinflate.c" -o "$BUILD_DIR/tinflate.o"
 "${CC:-cc}" -std=c11 -O1 -g -c stubs/uzlib_checksums.c -o "$BUILD_DIR/uzlib_checksums.o"
 
+# FontDecompressor allocates through FreeInkFont's FontAlloc (PSRAM first on a
+# device, plain malloc on a host) since the 2026-09-30 sync.
+FONTALLOC=../../freeink-sdk/libs/font/FreeInkFont
+"${CC:-cc}" -std=c11 -O1 -g -I"$FONTALLOC/include" -c "$FONTALLOC/src/FontAlloc.c" -o "$BUILD_DIR/FontAlloc.o"
+
 "${CXX:-c++}" -std=c++17 -O1 -g -Wall -Wextra -Werror \
-  -Istubs -I"$LIB/EpdFont" -I"$LIB/InflateReader" -I"$LIB/Utf8" -I"$LIB/uzlib/src" \
+  -Istubs -I"$FONTALLOC/include" -I"$LIB/EpdFont" -I"$LIB/InflateReader" -I"$LIB/Utf8" -I"$LIB/uzlib/src" \
   "$LIB/EpdFont/FontDecompressor.cpp" \
   "$LIB/InflateReader/InflateReader.cpp" \
   "$LIB/Utf8/Utf8.cpp" \
-  test_fontguard.cpp "$BUILD_DIR/tinflate.o" "$BUILD_DIR/uzlib_checksums.o" -o "$BUILD_DIR/test_fontguard"
+  test_fontguard.cpp "$BUILD_DIR/tinflate.o" "$BUILD_DIR/uzlib_checksums.o" "$BUILD_DIR/FontAlloc.o" -o "$BUILD_DIR/test_fontguard"
 
 "$BUILD_DIR/test_fontguard"

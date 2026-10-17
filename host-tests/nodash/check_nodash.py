@@ -71,7 +71,27 @@ def upstream_owns(path):
         cwd=ROOT, capture_output=True).returncode == 0
     if at_tip:
         return True
+    # The merge base moves only when WE sync, so a file upstream deleted or
+    # renamed after our last sync is still theirs here. 2026-10-10: upstream
+    # deleted .github/skills/crosspoint-reader.md (#3890) a week after the
+    # 1.14.0 sync, and the tip lookup made its em-dashes ours overnight.
+    base = merge_base()
+    if base and subprocess.run(["git", "cat-file", "-e", f"{base}:{path}"],
+                               cwd=ROOT, capture_output=True).returncode == 0:
+        return True
     return path.startswith(UPSTREAM_TREES)
+
+
+_MERGE_BASE = []
+
+
+def merge_base():
+    """The commit we last synced from, or None without an upstream ref."""
+    if not _MERGE_BASE:
+        r = subprocess.run(["git", "merge-base", "HEAD", "crosspoint/develop"],
+                           cwd=ROOT, capture_output=True, text=True)
+        _MERGE_BASE.append(r.stdout.strip() if r.returncode == 0 else None)
+    return _MERGE_BASE[0]
 
 
 def main():

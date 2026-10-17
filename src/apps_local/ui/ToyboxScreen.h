@@ -330,7 +330,35 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   }
   if (fitted.title != nullptr) fitted.title = title.c_str();
 
-  screen.header(fitted, ink);
+  // A TITLE WHOSE LINE BOX DOES NOT FIT THE BAND IS TOP-ALIGNED, NOT CENTRED,
+  // and that leaves it sitting on the band's bottom edge.
+  //
+  // The component centres a line box when it fits and clamps it to the top of
+  // the rect when it does not. The display cut's box is 63px and carries 13 of
+  // air above its capitals, so on a 56px band -- safe rect 3..56, 53 tall --
+  // the caps land at 16..54: sixteen pixels of headroom and two of clearance.
+  // Mario saw it as the title touching the bottom of the header, and measuring
+  // it agreed to the pixel.
+  //
+  // So when the box overflows, the rect is shifted up by exactly enough to put
+  // the CAP BAND in the middle of the band instead. Nothing else moves: the
+  // shift is zero whenever the line box fits, which is every one of the fork's
+  // 76px headers. Only the two landscape card games run a 56px band, and both
+  // draw their own header buttons, so nothing the component positions from
+  // this rect travels with it.
+  fui::Rect titleRect = ink;
+  if (fitted.title != nullptr) {
+    const int16_t lineHeight = screen.target().lineHeight(fitted.titleText.font);
+    const CutMetrics* cut = cutForLineHeight(lineHeight);
+    if (cut != nullptr && lineHeight > ink.height) {
+      const int16_t wantedCapTop = static_cast<int16_t>(band.y + (band.height - cut->inkHeight) / 2);
+      const int16_t capTopNow = static_cast<int16_t>(ink.y + (cut->ascender - cut->inkHeight));
+      titleRect.y = static_cast<int16_t>(ink.y - (capTopNow - wantedCapTop));
+      titleRect.height = static_cast<int16_t>(ink.height + (capTopNow - wantedCapTop));
+    }
+  }
+
+  screen.header(fitted, titleRect);
 }
 
 // The rect headerBand() painted, asked for rather than reconstructed.

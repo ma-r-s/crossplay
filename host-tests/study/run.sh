@@ -25,6 +25,8 @@ SRC=../../src/apps_local/study
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyFsrs.cpp" test_fsrs.cpp -o "$BUILD_DIR/test_fsrs"
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  test_verdict.cpp -o "$BUILD_DIR/test_verdict"
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_deck.cpp -o "$BUILD_DIR/test_deck"
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyScheduler.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_scheduler.cpp \
@@ -41,6 +43,10 @@ SRC=../../src/apps_local/study
 # broke or where the cloze underline went.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   test_text.cpp -o "$BUILD_DIR/test_text"
+# The pairing write, against stubs/HalStorage.h: a card that refuses a write
+# into a missing folder the way SdFat does and the simulator does not.
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Istubs -I"$SRC" \
+  "$SRC/StudyBridgeFile.cpp" test_bridge_file.cpp -o "$BUILD_DIR/test_bridge_file"
 
 # The deck under test. An argument wins; otherwise build one. A failure here
 # is a failure of the suite: the tests below now REFUSE a missing deck rather
@@ -56,7 +62,9 @@ fi
 # Before the fixture is even needed: it takes no deck, and a wrap that is
 # broken makes every card unreadable whatever the deck says.
 "$BUILD_DIR/test_text"
+"$BUILD_DIR/test_bridge_file"
 "$BUILD_DIR/test_fsrs"
+"$BUILD_DIR/test_verdict"
 "$BUILD_DIR/test_deck" "$DECK"
 "$BUILD_DIR/test_scheduler"
 "$BUILD_DIR/test_stats"

@@ -884,7 +884,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   }
 
   // The three fields that matter, scraped without a JSON parser: this is a
-  // fixed, tiny document from one server, and lib/JsonParser's SAX tokens
+  // fixed, tiny document from one server, and the SDK JsonSax parser's tokens
   // truncate at 512 bytes which the alt text can exceed.
   // `fold` says whether this field is a sentence or an address. The lambda
   // serves all three, and one of them is the artwork URL: folding a character

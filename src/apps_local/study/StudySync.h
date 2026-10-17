@@ -148,6 +148,10 @@ class StudySync {
   // succeeds around them, so the verdict has to name them or the user is
   // told SYNCED and finds a deck missing.
   std::vector<std::string> failedDecks;
+  // Why the FIRST of them failed, as the clause the verdict prints after
+  // "<deck> could not be built: ". The bridge writes it (summary.failedWhy),
+  // so a new reason needs no firmware; empty when the bridge has none.
+  std::string firstFailedWhy;
   // Reviews the service could not apply because their card is no longer in
   // the collection (a deck deleted on the desktop, notes removed, a shared
   // deck re-imported with fresh card ids). They are dropped there and their

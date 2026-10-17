@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <functional>
 
+#include "ClippingStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
@@ -30,12 +31,10 @@ constexpr size_t NAME_BUFFER_SIZE = 500;
 
 std::string getBookCachePath(const std::string& path) {
   const char* prefix = nullptr;
-  if (FsHelpers::hasEpubExtension(path)) {
+  if (FsHelpers::hasReflowableBookExtension(path)) {
     prefix = "epub_";
   } else if (FsHelpers::hasXtcExtension(path)) {
     prefix = "xtc_";
-  } else if (FsHelpers::hasTxtExtension(path) || FsHelpers::hasMarkdownExtension(path)) {
-    prefix = "txt_";
   } else {
     return "";
   }
@@ -73,6 +72,8 @@ void formatFileName(const std::string& filename, char* buffer, const size_t buff
   const int length = static_cast<int>(dot == std::string::npos ? filename.size() : dot);
   const char* format = isDirectory && !UITheme::getInstance().getTheme().showsFileIcons() ? "[%.*s]" : "%.*s";
   snprintf(buffer, bufferSize, format, length, filename.c_str());
+  // Compose only the display copy; filesystem lookup needs the raw entry bytes.
+  utf8ComposeNfcInPlace(buffer);
 }
 
 void formatFileExtension(const std::string& filename, char* buffer, const size_t bufferSize) {
@@ -130,9 +131,8 @@ void FileBrowserActivity::loadFiles() {
         if (FsHelpers::checkFileExtension(filename, ".bin")) {
           files.emplace_back(filename);
         }
-      } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
-                 FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                 FsHelpers::hasBmpExtension(filename) || FsHelpers::hasPngExtension(filename)) {
+      } else if (FsHelpers::hasReflowableBookExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
+                 FsHelpers::hasImageExtension(filename)) {
         files.emplace_back(filename);
       }
     }
@@ -243,8 +243,7 @@ bool FileBrowserActivity::removeDirFile(const std::string& fullPath) {
 
   if (!file.isDirectory()) {
     file.close();
-    clearBookCache(fullPath);
-    return Storage.remove(fullPath.c_str());
+    return removeBookFile(fullPath);
   }
   file.close();
 
@@ -301,8 +300,7 @@ bool FileBrowserActivity::removeDirFile(const std::string& fullPath) {
       if (isDir) {
         stack.push_back({std::move(entryPath), false});
       } else {
-        clearBookCache(entryPath);
-        if (!Storage.remove(entryPath.c_str())) {
+        if (!removeBookFile(entryPath)) {
           LOG_ERR("FileBrowser", "Failed to remove file: %s", entryPath.c_str());
           return false;
         }
@@ -477,9 +475,9 @@ void FileBrowserActivity::renameSelectedFile(const std::string& oldPath, const s
 
   const std::string oldCachePath = getBookCachePath(oldPath);
   const std::string newCachePath = getBookCachePath(newPath);
-  const bool isEpub = FsHelpers::hasEpubExtension(oldPath);
-  const std::string oldBookmarkPath = isEpub ? BookmarkUtil::getBookmarkPath(oldPath) : "";
-  const std::string newBookmarkPath = isEpub ? BookmarkUtil::getBookmarkPath(newPath) : "";
+  const bool hasBookmarks = FsHelpers::hasReflowableBookExtension(oldPath);
+  const std::string oldBookmarkPath = hasBookmarks ? BookmarkUtil::getBookmarkPath(oldPath) : "";
+  const std::string newBookmarkPath = hasBookmarks ? BookmarkUtil::getBookmarkPath(newPath) : "";
   bool cacheMoved = false;
   bool bookmarksMoved = false;
   if (!moveStatePath(oldCachePath, newCachePath, cacheMoved)) return;
@@ -487,7 +485,7 @@ void FileBrowserActivity::renameSelectedFile(const std::string& oldPath, const s
     rollBackStatePath(oldCachePath, newCachePath, cacheMoved);
     return;
   }
-  if (!Storage.rename(oldPath.c_str(), newPath.c_str())) {
+  if (!ClippingStore::moveBook(oldPath, newPath)) {
     LOG_ERR("FileBrowser", "Failed to rename file: %s -> %s", oldPath.c_str(), newPath.c_str());
     rollBackStatePath(oldBookmarkPath, newBookmarkPath, bookmarksMoved);
     rollBackStatePath(oldCachePath, newCachePath, cacheMoved);
@@ -607,7 +605,11 @@ void FileBrowserActivity::buildScreen(UiScreen& screen) {
   {
     const int pathLineHeight = renderer.getLineHeight(SMALL_FONT_ID);
     const fui::Rect band = screen.takeBottom(static_cast<int16_t>(pathLineHeight + metrics.verticalSpacing));
-    screen.target().fill(fui::Rect{band.x, band.y, band.width, 3}, fui::Paint::solid(fui::Color::Black));
+    // fork-local seam: edge to edge, as the header's rule is. Clipped to the
+    // bezel's safe area it stopped 3px short of both sides and read as an inset
+    // that went wrong.
+    screen.target().fill(fui::Rect{0, band.y, static_cast<int16_t>(renderer.getScreenWidth()), 3},
+                         fui::Paint::solid(fui::Color::Black));
     const int pathY =
         band.y + metrics.verticalSpacing / 2 + (band.height - metrics.verticalSpacing / 2 - pathLineHeight) / 2;
     const int pathMaxWidth = band.width - metrics.contentSidePadding * 2;

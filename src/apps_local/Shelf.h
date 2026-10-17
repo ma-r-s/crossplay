@@ -192,6 +192,13 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput);
 // exist; this is how leaving GAMES puts the cursor back on GAMES.
 int lastFolderOnHome();
 
+// True exactly once after a shelf folder or a shelf app was opened: Home asks
+// on entry, and only then lands on lastFolderOnHome(). lastFolder is saved on
+// the card and outlives the visit, so without this one-shot every later return
+// to Home -- from Settings, from Files, after a reboot -- landed on GAMES too
+// (GitHub #301). Kept in RAM on purpose: a reboot starts from Home's own pick.
+bool takeHomeReturn();
+
 // The row folder `index` should reopen on -- which is to say the PAGE it should
 // reopen on, since the page is the row's. 0 if it has never been left anywhere.
 //

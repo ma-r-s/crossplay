@@ -23,7 +23,9 @@
 // mouse events is enough to get taps, holds and swipes at once.
 
 #include <emscripten/emscripten.h>
+#include <sys/time.h>
 
+#include <cerrno>
 #include <cstdint>
 
 #include "HalDisplay.h"
@@ -113,6 +115,16 @@ EMSCRIPTEN_KEEPALIVE void crossplay_key(const int scancode, const int down) {
   // isPressed() reads the keyboard state array rather than the queue, so both
   // have to move together or a held button reads as released.
   simbrowser::setKey(scancode, down != 0);
+}
+
+// lib/TrustedTime (upstream, 2026-09-30 sync) restores the clock with
+// settimeofday() when a cold boot reset it below the saved floor. Emscripten's
+// libc declares it and defines nothing, so the link failed. A page cannot set
+// the system clock, and the browser's clock is never behind the floor, so the
+// call is unreachable here in practice; refuse as POSIX does without privilege.
+int settimeofday(const struct timeval*, const struct timezone*) {
+  errno = EPERM;
+  return -1;
 }
 
 }  // extern "C"

@@ -512,6 +512,30 @@ void run() {
     const std::string ruby_text = ruby("\xe7\xa7\x81", "\xe3\x82\x8f\xe3\x81\x9f\xe3\x81\x97");
     check(fits(ruby_text.c_str(), 500), "a ruby-encoded base is accepted");
   }
+
+  // --- a bottom edge stops the drawing, not the measuring --------------------
+  // GitHub report box #669: a long card printed over the grading buttons. Three
+  // 20px lines from y=100 occupy 100-120, 120-140 and 140-160.
+  {
+    char line[256];
+    char scratch[256];
+    Recorder tight;
+    bool clipped = false;
+    const int end = study::drawWrappedMarked(tight, 1, 100, 70, "aaa bbb ccc ddd eee", 0, 0, false, line, sizeof(line),
+                                             scratch, 0, 150, &clipped);
+    check(tight.texts.size() == 2, "an edge at 150 draws only the two lines above it");
+    check(clipped, "and reports that it clipped");
+    check(end == 160, "the height returned is still the whole text's, so a measure agrees with a draw");
+
+    Recorder roomy;
+    bool roomyClipped = false;
+    study::drawWrappedMarked(roomy, 1, 100, 70, "aaa bbb ccc ddd eee", 0, 0, false, line, sizeof(line), scratch, 0, 160,
+                             &roomyClipped);
+    check(roomy.texts.size() == 3 && !roomyClipped, "an edge exactly at the last line's foot clips nothing");
+
+    Recorder unbounded = draw("aaa bbb ccc ddd eee", 70, 0, 0);
+    check(unbounded.texts.size() == 3, "without an edge every line is drawn, as before");
+  }
 }
 
 }  // namespace

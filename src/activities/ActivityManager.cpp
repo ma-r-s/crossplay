@@ -7,20 +7,24 @@
 #include <HalFrontlight.h>
 #include <HalPowerManager.h>
 #include <Memory.h>
+#include <VectorFontSupport.h>
 
 #include <algorithm>
 
 #include "CrossPointSettings.h"
+#include "HapticFeedback.h"
 #include "OpdsServerStore.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
+#include "components/HeaderBackTapTarget.h"
 #include "home/CrashActivity.h"
 #include "home/FileBrowserActivity.h"
 #include "home/HomeActivity.h"
 #include "library/LibraryListActivity.h"
 #include "network/CrossPointWebServerActivity.h"
 #include "network/UsbDriveActivity.h"
+#include "plugins/PluginCatalogActivity.h"
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
@@ -59,6 +63,16 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 1;
 #else
   constexpr BaseType_t renderTaskCore = 0;
+#endif
+#if CROSSPOINT_VECTOR_FONTS
+  // FreeType rasterization runs on this task, and the deepest observed chain
+  // is a glyph fault DURING LAYOUT: expat + parser + line-layout frames
+  // (~3.5KB on Xtensa) with the scan converter's FT_RENDER_POOL_SIZE (4KB)
+  // stack-resident band pool on top -- a measured ~8KB peak that trips the
+  // canary on an 8KB stack. Upstream sizes the stack from this flag; the fork
+  // keeps its one CROSSPOINT_RENDER_TASK_STACK and only refuses a board that
+  // enables vector fonts on less.
+  static_assert(CROSSPOINT_RENDER_TASK_STACK >= 16384, "vector fonts need a 16KB render task stack");
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
                           CROSSPOINT_RENDER_TASK_STACK,  // Stack size
@@ -211,13 +225,15 @@ void ActivityManager::loop() {
          currentActivity->name == "Settings" || currentActivity->name == "NetworkModeSelection")) {
       int tx = 0;
       int ty = 0;
-      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44;
+      // The header back button shares this band; its taps stay Back.
+      statusBarTap = mappedInput.wasScreenTapped(tx, ty) && ty < 44 && !HeaderBackTapTarget::contains(tx, ty);
     }
     // Guarded on present() so a board without a frontlight never opens a panel
     // for one. Pushed, so it returns to whatever was underneath -- including
     // mid-book.
     if (Frontlight.present() && currentActivity->name != "FrontlightPanel" &&
         (statusBarTap || mappedInput.wasLightPanelGesture())) {
+      haptic_feedback::touchAction();
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;
     }
@@ -288,6 +304,9 @@ void ActivityManager::loop() {
       } else if (pendingAction == PendingAction::Push) {
         // Move current activity to stack
         stackActivities.push_back(std::move(currentActivity));
+        // The parent's header back rect must not route taps on the pushed
+        // screen (which may draw no header of its own).
+        HeaderBackTapTarget::clear();
         LOG_DBG("ACT", "Pushed to activity stack, new size = %zu", stackActivities.size());
       }
       pendingAction = PendingAction::None;
@@ -332,6 +351,9 @@ void ActivityManager::exitActivity(const RenderLock& lock) {
     currentActivity->onExit();
     currentActivity.reset();
   }
+  // The outgoing screen's header back button must not eat taps on the next
+  // screen; the next header draw re-records it.
+  HeaderBackTapTarget::clear();
 }
 
 void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
@@ -353,6 +375,12 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
 
 void ActivityManager::goToFileTransfer() {
   replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput));
+}
+
+void ActivityManager::goToJoinNetwork() {
+  // Post heap-defrag reboot: enter the web-server activity straight in Join
+  // Network mode (skips mode selection, does not reboot again).
+  replaceActivity(std::make_unique<CrossPointWebServerActivity>(renderer, mappedInput, /*startInJoinNetwork=*/true));
 }
 
 void ActivityManager::goToUsbDrive() {
@@ -384,9 +412,17 @@ void ActivityManager::goToLibrary() {
 }
 
 void ActivityManager::goToBrowser() {
-  // Which catalog to open is the browser's rule, and it is written once there
-  // because the APPS row uses the same factory.
-  replaceActivity(OpdsBookBrowserActivity::create(renderer, mappedInput));
+  const auto& servers = OPDS_STORE.getServers();
+  // Skip the server picker when there's only one server configured
+  if (servers.size() == 1) {
+    replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0]));
+  } else {
+    replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
+  }
+}
+
+void ActivityManager::goToPlugins(bool showOpds) {
+  replaceActivity(std::make_unique<PluginCatalogActivity>(renderer, mappedInput, showOpds, /*rootMode=*/true));
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
@@ -395,7 +431,7 @@ void ActivityManager::goToReader(std::string path, const bool allowFastInitialRe
     return;
   }
 
-  if (FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path)) {
+  if (FsHelpers::hasImageExtension(path)) {
     auto activity = makeUniqueNoThrow<BmpViewerActivity>(renderer, mappedInput, std::move(path));
     if (!activity) {
       LOG_ERR("ACT", "OOM: bitmap viewer activity");
@@ -429,7 +465,7 @@ void ActivityManager::goHome(HomeMenuItem initialMenuItem, bool cleanInitialRefr
       initialMenuItem = HomeMenuItem::FILE_BROWSER;
     } else if (activityName == "Library") {
       initialMenuItem = HomeMenuItem::LIBRARY;
-    } else if (activityName == "OpdsBookBrowser") {
+    } else if (activityName == "OpdsBookBrowser" || activityName == "PluginCatalog") {
       initialMenuItem = HomeMenuItem::OPDS_BROWSER;
     } else if (activityName == "CrossPointWebServer") {
       initialMenuItem = HomeMenuItem::FILE_TRANSFER;
@@ -500,6 +536,12 @@ void ActivityManager::noteUpdateRequested() {
   updateRequestedAtMs.compare_exchange_strong(expected, static_cast<uint32_t>(millis()));
 }
 
+void ActivityManager::prepareForSleep() {
+  RenderLock lock;
+  for (const auto& activity : stackActivities) activity->prepareForSleep();
+  if (currentActivity) currentActivity->prepareForSleep();
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
   noteUpdateRequested();
   if (immediate) {
@@ -545,15 +587,12 @@ void ActivityManager::requestUpdateAndWait() {
 
 // RenderLock
 
-RenderLock::RenderLock() {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
+RenderLock::RenderLock(Mode mode) {
+  isLocked = xSemaphoreTake(activityManager.renderingMutex, mode == Mode::Try ? 0 : portMAX_DELAY) == pdTRUE;
+  assert((mode == Mode::Try || isLocked) && "Blocking render lock acquisition failed");
 }
 
-RenderLock::RenderLock([[maybe_unused]] Activity&) {
-  xSemaphoreTake(activityManager.renderingMutex, portMAX_DELAY);
-  isLocked = true;
-}
+RenderLock::RenderLock(Activity&) : RenderLock(Mode::Blocking) {}
 
 RenderLock::~RenderLock() {
   if (isLocked) {

@@ -44,6 +44,7 @@
       <div class="report-chips" role="group" aria-labelledby="report-device-label">
         <label><input type="checkbox" name="device" value="x4pro"><span>X4 Pro</span></label>
         <label><input type="checkbox" name="device" value="sticky"><span>Sticky</span></label>
+        <label><input type="checkbox" name="device" value="papermono"><span>PaperMono / Lite</span></label>
       </div>
     </div>
   </div>

@@ -587,6 +587,157 @@ def main(env):
         marker="HalSystem::panicReasonRecorded",
     )
 
+    # The 2026-09-30 sync brought CrossPoint's SD plugin system, whose web-server
+    # code the simulator package (20e73803, the same day) does not compile yet.
+    # Three gaps, each stubbed to the honest host answer rather than a pretend
+    # success. The fourth, ArduinoJson reading a String, is a define in
+    # platformio.sim.ini: the simulator's String was written for ArduinoJson's
+    # Arduino-string mode (its concat() says so) but nothing turned it on.
+    #
+    # Arduino's WebServer keeps parsed request arguments in _currentArgs and
+    # _postArgs, and CrossPointHttpServer frees them between requests to hand
+    # the memory back to TLS. The host shim keeps its arguments in its own Impl,
+    # so these stay empty and freeing them is a no-op.
+    patch(
+        src / "WebServer.h",
+        "  HTTPUpload &upload();\n\nprivate:\n  struct Impl;",
+        "  HTTPUpload &upload();\n\n"
+        "protected:\n"
+        "  // sim-catchup: see scripts_local/sim_catchup.py (SD plugins, 2026-09-30).\n"
+        "  struct RequestArgument {\n    String key;\n    String value;\n  };\n"
+        "  RequestArgument *_currentArgs = nullptr;\n"
+        "  int _currentArgCount = 0;\n"
+        "  RequestArgument *_postArgs = nullptr;\n"
+        "  int _postArgsLen = 0;\n\n"
+        "private:\n  struct Impl;",
+        "WebServer request-argument members",
+        marker="_currentArgCount",
+    )
+    # The plugin endpoints walk a String character by character.
+    patch(
+        src / "WString.h",
+        "  size_t length() const { return s.length(); }",
+        "  size_t length() const { return s.length(); }\n"
+        "  const char *begin() const { return s.c_str(); }\n"
+        "  const char *end() const { return s.c_str() + s.length(); }",
+        "String::begin/end (range-for)",
+        marker="const char *begin() const",
+    )
+    # Upstream's per-book content keys (lib/DeviceSecret, lib/Epub/BookKey,
+    # 2026-10) keep a device secret in NVS. The simulator's nvs.h and
+    # esp_random.h shadow sim-stubs/, so they are patched here. A blob read
+    # FAILS rather than reporting not-found: deviceSecret() then gives up
+    # instead of minting a fresh secret every launch, so protected books are
+    # visibly unsupported in the simulator rather than silently re-keyed.
+    patch(
+        src / "nvs.h",
+        "inline void nvs_close(nvs_handle_t /*handle*/) {}",
+        "inline void nvs_close(nvs_handle_t /*handle*/) {}\n"
+        "#ifndef ESP_ERR_NVS_NOT_FOUND\n#define ESP_ERR_NVS_NOT_FOUND 0x1102\n#endif\n"
+        "inline esp_err_t nvs_get_blob(nvs_handle_t, const char *, void *, size_t *) { return ESP_FAIL; }\n"
+        "inline esp_err_t nvs_set_blob(nvs_handle_t, const char *, const void *, size_t) { return ESP_FAIL; }",
+        "nvs blob calls (device secret unavailable on a host)",
+        marker="nvs_get_blob",
+    )
+    patch(
+        src / "esp_random.h",
+        "inline uint32_t esp_random() { return std::random_device{}(); }",
+        "inline uint32_t esp_random() { return std::random_device{}(); }\n"
+        "inline void esp_fill_random(void *buf, size_t len) {\n"
+        "  auto *p = static_cast<uint8_t *>(buf);\n"
+        "  for (size_t i = 0; i < len; i++) p[i] = static_cast<uint8_t>(esp_random());\n"
+        "}",
+        "esp_fill_random",
+        marker="esp_fill_random",
+    )
+    # /api/status lowercases ?plugin= before hashing it (upstream, 2026-10).
+    patch(
+        src / "WString.h",
+        "  void trim() {",
+        "  void toLowerCase() {\n"
+        "    for (char &c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));\n"
+        "  }\n"
+        "  void trim() {",
+        "String::toLowerCase",
+        marker="void toLowerCase()",
+    )
+    # lib/TrustedTime (same sync) sets the clock with settimeofday(). The ESP32
+    # Arduino core reaches <sys/time.h> through Arduino.h; the simulator's
+    # Arduino.h does not, and on a macOS host nothing else declares it.
+    patch(
+        src / "Arduino.h",
+        "#include <cstdlib>\n",
+        "#include <cstdlib>\n#include <sys/time.h>\n",
+        "Arduino.h includes <sys/time.h> (settimeofday)",
+        marker="<sys/time.h>",
+    )
+    # /api/status reports the factory MAC when the chip has one. A host has no
+    # eFuse, so the honest answer is "none" and the field is simply left out.
+    patch(
+        src / "HalGPIO.h",
+        "  bool hasTouch() const;",
+        "  bool hasTouch() const;\n"
+        "  bool getFactoryMac(char (&)[18]) const { return false; }",
+        "HalGPIO::getFactoryMac (none on a host)",
+        marker="getFactoryMac",
+    )
+    # On the device NetworkClient is a Print (Client -> Stream -> Print), and
+    # upstream's WebDAV GET (#3410) streams a file into it through
+    # HalStorage::readFileToStream(path, Print&). The simulator's is a bare class.
+    patch(
+        src / "NetworkClient.h",
+        "class NetworkClient {\n",
+        '#include "Print.h"\n\nclass NetworkClient : public Print {\n',
+        "NetworkClient is a Print, as on the device",
+        marker="class NetworkClient : public Print",
+    )
+    # A scripted run (sim-shot.sh) opens no visible window. A shown window is
+    # activated by macOS whatever SDL is told (SDL_MAC_BACKGROUND_APP and
+    # SDL_WINDOW_NO_ACTIVATION_WHEN_SHOWN both measured: the simulator still
+    # took the front for ~2s), which pulled Mario off whatever he was looking
+    # at on every screenshot an agent took. Hidden, it still renders and
+    # SDL_RenderReadPixels still reads the 2x frame. dev.sh and sim.sh do not
+    # set it, so the interactive window is unchanged.
+    patch(
+        src / "HalDisplay.cpp",
+        "SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);",
+        "(std::getenv(\"CROSSPOINT_SIM_HIDDEN\") ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |\n"
+        "                                SDL_WINDOW_ALLOW_HIGHDPI);",
+        "HalDisplay: CROSSPOINT_SIM_HIDDEN opens the window hidden",
+        marker="CROSSPOINT_SIM_HIDDEN",
+    )
+    # main.cpp steps a BQ27220 design-capacity load on every loop until it
+    # reports done (upstream, 2026-10). A host has no gauge: done at once.
+    patch(
+        src / "BatteryMonitor.h",
+        "  int getPercentage() { return 100; }",
+        "  int getPercentage() { return 100; }\n"
+        "  static bool loadDesignCapacity() { return false; }",
+        "BatteryMonitor::loadDesignCapacity (no gauge on a host)",
+        marker="loadDesignCapacity",
+    )
+    # The reader branches on the EEGO A4 (upstream, 2026-10); the simulator's
+    # BoardConfig has no such board, and is never one.
+    patch(
+        src / "BoardConfig.h",
+        "inline bool isPaperMono() { return ACTIVE.board == Board::PaperMono; }",
+        "inline bool isPaperMono() { return ACTIVE.board == Board::PaperMono; }\n"
+        "inline bool isEegoA4() { return false; }",
+        "BoardConfig::isEegoA4 (never, on a host)",
+        marker="isEegoA4",
+    )
+    # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
+    # asks for them on every board, and a host has none.
+    patch(
+        src / "HalGPIO.h",
+        "  bool hasTouch() const;",
+        "  bool hasTouch() const;\n"
+        "  bool wasCapacitivePagePressed() const { return false; }\n"
+        "  bool isCapacitivePagePressed(uint8_t) const { return false; }",
+        "HalGPIO capacitive page keys (none on a host)",
+        marker="wasCapacitivePagePressed",
+    )
+
     # -- the seam, checked rather than remembered -------------------------------
     #
     # lib/hal/HalStorage.h declares one surface; the simulator ships a SECOND

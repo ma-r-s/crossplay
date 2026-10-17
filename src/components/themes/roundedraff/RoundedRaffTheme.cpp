@@ -46,13 +46,12 @@ void drawScrollBar(const GfxRenderer& renderer, Rect rect, int itemCount, int pa
 }  // namespace
 int coverWidth = 0;
 
-void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title,
-                                  const char* subtitle) const {
-  // Home screen header is custom-rendered in drawRecentBookCover.
-  if (title == nullptr) {
-    return;
-  }
-  BaseTheme::drawHeader(renderer, rect, title, subtitle);
+void RoundedRaffTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
+                                  const bool backButton) const {
+  // fork-local seam: an untitled band (Home with no book open) still carries
+  // the battery, as every other theme's does. Returning early left the top of
+  // Home blank.
+  BaseTheme::drawHeader(renderer, rect, title, subtitle, backButton);
 }
 
 void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
@@ -66,7 +65,7 @@ void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
     coverWidth = RoundedRaffMetrics::values.homeCoverHeight * 0.6;
   }
   const int imgY = tileY + (tileHeight - RoundedRaffMetrics::values.homeCoverHeight) / 2;
-  const int tileX = RoundedRaffMetrics::values.contentSidePadding;
+  const int tileX = rect.x + RoundedRaffMetrics::values.contentSidePadding;
 
   // Draw book card regardless, fill with message based on `hasContinueReading`
   // Draw cover image as background if available (inside the box)
@@ -88,8 +87,11 @@ void RoundedRaffTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, con
           Bitmap bitmap(file);
           if (bitmap.parseHeaders() == BmpReaderError::Ok) {
             coverWidth = bitmap.getWidth();
-            renderer.drawBitmap(bitmap, tileX + (tileWidth - coverWidth) / 2, imgY, coverWidth,
-                                RoundedRaffMetrics::values.homeCoverHeight);
+            // Narrow covers come out taller than the slot; fill 1:1 and crop
+            // vertically instead of rescaling the dither.
+            drawCoverThumbFill(renderer, bitmap,
+                               Rect{tileX + (tileWidth - coverWidth) / 2, imgY, coverWidth,
+                                    RoundedRaffMetrics::values.homeCoverHeight});
             renderer.maskRoundedRectOutsideCorners(tileX + (tileWidth - coverWidth) / 2, imgY, coverWidth,
                                                    RoundedRaffMetrics::values.homeCoverHeight, kCoverRadius,
                                                    Color::LightGray);
@@ -140,13 +142,15 @@ int RoundedRaffTheme::getMenuRowHeight(const GfxRenderer& renderer) const {
 
 void RoundedRaffTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                       const std::function<std::string(int index)>& buttonLabel,
-                                      const std::function<UIIcon(int index)>& rowIcon, const int rowSpacing) const {
+                                      const std::function<UIIcon(int index)>& rowIcon, const int rowSpacing,
+                                      const int rowHeightOverride) const {
   (void)rowIcon;
   const int sidePadding = RoundedRaffMetrics::values.contentSidePadding;
   const int rowX = rect.x + sidePadding;
-  const int rowHeight = getMenuRowHeight(renderer);  // shared with HomeActivity's touch grid
-  // -1 means "use this theme's own gap"; HomeActivity passes a tighter value
-  // when seven rows would otherwise not fit.
+  // Shared with HomeActivity's touch grid. -1 means "use this theme's own";
+  // HomeActivity passes tighter values when its rows would otherwise run off
+  // the panel or, here, onto a second page nobody can see (fork-local seam).
+  const int rowHeight = rowHeightOverride > 0 ? rowHeightOverride : getMenuRowHeight(renderer);
   const int rowGap = rowSpacing >= 0 ? rowSpacing : kSelectableRowGap;
   const int rowStep = rowHeight + rowGap;
   const int pageItems = std::max(1, rect.height / rowStep);

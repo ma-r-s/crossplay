@@ -9,7 +9,9 @@
 // bugs this file would have caught the day they were written are pinned below.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -24,6 +26,9 @@
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/go/GoScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
+#include "../../src/apps_local/hearts/HeartsBrain.h"
+#include "../../src/apps_local/hearts/HeartsScreens.h"
+#include "../../src/apps_local/hex/HexScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
 #include "../../src/apps_local/jaipur/JaipurScreens.h"
@@ -32,6 +37,7 @@
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
+#include "../../src/apps_local/notes/NotesScreens.h"
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
@@ -50,6 +56,7 @@
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 #include "../../src/apps_local/wikipedia/WikipediaScreens.h"
+#include "../../src/apps_local/wordle/WordleScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
 #include "../../src/apps_local/yahtzee/YahtzeeScreens.h"
 
@@ -1004,6 +1011,422 @@ void testSettingsRouting() {
 // headerBand() itself rather than against any one app's screen: a per-app
 // assertion is precisely what let 12 of the fork's 41 band sites ship with no
 // rule at all, the Yahtzee card among them.
+
+// --- Hearts ---------------------------------------------------------------
+//
+// The three checks below are mechanical versions of the three things a person
+// looking at a screen calls "butchered": something on top of something else,
+// something off the edge, and a control that draws but cannot be tapped.
+//
+// They exist because a play-tester found all three classes on this app's first
+// renders -- a trick card 26px through the place underneath it, an empty seat
+// marker whose NAME was cut to "...", and a table drawn during a phase that has
+// no table -- and every one of them was invisible to a suite that only asked
+// whether a builder ran.
+fui::DeviceContext heartsDevice() {
+  fui::DeviceContext ctx;
+  ctx.width = 800;
+  ctx.height = 480;
+  ctx.hasTouch = true;
+  ctx.hasButtons = true;
+  return ctx;
+}
+
+toybox::Screen heartsScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = heartsui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+bool rectsOverlap(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+
+// Deals and passes so the game is in Phase::Playing with a real hand.
+void heartsDealIntoPlay(hearts::Game& game, uint32_t& seed) {
+  hearts::newGame(game, seed);
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    uint8_t three[hearts::kPassCount] = {game.hands[s].at(0), game.hands[s].at(1), game.hands[s].at(2)};
+    hearts::setPass(game, static_cast<hearts::Seat>(s), three, hearts::kPassCount);
+  }
+  hearts::commitPass(game);
+}
+
+void heartsFillModel(heartsui::BoardModel& model, const hearts::Game& game) {
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  model.game = &game;
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    model.seats[s].name = kNames[s];
+    model.seats[s].initial = kNames[s][0];
+    model.seats[s].total = 10 * s;
+    model.seats[s].taken = s;
+    model.seats[s].isMe = s == 0;
+    model.seats[s].isTurn = game.turn == static_cast<hearts::Seat>(s);
+  }
+  const hearts::Hand& hand = game.hands[0];
+  for (int i = 0; i < hand.count; ++i) {
+    model.legal[i] = hearts::isLegalPlay(game, hearts::Seat::South, hand.at(i));
+  }
+  // READ OUT OF THE APP, not retyped. This said "HEARTS SHUT" -- a string the
+  // app deleted two commits ago -- which is a corpus already drifting in the
+  // sibling suite of the one built to stop exactly that.
+  model.status = heartsui::statusTemplate(heartsui::Status::FollowSuit);
+  model.subStatus = heartsui::heartsStateText(false);
+}
+
+void heartsDrawsNothingOnTopOfAnythingElse() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  uint32_t seed = 4242;
+  hearts::Game game;
+  heartsDealIntoPlay(game, seed);
+  // Put three cards on the table so the diamond is at its fullest.
+  for (int i = 0; i < 3; ++i) {
+    uint8_t legal[hearts::kHandSize];
+    const int n = hearts::legalPlays(game, game.turn, legal);
+    CHECK(n > 0);
+    if (n > 0) hearts::playCard(game, legal[0]);
+  }
+
+  Rendered board;
+  heartsui::Layout layout;
+  {
+    toybox::Frame frame(board.target, ctx, noInput, board.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    heartsFillModel(model, game);
+    heartsui::buildBoard(screen, model, layout);
+  }
+
+  // The probe SAW this screen. Without this, a render that drew no chrome at
+  // all would pass exactly as well as one that drew it correctly.
+  CHECK(bandRectOf(board.target).height == heartsui::kHeaderBand);
+  CHECK(board.target.drew("HEARTS"));
+  CHECK(board.target.drew(heartsui::statusTemplate(heartsui::Status::FollowSuit)));
+
+  // 1. THE FOUR PLACES DO NOT TOUCH. North's card ran six pixels into South's
+  //    place once, and the two read as one object.
+  for (int a = 0; a < hearts::kSeats; ++a) {
+    for (int b = a + 1; b < hearts::kSeats; ++b) {
+      CHECK(!rectsOverlap(layout.trickCard[a], layout.trickCard[b]));
+    }
+  }
+
+  // 2. THE DIAMOND IS INSIDE ITS PANEL. A card that fits the screen but not the
+  //    table still reads as spilled.
+  for (int i = 0; i < hearts::kSeats; ++i) {
+    const fui::Rect& slot = layout.trickCard[i];
+    CHECK(slot.x >= layout.felt.x);
+    CHECK(slot.y >= layout.felt.y);
+    CHECK(slot.right() <= layout.felt.right());
+    CHECK(slot.bottom() <= layout.felt.bottom());
+  }
+
+  // 3. NOTHING RUNS OFF THE PANEL, and the hand never reaches the table.
+  CHECK(layout.handCount == game.hands[0].count);
+  for (int i = 0; i < layout.handCount; ++i) {
+    const fui::Rect& card = layout.handCard[i];
+    CHECK(card.x >= 0);
+    CHECK(card.right() <= ctx.width);
+    CHECK(card.bottom() <= ctx.height);
+    CHECK(card.y >= layout.felt.bottom());
+  }
+
+  // 4. EVERY CARD IS REACHABLE, AND A TAP LANDS ON THE CARD IT LOOKS LIKE.
+  //    kMaxInteractions is 24 and the buffer drops silently past it, so a
+  //    thirteen-card hand is close enough to the ceiling to be worth asserting.
+  CHECK(!board.interactions.overflowed());
+  for (int i = 0; i < layout.handCount; ++i) {
+    const fui::Rect& card = layout.handCard[i];
+    // The left edge of a fanned card is the part of it you can see.
+    const fui::ActionEvent hit = board.tap(card.x + 4, card.y + 20);
+    CHECK(hit.action == heartsui::ActionHandCard);
+    CHECK(hit.value == i);
+  }
+}
+
+// The pass is a different screen wearing the same frame, and it was the one
+// that drew a table for a phase that has none.
+void heartsPassOwnsTheTable() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  uint32_t seed = 77;
+  hearts::Game game;
+  hearts::newGame(game, seed);
+  CHECK(game.phase == hearts::Phase::Passing);
+
+  Rendered pass;
+  heartsui::Layout layout;
+  {
+    toybox::Frame frame(pass.target, ctx, noInput, pass.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    heartsFillModel(model, game);
+    model.picked[0] = true;
+    model.picked[1] = true;
+    model.picked[2] = true;
+    model.pickedCount = 3;
+    model.status = "PICK THREE CARDS TO PASS LEFT";
+    model.showConfirm = true;
+    model.confirmLabel = "PASS";
+    model.confirmEnabled = true;
+    heartsui::buildBoard(screen, model, layout);
+  }
+  CHECK(pass.target.drew("PASSING LEFT"));
+  CHECK(pass.target.drew("PICK THREE CARDS TO PASS LEFT"));
+  // The confirm button is registered, not merely drawn.
+  CHECK(pass.has(heartsui::ActionButton));
+  CHECK(!pass.interactions.overflowed());
+  // A full thirteen-card hand is still individually tappable during the pass.
+  CHECK(layout.handCount == hearts::kHandSize);
+  for (int i = 0; i < layout.handCount; ++i) {
+    CHECK(layout.handCard[i].right() <= ctx.width);
+    CHECK(layout.handCard[i].x >= 0);
+  }
+}
+
+// The score screen, at the two shapes it has: an ordinary hand and a moon.
+void heartsScoreSaysWhatHappened() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  hearts::Game game;
+  for (int s = 0; s < hearts::kSeats; ++s) game.total[s] = 0;
+  game.taken[0] = 5;
+  game.taken[1] = 8;
+  game.taken[2] = 13;
+  game.taken[3] = 0;
+  hearts::scoreHand(game);
+
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  {
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("HAND OVER"));
+    CHECK(score.target.drew("NEXT HAND"));
+    CHECK(bandRectOf(score.target).height == heartsui::kHeaderBand);
+  }
+
+  // GAME OVER, which no test set. The bars come off here: left running, the
+  // fullest bar on the final screen is the LOSER's, because the meter is a race
+  // to a hundred and reaching it is how you lose.
+  {
+    hearts::Game over;
+    // Distinct totals, so there IS a winner to name. The first version of this
+    // put three seats on 40 and then asserted a winner was drawn: the code was
+    // right and the test was wrong, which is the only way round worth having.
+    over.total[seatIndex(hearts::Seat::South)] = 96;
+    over.total[seatIndex(hearts::Seat::West)] = 31;
+    over.total[seatIndex(hearts::Seat::North)] = 52;
+    over.total[seatIndex(hearts::Seat::East)] = 44;
+    over.taken[seatIndex(hearts::Seat::South)] = 13;
+    hearts::scoreHand(over);
+    CHECK(over.phase == hearts::Phase::GameOver);
+    CHECK(!hearts::isTied(over));
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &over;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = true;
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("GAME OVER"));
+    CHECK(score.target.drew("PLAY AGAIN"));
+    // EVERY ROW CARRIES ITS PLACE. Taking the bars off the final screen fixed a
+    // backwards signal and left a ~490px void inside three of the four bordered
+    // rows; the places fill the span the bars vacated.
+    CHECK(score.target.drew("1ST"));
+    CHECK(score.target.drew("2ND"));
+    CHECK(score.target.drew("3RD"));
+    CHECK(score.target.drew("4TH"));
+    // The note names the winner and the MARGIN, not the total the row already
+    // shows. "YOU WINS" is the conjugation bug this screen had once.
+    // drew() matches a whole run, so the margin is spelled out: West on 31,
+    // East second on 44.
+    CHECK(score.target.drew("WEST WINS BY 13"));
+    CHECK(!score.target.drew("YOU WINS"));
+  }
+
+  // AND A TIE NAMES NOBODY. isTied() is true for any n > 1, and the note used
+  // to say "TWO LEAD" whatever n actually was.
+  {
+    hearts::Game drawn;
+    for (int s = 0; s < hearts::kSeats; ++s) drawn.total[s] = 37;
+    drawn.total[seatIndex(hearts::Seat::South)] = 101;
+    drawn.taken[seatIndex(hearts::Seat::South)] = 13;
+    hearts::scoreHand(drawn);
+    CHECK(drawn.phase == hearts::Phase::GameOver);
+    CHECK(hearts::isTied(drawn));
+    Rendered tie;
+    toybox::Frame frame(tie.target, ctx, noInput, tie.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &drawn;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = true;
+    heartsui::buildScore(screen, model);
+    CHECK(tie.target.drew("TIED ON 37"));
+    CHECK(!tie.target.drew("WINS"));
+  }
+
+  // A moon inverts the whole hand. A scoreboard that just shows three seats
+  // gaining 26 looks like a bug, so it is said in words.
+  hearts::Game moon;
+  for (int s = 0; s < hearts::kSeats; ++s) moon.total[s] = 0;
+  moon.taken[1] = hearts::kMoonPoints;
+  hearts::scoreHand(moon);
+  CHECK(moon.lastHand.moon);
+  {
+    Rendered score;
+    toybox::Frame frame(score.target, ctx, noInput, score.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &moon;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    heartsui::buildScore(screen, model);
+    CHECK(score.target.drew("WEST SHOT THE MOON"));
+
+    // THE BANNER HAS TO BE PAID FOR. It pushes the rows down 62px, and when
+    // nothing accounted for that the standings line landed 8px INSIDE the foot:
+    // painted over by the button plate on its left and printed through the rule
+    // text on its right, on the one screen a moon has earned. Asserted against
+    // the button's own drawn rect rather than against a number, so it still
+    // holds when a row height changes.
+    const fui::Rect* note = nullptr;
+    const fui::Rect* button = nullptr;
+    for (const auto& run : score.target.texts) {
+      if (run.text.find("BEHIND") != std::string::npos || run.text.find("LEAD") != std::string::npos ||
+          run.text.find("LEVEL") != std::string::npos) {
+        note = &run.rect;
+      }
+      if (run.text == "NEXT HAND") button = &run.rect;
+    }
+    CHECK(note != nullptr);
+    CHECK(button != nullptr);
+    if (note != nullptr && button != nullptr) {
+      CHECK(note->bottom() <= button->y);
+    }
+  }
+}
+
+// The rules screen exists and says the two things that catch every new player,
+// plus the one line that is about this screen rather than about Hearts.
+void heartsHowToTeachesTheTwoTrickyRules() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  CHECK(heartsui::howToPages() >= 3);
+  bool sawLeadRule = false;
+  bool sawFirstTrickRule = false;
+  bool sawGreyCardRule = false;
+  bool sawMoon = false;
+  for (int page = 0; page < heartsui::howToPages(); ++page) {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::HowToModel model;
+    model.page = page;
+    heartsui::buildHowTo(screen, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    CHECK(!out.interactions.overflowed());
+    // Every page can be left, or the screen is a trap.
+    CHECK(out.has(heartsui::ActionButton));
+    // MATCHED ON A PHRASE, NOT A WHOLE LINE. Asserting the exact line means the
+    // test breaks every time a line is reworded to fit -- which it was, when
+    // host-tests/fittedtitle started measuring these in the real face -- and a
+    // test that has to be edited alongside the string it guards is a test that
+    // will eventually be edited to agree with a mistake. What this cares about
+    // is that the four rules a player needs are SOMEWHERE on some page.
+    for (int line = 0; line < heartsui::howToLines(page); ++line) {
+      const std::string text = heartsui::howToLine(page, line);
+      if (text.find("MAY NOT LEAD A HEART") != std::string::npos) sawLeadRule = true;
+      if (text.find("NO HEART AND NO") != std::string::npos) sawFirstTrickRule = true;
+      if (text.find("GREY CARD") != std::string::npos) sawGreyCardRule = true;
+      if (text.find("THE MOON") != std::string::npos) sawMoon = true;
+      // And every line the corpus holds really did reach the panel.
+      CHECK(out.target.drew(text.c_str()));
+    }
+  }
+  CHECK(sawLeadRule);
+  CHECK(sawFirstTrickRule);
+  CHECK(sawGreyCardRule);
+  CHECK(sawMoon);
+}
+
+void heartsMenuFillsItsPanel() {
+  const fui::DeviceContext ctx = heartsDevice();
+  const fui::InputSnapshot noInput{};
+  Rendered menu;
+  toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+  fui::ThemeTokens tokens;
+  toybox::Screen screen = heartsScreen(frame, tokens);
+  heartsui::MenuModel model;
+  model.hasSave = true;
+  model.savedHand = 3;
+  model.gamesPlayed = 7;
+  model.gamesWon = 2;
+  model.bestPlace = 1;
+  model.sharp = true;
+  heartsui::buildMenu(screen, model);
+  CHECK(menu.target.drew("HEARTS"));
+  CHECK(menu.target.drew("TABLE WAITING"));
+  CHECK(menu.target.drew("RESUME"));
+  CHECK(menu.target.drew("TABLE: SHARP"));
+  // The door to the rules is on the menu, and it is a label that cannot
+  // truncate: "HOW TO PLAY" did not fit its button and shipped as "HOW TO P...".
+  CHECK(menu.target.drew("RULES"));
+  // DRAWN IS NOT TAPPABLE. The rules button sits in the header band, which is
+  // absolute chrome, and "it is on screen" says nothing about whether the hit
+  // table carries it. Routed at the pixel it was drawn at, which is the only
+  // question that matters.
+  {
+    const fui::ActionEvent hit = menu.tap(800 - 152 + 68, 8 + (heartsui::kHeaderBand - 16) / 2);
+    CHECK(hit.action == heartsui::ActionButton);
+    CHECK(hit.value == heartsui::ButtonHowTo);
+  }
+  // And so are the three in the foot.
+  {
+    const fui::ActionEvent resume = menu.tap(32 + 118, 480 - 12 - 68 + 34);
+    CHECK(resume.action == heartsui::ActionButton);
+    CHECK(resume.value == heartsui::ButtonConfirm);
+    const fui::ActionEvent fresh = menu.tap(280 + 100, 480 - 12 - 68 + 34);
+    CHECK(fresh.action == heartsui::ActionButton);
+    CHECK(fresh.value == heartsui::ButtonMenu);
+    const fui::ActionEvent table = menu.tap(492 + 138, 480 - 12 - 68 + 34);
+    CHECK(table.action == heartsui::ActionButton);
+    CHECK(table.value == heartsui::ButtonHint);
+  }
+  CHECK(!menu.interactions.overflowed());
+  CHECK(bandRectOf(menu.target).height == heartsui::kHeaderBand);
+}
+
 // --- Solitaire ------------------------------------------------------------
 //
 // The one app the ui suite COMPILED and never rendered. That is not a gap in
@@ -1544,6 +1967,90 @@ void testConnectionsTilesShareOneSize() {
 //
 // A 31-day month starting on a Saturday is the worst case: six week rows and
 // the most days that can be live at once.
+// A day's mark sits below its number, never on it. The sparkle used to start
+// inside the number's own line, so a solved 22 read as a star over "22" (Mario,
+// in Wordle's archive, which draws this same calendar). Checked for the three
+// marks a day can carry: sparkle (solved), cross (lost), ring (started).
+void testCalendarMarksClearTheirDate() {
+  connectionsui::CalendarDay cells[42] = {};
+  for (int d = 1; d <= 30; ++d) {
+    cells[d - 1].day = static_cast<uint8_t>(d);
+    cells[d - 1].inArchive = true;
+  }
+  cells[21].played = cells[21].finished = true;                // 22: solved, sparkle
+  cells[9].played = cells[9].finished = cells[9].lost = true;  // 10: lost, cross
+  cells[4].played = true;                                      // 5: started, ring
+  connectionsui::CalendarModel model;
+  model.cells = cells;
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  const connectionsui::CalendarLayout layout = connectionsui::buildCalendar(screen, model);
+
+  // Not merely clear: a mark two pixels under its number was clear and still
+  // read as touching it (Mario, the second time). Six is the least gap asked.
+  constexpr int kClearance = 6;
+  const auto numberBottom = [&out](const char* label) {
+    for (const auto& run : out.target.texts) {
+      if (run.text == label) return run.rect.y + run.rect.height + kClearance;
+    }
+    return -1;
+  };
+  const auto cellOf = [&layout](const int index) {
+    const int step = layout.cell + layout.gap;
+    return fui::makeRect(layout.originX + (index % layout.cols) * step, layout.originY + (index / layout.cols) * step,
+                         layout.cell, layout.cell);
+  };
+  const auto inside = [](const fui::Rect& r, const int x, const int y) {
+    return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+  };
+
+  // Sparkle: every triangle point inside cell 22 is below its number.
+  const fui::Rect c22 = cellOf(21);
+  const int b22 = numberBottom("22");
+  int sparklePoints = 0;
+  bool sparkleClear = true;
+  for (const auto& t : out.target.triangles) {
+    for (const fui::Point p : {t.a, t.b, t.c}) {
+      if (!inside(c22, p.x, p.y)) continue;
+      ++sparklePoints;
+      if (p.y < b22) sparkleClear = false;
+    }
+  }
+  CHECK(b22 > 0 && sparklePoints > 0);
+  check(sparkleClear, "a solved day's sparkle starts below its number", __LINE__);
+
+  // Cross: both strokes of day 10's cross are below its number.
+  const fui::Rect c10 = cellOf(9);
+  const int b10 = numberBottom("10");
+  int crossEnds = 0;
+  bool crossClear = true;
+  for (const auto& l : out.target.lines) {
+    for (const fui::Point p : {l.a, l.b}) {
+      if (!inside(c10, p.x, p.y)) continue;
+      ++crossEnds;
+      if (p.y < b10) crossClear = false;
+    }
+  }
+  CHECK(b10 > 0 && crossEnds > 0);
+  check(crossClear, "a lost day's cross starts below its number", __LINE__);
+
+  // Ring: the started day's outline is below its number.
+  const fui::Rect c5 = cellOf(4);
+  const int b5 = numberBottom("5");
+  bool ringFound = false;
+  bool ringClear = true;
+  for (const auto& st : out.target.strokes) {
+    if (!inside(c5, st.rect.x, st.rect.y) || (st.rect.width == c5.width && st.rect.height == c5.height)) continue;
+    ringFound = true;
+    if (st.rect.y < b5) ringClear = false;
+  }
+  CHECK(b5 > 0 && ringFound);
+  check(ringClear, "a started day's ring starts below its number", __LINE__);
+}
+
 void testConnectionsCalendarEveryDayIsReachable() {
   connectionsui::CalendarDay cells[42] = {};
   constexpr int kLead = 6;   // 1st falls on a Saturday
@@ -2661,7 +3168,7 @@ void testShelfFolderMarksNoRow() {
   constexpr int kCount = 5;
   const freeink::Icon* const palette[kCount] = {&icon_study_32, &icon_hackernews_32, &icon_xkcd_32, &icon_games_32,
                                                 &icon_apps_32};
-  const char* titles[kCount] = {"STUDY", "HACKER NEWS", "XKCD", "GET BOOKS", "INSTAPAPER"};
+  const char* titles[kCount] = {"STUDY", "HACKER NEWS", "XKCD", "WALLPAPERS", "INSTAPAPER"};
   fui::ListItem items[kCount] = {};
   for (int i = 0; i < kCount; ++i) {
     items[i].label = titles[i];
@@ -6003,6 +6510,586 @@ void testTheFrontDoorIsThreeDoors() {
   buildGo<goui::MenuModel, goui::buildMenu>(over, after);
   CHECK(over.target.drew("LAST GAME: WON BY 5.5"));
   CHECK(!over.has(goui::ActionDiscard));
+}
+
+// --- hex --------------------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildHex(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one. A hundred and twenty one cells do not fit the
+// interaction table, so the board is hit-tested arithmetically from the
+// geometry that drew it, and the two have to be exact inverses or a tap places
+// a stone somewhere else.
+//
+// Hex's version is harder than a squared board's and harder than go's, because
+// a hexagonal lattice is not a grid: the inverse is a fractional axial
+// coordinate put through cube rounding, and rounding the row and the column
+// independently instead claims the RHOMBUS of four centres rather than the
+// hexagon. That is wrong by up to a third of a cell along every slanted edge,
+// which is most of the board.
+void testTheHexCellYouTapIsTheCellTheRulesGet() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    int got = -1;
+    CHECK(hexui::cellAt(layout, cx, cy, got));
+    CHECK(got == cell);
+
+    // And the rest of the hexagon with it. These six probes sit inside every
+    // edge -- the four slanted ones at (a, h/2) and the two points at (2a, 0)
+    // -- so between them they cover the directions a finger misses in.
+    const int probes[6][2] = {{cx - layout.a, cy - layout.h / 2}, {cx + layout.a, cy - layout.h / 2},
+                              {cx - layout.a, cy + layout.h / 2}, {cx + layout.a, cy + layout.h / 2},
+                              {cx - 2 * layout.a + 2, cy},        {cx + 2 * layout.a - 2, cy}};
+    for (const auto& probe : probes) {
+      int near = -1;
+      CHECK(hexui::cellAt(layout, probe[0], probe[1], near));
+      CHECK(near == cell);
+    }
+  }
+
+  // Every cell is reachable and no two share a centre, which is the other half
+  // of "exact inverse": a mapping that sent two cells to one pixel would pass
+  // the walk above in one direction and be useless in the other.
+  bool seen[hex::kCells] = {};
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    int got = -1;
+    hexui::cellAt(layout, cx, cy, got);
+    CHECK(!seen[got]);
+    seen[got] = true;
+  }
+}
+
+void testTheHexBoardRunsCornerToCornerAndClearsTheChrome() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  const int16_t radius = hexui::stoneRadius(layout);
+  CHECK(radius > 12);
+
+  // Corner to corner: cell (0,0) is at the top left of the box and (10,10) at
+  // the bottom right, which is what makes the rhombus fill a PORTRAIT panel
+  // rather than a band across the middle of it.
+  int16_t topLeftX = 0;
+  int16_t topLeftY = 0;
+  int16_t bottomRightX = 0;
+  int16_t bottomRightY = 0;
+  hexui::cellCentre(layout, hex::cellAt(0, 0), topLeftX, topLeftY);
+  hexui::cellCentre(layout, hex::cellAt(10, 10), bottomRightX, bottomRightY);
+  CHECK(bottomRightX > topLeftX);
+  CHECK(bottomRightY > topLeftY);
+  // And it is TALLER than it is wide, which is the whole argument for drawing
+  // the hexagons flat-top: the conventional pointy-top layout is width-bound
+  // and would leave most of this panel empty.
+  CHECK(bottomRightY - topLeftY > bottomRightX - topLeftX);
+
+  // Every one of the 121 cells sits clear of the chrome and inside the panel,
+  // stone and all.
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    int16_t cx = 0;
+    int16_t cy = 0;
+    hexui::cellCentre(layout, cell, cx, cy);
+    CHECK(cy - layout.h >= toybox::kChromeHeight);
+    CHECK(cy + layout.h <= device().height);
+    CHECK(cx - 2 * layout.a >= 0);
+    CHECK(cx + 2 * layout.a <= device().width);
+  }
+
+  // The chrome is not the board, and neither is the paper below it. A tap that
+  // lands on the header must not place a stone. The mid-line comes from the
+  // device, not from 240: this file's own rule, and the board it is testing
+  // takes both extents the same way.
+  const int16_t midX = static_cast<int16_t>(device().width / 2);
+  int got = -1;
+  CHECK(!hexui::cellAt(layout, midX, toybox::kHeaderHeight / 2, got));
+  CHECK(!hexui::cellAt(layout, midX, device().height - 4, got));
+
+  // And every pixel of every control the notches hold. This is the assertion
+  // that was missing when "PLAY AG..." shipped: the board is hit-tested from
+  // geometry BEFORE the interaction table is routed, so a control the rhombus
+  // overlaps is a control whose taps place a stone instead -- drawn, listed in
+  // the table, and unreachable. A screenshot caught the elision; nothing at all
+  // would have caught the overlap.
+  //
+  // Walked point by point rather than corner by corner, because the boundary
+  // this clears is a ZIGZAG of hexagon edges: four corners miss the tooth
+  // between them, which is exactly the shape that would creep back.
+  const fui::Rect notches[] = {hexui::theirCardRect(layout), hexui::yourCardRect(layout),
+                               hexui::againButtonRect(layout), hexui::doneButtonRect(layout)};
+  int probed = 0;
+  int overlapped = 0;
+  for (const fui::Rect& box : notches) {
+    CHECK(box.width > 0 && box.height > 0);
+    for (int16_t y = box.y; y < box.bottom(); ++y) {
+      for (int16_t x = box.x; x < box.right(); ++x) {
+        ++probed;
+        int cell = -1;
+        if (!hexui::cellAt(layout, x, y, cell)) continue;
+        // Reported once, with the point, because "a control overlaps the board"
+        // is unactionable and "(264,103) is cell 5" is a number to move.
+        if (overlapped == 0) {
+          std::printf("      hex notch: (%d,%d) inside a control is cell %d\n", static_cast<int>(x),
+                      static_cast<int>(y), cell);
+        }
+        ++overlapped;
+      }
+    }
+  }
+  // Before believing the probe said no, prove the probe can say yes: a loop
+  // over four empty rects is silent in exactly the same way as a clean one.
+  CHECK(probed > 20000);
+  CHECK(overlapped == 0);
+}
+
+void testTheHexBoardNamesBothSeatsAndTheirEdges() {
+  hexui::BoardModel model;
+  hex::reset(model.game);
+  model.seat = hex::kBlack;
+  model.opponentName = "MARIO";
+
+  Rendered out;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(out, model);
+  CHECK(out.target.drew("YOU"));
+  CHECK(out.target.drew("MARIO"));
+  // The edges are named in WORDS, not left to the border strips. A player who
+  // has to work out which pair is theirs from two shades of bar is a player who
+  // plays a move for the wrong goal, and there is no taking it back.
+  CHECK(out.target.drew("TOP TO BOTTOM"));
+  CHECK(out.target.drew("LEFT TO RIGHT"));
+  CHECK(!out.interactions.overflowed());
+
+  // Thinking is said in the band, because the board is the whole panel and
+  // there is no status line under it to put it in.
+  model.thinking = true;
+  Rendered busy;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(busy, model);
+  CHECK(busy.target.drew("THINKING"));
+
+  // Two people sharing one device have no "you": the cards name the colours.
+  model.thinking = false;
+  model.sharedDevice = true;
+  model.opponentName = nullptr;
+  Rendered shared;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(shared, model);
+  CHECK(shared.target.drew("BLACK"));
+  CHECK(shared.target.drew("WHITE"));
+  CHECK(!shared.target.drew("YOU"));
+}
+
+void testTheHexResultNamesTheWinnerFromYourSeat() {
+  hexui::ResultModel model;
+  hex::reset(model.game);
+  for (int row = 0; row < hex::kSize; ++row) {
+    model.game.toMove = hex::kBlack;
+    hex::play(model.game, hex::cellAt(row, 5));
+  }
+  CHECK(model.game.winner == hex::kBlack);
+  CHECK(hex::winningChain(model.game, model.chain));
+
+  model.seat = hex::kBlack;
+  Rendered won;
+  buildHex<hexui::ResultModel, hexui::buildResult>(won, model);
+  CHECK(won.target.drew("YOU WIN"));
+  // Both doors, and both of them tappable: PLAY AGAIN sitting where the
+  // opponent's card was is the one place on this screen with room for them.
+  CHECK(won.has(hexui::ActionAgain));
+  CHECK(won.has(hexui::ActionDone));
+  CHECK(won.target.drew("PLAY AGAIN"));
+  CHECK(won.target.drew("DONE"));
+  CHECK(!won.interactions.overflowed());
+
+  model.seat = hex::kWhite;
+  Rendered lost;
+  buildHex<hexui::ResultModel, hexui::buildResult>(lost, model);
+  CHECK(lost.target.drew("THEY WIN"));
+  CHECK(!lost.target.drew("YOU WIN"));
+
+  // Two people sharing one device have no "you", so the headline names the
+  // colour instead. Saying YOU WIN to a pair of players names the wrong one.
+  model.sharedDevice = true;
+  Rendered shared;
+  buildHex<hexui::ResultModel, hexui::buildResult>(shared, model);
+  CHECK(shared.target.drew("BLACK WINS"));
+  CHECK(!shared.target.drew("YOU WIN"));
+  CHECK(!shared.target.drew("THEY WIN"));
+}
+
+void testTheHexSettingsRowsSayWhatTheyAre() {
+  hexui::SettingsModel model;
+  model.opponent = hex::Opponent::Computer;
+  model.level = hex::Level::Normal;
+  Rendered computer;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(computer, model);
+  CHECK(computer.target.drew("OPPONENT"));
+  CHECK(computer.target.drew("COMPUTER"));
+  CHECK(computer.target.drew("LEVEL"));
+  CHECK(computer.target.drew("NORMAL"));
+  CHECK(computer.target.drew("YOU PLAY"));
+  CHECK(computer.target.drew("BLACK"));
+
+  model.playAs = hex::kWhite;
+  model.level = hex::Level::Hard;
+  Rendered white;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(white, model);
+  CHECK(white.target.drew("WHITE"));
+  CHECK(white.target.drew("HARD"));
+
+  // There is no BOARD row and there must not be one: eleven is the only size
+  // this game is played at here. And there is no SWAP row either -- the pie
+  // rule is a decided trade, not a setting somebody can turn on.
+  CHECK(!computer.target.drew("BOARD"));
+  CHECK(!computer.target.drew("SWAP"));
+
+  // Two people sharing the device: the machine's rows dim rather than vanish,
+  // so the list does not jump under the finger and the row still says what it
+  // would do.
+  model.opponent = hex::Opponent::Human;
+  Rendered humans;
+  buildHex<hexui::SettingsModel, hexui::buildSettings>(humans, model);
+  CHECK(humans.target.drew("2 PLAYERS"));
+  CHECK(humans.target.drew("LEVEL"));
+  CHECK(humans.target.drew("YOU PLAY"));
+}
+
+void testTheHexFrontDoorIsThreeDoors() {
+  hexui::MenuModel model;
+  Rendered fresh;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(fresh, model);
+  CHECK(fresh.target.drew("PLAY"));
+  CHECK(fresh.target.drew("PLAY NEARBY"));
+  CHECK(fresh.target.drew("SETTINGS"));
+  CHECK(fresh.target.drew("NO GAMES"));
+  CHECK(fresh.target.drew("PLAYED YET"));
+  CHECK(!fresh.interactions.overflowed());
+
+  // A part-played game is RESUMED, not thrown away, and the front door draws
+  // the game you are IN rather than a blank space until the first one is over.
+  hex::Game live;
+  hex::reset(live);
+  CHECK(hex::play(live, hex::cellAt(5, 5)));
+  CHECK(hex::play(live, hex::cellAt(4, 6)));
+  model.inProgress = true;
+  model.boardCells = live.cell;
+  Rendered resumed;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(resumed, model);
+  CHECK(resumed.target.drew("RESUME GAME"));
+
+  // With no game running it falls back to the last one finished.
+  hexui::MenuModel after;
+  hex::Game finished;
+  hex::reset(finished);
+  after.boardCells = finished.cell;
+  after.wins = 1;
+  Rendered over;
+  buildHex<hexui::MenuModel, hexui::buildMenu>(over, after);
+  CHECK(over.target.drew("1 PLAYED"));
+  CHECK(over.target.drew("1 WON"));
+}
+
+// Mario's notes on the Hex screens, 2026-09-28, one test each. Every one of
+// these fails on the screens as they arrived from the fork.
+
+// "The edge seems discontinuous, make it look continuous, no gaps." Each border
+// edge used to be its own bar pushed straight out from its edge, so every joint
+// of the staircase left a notch. Now the strips are mitred: the outer corner a
+// strip ends on is the outer corner the next one starts from, all the way round.
+void checkHexBorderIsOneBand(const hexui::Layout& layout) {
+  hexui::BorderStrip strips[hexui::kMaxBorderStrips];
+  const int count = hexui::borderStrips(layout, strips);
+  int edges = 0;
+  for (int cell = 0; cell < hex::kCells; ++cell) {
+    for (int dir = 0; dir < 6; ++dir) {
+      if (hex::neighbour(cell, dir) == hex::kNoCell) ++edges;
+    }
+  }
+  CHECK(edges > 40);
+  CHECK(count == edges);
+
+  int joined = 0;
+  for (int i = 0; i < count; ++i) {
+    int next = -1;
+    for (int j = 0; j < count; ++j) {
+      if (strips[j].from.x == strips[i].to.x && strips[j].from.y == strips[i].to.y) next = j;
+    }
+    CHECK(next >= 0);
+    if (next < 0) continue;
+    if (strips[next].outFrom.x == strips[i].outTo.x && strips[next].outFrom.y == strips[i].outTo.y) {
+      ++joined;
+    } else if (joined == i) {
+      std::printf("      hex band: strip %d ends at (%d,%d), the next starts at (%d,%d)\n", i, strips[i].outTo.x,
+                  strips[i].outTo.y, strips[next].outFrom.x, strips[next].outFrom.y);
+    }
+    // And the band is outside the board: its outer corners are on no cell.
+    int cell = -1;
+    CHECK(!hexui::cellAt(layout, strips[i].outTo.x, strips[i].outTo.y, cell));
+  }
+  CHECK(joined == count);
+}
+
+void testTheHexBorderIsOneBandRoundTheBoard() {
+  checkHexBorderIsOneBand(hexui::boardLayout(device()));
+  // The front door's miniature is drawn by the same code at a smaller size.
+  hexui::Layout mini;
+  mini.a = 6;
+  mini.h = 10;
+  mini.left = 138;
+  mini.top = 150;
+  checkHexBorderIsOneBand(mini);
+
+  // Black's band is drawn AFTER the cells. Drawn first, each hexagon's paper
+  // fill nibbled its inner edge, which is the ragged inside of the slanted
+  // strips. Every black triangle on this screen is band; every white one is a
+  // cell or White's paper strip.
+  hexui::BoardModel model;
+  hex::reset(model.game);
+  Rendered out;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(out, model);
+  int lastWhite = -1;
+  int firstBlack = -1;
+  for (size_t i = 0; i < out.target.triangles.size(); ++i) {
+    const auto& t = out.target.triangles[i];
+    if (t.color == fui::Color::White) lastWhite = static_cast<int>(i);
+    if (t.color == fui::Color::Black && firstBlack < 0) firstBlack = static_cast<int>(i);
+  }
+  CHECK(firstBlack >= 0);
+  CHECK(firstBlack > lastWhite);
+}
+
+// "This needs better centering", on both seat cards. The stone sat thirty
+// pixels from the card's left edge and the text started at a fixed fifty-six,
+// so every card had a strip of empty card on the right; and each line was
+// centred in its own half, which left the name riding high over the stone.
+void testTheHexSeatCardIsCentredAsOneGroup() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  Rendered out;
+  struct Card {
+    fui::Rect box;
+    const char* who;
+    const char* edges;
+  };
+  const Card cards[] = {{hexui::theirCardRect(layout), "THEM", "LEFT TO RIGHT"},
+                        {hexui::yourCardRect(layout), "YOU", "TOP TO BOTTOM"},
+                        {hexui::theirCardRect(layout), "PORCUPINE", "TOP TO BOTTOM"}};
+  for (const Card& card : cards) {
+    const hexui::SeatCardLayout at = hexui::seatCardLayout(out.target, card.box, card.who, card.edges);
+    fui::TextStyle name;
+    name.font = toybox::kUiFont;
+    fui::TextStyle edges;
+    edges.font = toybox::kTileFont;
+    const int16_t nameWidth = out.target.measureText(name.font, card.who, name).width;
+    const int16_t edgesWidth = out.target.measureText(edges.font, card.edges, edges).width;
+    const int16_t textRight = static_cast<int16_t>(at.name.x + (nameWidth > edgesWidth ? nameWidth : edgesWidth));
+    const int leftMargin = at.stoneX - hexui::kCardStoneRadius - card.box.x;
+    const int rightMargin = card.box.right() - textRight;
+    if (std::abs(leftMargin - rightMargin) > 1) {
+      std::printf("      hex card %s: %d px left of the group, %d right\n", card.who, leftMargin, rightMargin);
+    }
+    CHECK(std::abs(leftMargin - rightMargin) <= 1);
+    CHECK(at.name.x >= at.stoneX + hexui::kCardStoneRadius);
+    CHECK(at.edges.x == at.name.x);
+
+    const int capTop = at.name.y + (toybox::kUiCut.ascender - toybox::kUiCut.inkHeight);
+    const int capBottom = at.edges.y + toybox::kTileCut.ascender;
+    CHECK(std::abs((capTop - card.box.y) - (card.box.bottom() - capBottom)) <= 1);
+    CHECK(at.stoneY == card.box.y + card.box.height / 2);
+  }
+
+  // And the board draws from that layout rather than a copy of it.
+  hexui::BoardModel model;
+  hex::reset(model.game);
+  Rendered board;
+  buildHex<hexui::BoardModel, hexui::buildBoard>(board, model);
+  const hexui::SeatCardLayout them =
+      hexui::seatCardLayout(board.target, hexui::theirCardRect(layout), "THEM", "LEFT TO RIGHT");
+  bool found = false;
+  for (const auto& run : board.target.texts) {
+    if (run.text != "THEM") continue;
+    found = true;
+    CHECK(run.rect.x == them.name.x && run.rect.y == them.name.y);
+  }
+  CHECK(found);
+}
+
+// "Too close to the board... remove the bottom block that says YOU because the
+// game is done, and move the done button to where that block is." The doors now
+// take the two cards' places, each keeping clear of the board's band.
+double hexDistanceToRect(const double x, const double y, const fui::Rect& r) {
+  const double dx = x < r.x ? r.x - x : (x > r.right() ? x - r.right() : 0.0);
+  const double dy = y < r.y ? r.y - y : (y > r.bottom() ? y - r.bottom() : 0.0);
+  return std::sqrt(dx * dx + dy * dy);
+}
+
+double hexClearance(const hexui::Layout& layout, const fui::Rect& box) {
+  hexui::BorderStrip strips[hexui::kMaxBorderStrips];
+  const int count = hexui::borderStrips(layout, strips);
+  double nearest = 1e9;
+  for (int i = 0; i < count; ++i) {
+    const fui::Point corners[4] = {strips[i].from, strips[i].to, strips[i].outTo, strips[i].outFrom};
+    for (int k = 0; k < 4; ++k) {
+      const fui::Point a = corners[k];
+      const fui::Point b = corners[(k + 1) % 4];
+      for (int step = 0; step <= 32; ++step) {
+        const double x = a.x + (b.x - a.x) * step / 32.0;
+        const double y = a.y + (b.y - a.y) * step / 32.0;
+        const double d = hexDistanceToRect(x, y, box);
+        if (d < nearest) nearest = d;
+      }
+    }
+  }
+  return nearest;
+}
+
+void testTheHexResultDoorsKeepClearOfTheBoard() {
+  const hexui::Layout layout = hexui::boardLayout(device());
+  // Sixteen pixels: more than the band itself is deep, so the eye reads a
+  // door and the board as two things rather than one crowding the other.
+  constexpr double kClearance = 16.0;
+  const fui::Rect again = hexui::againButtonRect(layout);
+  const fui::Rect done = hexui::doneButtonRect(layout);
+  const double againGap = hexClearance(layout, again);
+  const double doneGap = hexClearance(layout, done);
+  std::printf("  hex doors: PLAY AGAIN %.1f px and DONE %.1f px from the board's band\n", againGap, doneGap);
+  CHECK(againGap >= kClearance);
+  CHECK(doneGap >= kClearance);
+
+  // PLAY AGAIN in the top notch, DONE in the bottom one: where the two cards
+  // stand during play.
+  CHECK(again.y == hexui::theirCardRect(layout).y);
+  CHECK(again.x == hexui::theirCardRect(layout).x);
+  CHECK(done.bottom() == hexui::yourCardRect(layout).bottom());
+  CHECK(done.x == hexui::yourCardRect(layout).x);
+
+  // And no seat card on a finished game.
+  hexui::ResultModel model;
+  hex::reset(model.game);
+  for (int row = 0; row < hex::kSize; ++row) {
+    model.game.toMove = hex::kBlack;
+    hex::play(model.game, hex::cellAt(row, 5));
+  }
+  CHECK(hex::winningChain(model.game, model.chain));
+  model.seat = hex::kBlack;
+  Rendered won;
+  buildHex<hexui::ResultModel, hexui::buildResult>(won, model);
+  CHECK(won.target.drew("YOU WIN"));
+  CHECK(!won.target.drew("YOU"));
+  CHECK(!won.target.drew("TOP TO BOTTOM"));
+  CHECK(!won.target.drew("LEFT TO RIGHT"));
+}
+
+// "I don't like this text, looks bloated and hard to read." The settings screen
+// now draws its title and its rows and nothing else.
+void testTheHexSettingsSayOnlyTheirRows() {
+  const char* allowed[] = {"SETTINGS", "OPPONENT", "COMPUTER", "2 PLAYERS", "LEVEL", "EASY",
+                           "NORMAL",   "HARD",     "--",       "YOU PLAY",  "BLACK", "WHITE"};
+  for (const hex::Opponent opponent : {hex::Opponent::Computer, hex::Opponent::Human}) {
+    for (const hex::Level level : {hex::Level::Easy, hex::Level::Normal, hex::Level::Hard}) {
+      hexui::SettingsModel model;
+      model.opponent = opponent;
+      model.level = level;
+      Rendered out;
+      buildHex<hexui::SettingsModel, hexui::buildSettings>(out, model);
+      CHECK(!out.target.texts.empty());
+      for (const auto& run : out.target.texts) {
+        bool known = false;
+        for (const char* word : allowed) known = known || run.text == word;
+        if (!known) std::printf("      hex settings: unexpected text \"%s\"\n", run.text.c_str());
+        CHECK(known);
+      }
+    }
+  }
+}
+
+// "Text needs more space... use the available space in the best way possible",
+// and then: the small font was hard to read and the words under the board were
+// filler. The front door now carries its record in the miniature's top-right
+// notch, two lines in the UI cut, clear of the band -- and no other words than
+// the title, the record and the list's own rows.
+void testTheHexFrontDoorIsTheBoardAndTheRecord() {
+  hex::Game live;
+  hex::reset(live);
+  CHECK(hex::play(live, hex::cellAt(5, 5)));
+  CHECK(hex::play(live, hex::cellAt(4, 6)));
+
+  hexui::MenuModel fresh;
+  hexui::MenuModel inProgress;
+  inProgress.inProgress = true;
+  inProgress.boardCells = live.cell;
+  inProgress.wins = 3;
+  inProgress.losses = 5;
+  hexui::MenuModel finished;
+  finished.boardCells = live.cell;
+  finished.wins = 99;
+  finished.losses = 900;
+
+  const char* record[] = {"NO GAMES", "PLAYED YET", "8 PLAYED", "3 WON", "999 PLAYED", "99 WON"};
+  const char* chrome[] = {"HEX", "PLAY", "RESUME GAME", "PLAY NEARBY", "SETTINGS"};
+  for (const hexui::MenuModel* model : {&fresh, &inProgress, &finished}) {
+    Rendered out;
+    // The UI cut's real letters, not the fake target's ten pixels: Jersey at
+    // 20 averages 19 to 21 per capital (toybox_20.h's advances). At ten, PLAYED
+    // YET fitted here and fell to the small cut on the device.
+    out.target.fontWidths.push_back({toybox::kUiFont, 21});
+    buildHex<hexui::MenuModel, hexui::buildMenu>(out, *model);
+
+    // Every triangle on this screen is the miniature: its cells and its band.
+    int left = 32767;
+    int right = -1;
+    std::vector<fui::Point> ink;
+    for (const auto& t : out.target.triangles) {
+      const fui::Point corners[3] = {t.a, t.b, t.c};
+      for (int k = 0; k < 3; ++k) {
+        const fui::Point a = corners[k];
+        const fui::Point b = corners[(k + 1) % 3];
+        left = a.x < left ? a.x : left;
+        right = a.x > right ? a.x : right;
+        for (int step = 0; step <= 8; ++step) {
+          ink.push_back(fui::Point{static_cast<int16_t>(a.x + (b.x - a.x) * step / 8),
+                                   static_cast<int16_t>(a.y + (b.y - a.y) * step / 8)});
+        }
+      }
+    }
+    // Bigger than the 204 pixels it was when a line of words sat above it.
+    CHECK(right - left >= 34 * 7);
+
+    int recordLines = 0;
+    for (const auto& run : out.target.texts) {
+      bool isRecord = false;
+      for (const char* word : record) isRecord = isRecord || run.text == word;
+      bool isChrome = false;
+      for (const char* word : chrome) isChrome = isChrome || run.text == word;
+      if (!isRecord && !isChrome) std::printf("      hex front door: filler \"%s\"\n", run.text.c_str());
+      CHECK(isRecord || isChrome);
+      if (!isRecord) continue;
+      ++recordLines;
+      // The big cut, not the small one.
+      CHECK(run.style.font == toybox::kUiFont);
+      const int16_t width = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+      const fui::Rect inkBox =
+          fui::makeRect(static_cast<int16_t>(run.rect.right() - width),
+                        static_cast<int16_t>(run.rect.y + toybox::kUiCut.ascender - toybox::kUiCut.inkHeight), width,
+                        toybox::kUiCut.inkHeight);
+      double nearest = 1e9;
+      for (const fui::Point p : ink) {
+        const double d = hexDistanceToRect(p.x, p.y, inkBox);
+        nearest = d < nearest ? d : nearest;
+      }
+      if (nearest < 12.0) {
+        std::printf("      hex front door: \"%s\" is %.1f px from the miniature\n", run.text.c_str(), nearest);
+      }
+      CHECK(nearest >= 12.0);
+      CHECK(inkBox.x >= 0 && inkBox.right() <= device().width);
+    }
+    CHECK(recordLines == 2);
+  }
 }
 
 // --- checkers --------------------------------------------------------------
@@ -10958,9 +12045,21 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   CHECK(hnui::listBand(glass).y == toybox::kBodyTop);
   CHECK(xkcdui::listBand(glass).y == toybox::kBodyTop);
 
-  // Wallpapers has no exported body rect -- its hint strip IS the top of its
-  // body, and the grid hangs a fixed distance below it -- so this one is read
-  // off the render. The warning is drawn into the hint rect unexpanded.
+  // Wallpapers is deliberately NOT in the list above, and the reason is worth
+  // stating because this test used to assert it was.
+  //
+  // Its hint strip was standing in for a body top this screen does not export.
+  // That strip is CHROME -- one line about the grid, the twin of a subtitle --
+  // and its body is the grid itself, which hangs a fixed distance lower and
+  // never lined up with anybody's first row anyway. Pinning the strip to
+  // kBodyTop spent the whole body gutter above the sentence and left a sixth
+  // of it below, so it read as a caption stuck to the tiles. Mario reported
+  // that three times.
+  //
+  // What actually has to hold is below: the strip is centred between the rule
+  // and the grid, and the GRID has not moved, because on this screen every row
+  // given to the top comes out of the thumbnails
+  // (testTheWallpapersThumbnailsStayBigEnoughToRead).
   wallpapersui::GridChromeModel model;
   model.title = "WALLPAPERS";
   model.warning = "Card is nearly full";
@@ -10968,7 +12067,18 @@ void testEveryAppsBodyStartsOnTheSameRow() {
   renderWithBezel<wallpapersui::GridChromeModel, wallpapersui::buildGridChrome>(out, model);
   const FakeTarget::TextRun* hint = out.target.find("Card is nearly full");
   CHECK(hint != nullptr);
-  if (hint != nullptr) CHECK(hint->rect.y == toybox::kBodyTop);
+  if (hint != nullptr) {
+    const wallpapersui::GridGeom g = wallpapersui::gridGeom(bezelDevice());
+    const int16_t ruleBottom = toybox::kChromeHeight;
+    const int16_t above = static_cast<int16_t>(hint->rect.y - ruleBottom);
+    const int16_t below = static_cast<int16_t>(g.originY - hint->rect.bottom());
+    // Within the strip's own slack: the box is centred, and where the ink sits
+    // inside it belongs to the cut's line box, not to this layout.
+    const int16_t skew = static_cast<int16_t>(above > below ? above - below : below - above);
+    CHECK(skew <= 4);
+    // And the strip sits BELOW the rule with room, never under the band.
+    CHECK(above > 0);
+  }
 }
 
 // The ink rule again, for the labels apps draw on the band THEMSELVES.
@@ -12065,6 +13175,84 @@ void testWallpapersChromeShowsThePage() {
   CHECK(drewText(out, "PAGE 2 / 3"));
 }
 
+// LIVE IS SHOWING, and the strip has to say so. Without this the grid drew the
+// selection marker on the "Your phone" tile while the strip said "Tap one to
+// set your sleep screen." -- nothing is set, beside a mark saying something is.
+// That is card #354's shape: the marker and the words disagreeing, with nothing
+// on the screen to say why.
+void testWallpapersChromeSaysWhenLiveIsTheSleepScreen() {
+  Rendered out;
+  wallpapersui::GridChromeModel model;
+  model.rightLabel = "6 SAVED";
+  // hasActive stays false on purpose: Live and a pinned wallpaper are mutually
+  // exclusive, so this is exactly the state the old strip got wrong.
+  model.hasActive = false;
+  model.liveOn = true;
+  buildWallpapersChrome(out, model);
+  CHECK(drewText(out, wallpapersui::liveStripLine()));
+  CHECK(!drewText(out, "Tap one to set"));
+}
+
+// A note on the sleep screen is a standing state like Live, and it outranks
+// Live: with Sleep Screen on Note the sleep path never reads /sleep.bmp.
+void testWallpapersChromeSaysWhenANoteIsTheSleepScreen() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.noteOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, "Tap one to set"));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.liveOn = true;
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, wallpapersui::noteStripLine()));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    // News still wins, as it does over Live.
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.noteOn = true;
+    model.note = "Was Note, now Custom.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Was Note, now Custom."));
+    CHECK(!drewText(out, wallpapersui::noteStripLine()));
+  }
+}
+
+// ...but it does not silence the two lines above it. Both are NEWS -- something
+// changed behind the user's back, or the card is filling -- and Live being on
+// is a standing state that would suppress either for the whole session. That
+// suppression is #354 itself, so the order is asserted rather than assumed.
+void testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning() {
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.note = "Sleep screen was off. It is on now.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Sleep screen was off."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+  {
+    Rendered out;
+    wallpapersui::GridChromeModel model;
+    model.hasActive = false;
+    model.liveOn = true;
+    model.warning = "Could not check card space.";
+    buildWallpapersChrome(out, model);
+    CHECK(drewText(out, "Could not check card space."));
+    CHECK(!drewText(out, wallpapersui::liveStripLine()));
+  }
+}
+
 // The free-space advisory wins the hint strip and is shown verbatim: "full" and
 // "could not tell" are different sentences.
 void testWallpapersChromeWarningVerbatim() {
@@ -12130,13 +13318,31 @@ void testWallpapersAddScreenDropsAnAddressItCannotStandBehind() {
     wallpapersui::AddModel model;
     model.url = "http://crossplay-a1b2c3.local/w";
     model.altUrl = "http://192.168.1.42/w";
-    const fui::Rect qr = wallpapersui::buildAdd(screen, model);
+    const wallpapersui::AddRects rects = wallpapersui::buildAdd(screen, model);
     CHECK(drewText(out, "SCAN THIS CODE"));
     CHECK(drewText(out, "crossplay-a1b2c3.local/w"));
     CHECK(drewText(out, "192.168.1.42/w"));
     // The scheme is encoded, never drawn: it costs the address its type cut.
     CHECK(!drewText(out, "http://crossplay-a1b2c3.local/w"));
-    CHECK(qr.width > 0 && qr.height > 0);
+    CHECK(rects.qr.width > 0 && rects.qr.height > 0);
+    // Nothing has arrived, so there is no picture to place and the Activity is
+    // told so rather than left to work it out from a name it does not have.
+    CHECK(rects.thumb.width == 0 && rects.thumb.height == 0);
+    // And once one has, the picture takes the square and the address goes with
+    // the code: the whole screen changes, so neither rect may be left behind.
+    {
+      Rendered landed;
+      toybox::Frame f2(landed.target, ctx, noInput, landed.interactions);
+      toybox::Screen s2(f2, toybox::themeTokens());
+      wallpapersui::AddModel arrived = model;
+      arrived.arrived = "w0007";
+      const wallpapersui::AddRects r2 = wallpapersui::buildAdd(s2, arrived);
+      CHECK(r2.thumb.width == wallpapersui::addPictureSide());
+      CHECK(r2.qr.width == 0 && r2.qr.height == 0);
+      CHECK(drewText(landed, "w0007"));
+      CHECK(!drewText(landed, "SCAN THIS CODE"));
+      CHECK(!drewText(landed, "crossplay-a1b2c3.local/w"));
+    }
   }
   {
     Rendered out;
@@ -12919,7 +14125,689 @@ void testWikipediaInstallSaysTheAddressFirst() {
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
 }
 
+// --- Notes: every line of a long item is drawn, fits, and is struck --------
+//
+// Mario, 2026-09-28: "a done task that takes two lines doesnt cross both lines,
+// think about all cases, long notes, long todos". The strike split the string
+// on '\n', which wrapped text never contains, so a two-line item got ONE bar,
+// as wide as the whole sentence, on its first line. These pin the rule that
+// replaced it: the screen chooses every line itself, draws each as its own
+// single-line run, and strikes each run it drew.
+
+namespace notestest {
+
+void buildNote(Rendered& out, const notesui::NoteModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  notesui::buildNote(screen, model);
+}
+
+void buildDeck(Rendered& out, const notesui::DeckModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  notesui::buildDeck(screen, model);
+}
+
+// A drawn line with any trailing ellipsis taken off, so the last line of an
+// item that had to be cut still matches the sentence it came from.
+std::string withoutEllipsis(const std::string& line) {
+  for (const char* mark : {"...", "\xE2\x80\xA6"}) {
+    const size_t n = std::strlen(mark);
+    if (line.size() >= n && line.compare(line.size() - n, n, mark) == 0) return line.substr(0, line.size() - n);
+  }
+  return line;
+}
+
+// The runs that belong to `text`: every drawn run that is a word-for-word piece
+// of it. Title and footer runs are never pieces of an item's sentence, and the
+// row's invisible tap target draws an EMPTY label, which is a piece of every
+// sentence and of none.
+bool isPieceOf(const FakeTarget::TextRun& run, const std::string& text) {
+  const std::string piece = withoutEllipsis(run.text);
+  return piece.size() > 2 && text.find(piece) != std::string::npos;
+}
+
+std::vector<const FakeTarget::TextRun*> runsOf(const Rendered& out, const std::string& text) {
+  std::vector<const FakeTarget::TextRun*> found;
+  for (const auto& run : out.target.texts) {
+    if (isPieceOf(run, text)) found.push_back(&run);
+  }
+  return found;
+}
+
+// A strike is a 2px black fill. Nothing else on the note screen is 2px tall:
+// separators are 1px, the tick-box mark and the bars are taller.
+std::vector<fui::Rect> strikes(const Rendered& out) {
+  std::vector<fui::Rect> found;
+  for (const auto& rect : out.target.fills) {
+    if (rect.height == 2) found.push_back(rect);
+  }
+  return found;
+}
+
+std::string joined(const std::vector<const FakeTarget::TextRun*>& runs) {
+  std::string whole;
+  for (const auto* run : runs) whole += (whole.empty() ? "" : " ") + run->text;
+  return whole;
+}
+
+void aWrappedDoneItemIsStruckOnEveryLine() {
+  const std::string text = "Pick up the dry cleaning before the shop closes at six on Friday";
+  notesui::Task tasks[] = {{text.c_str(), true}};
+  notesui::NoteModel model;
+  model.title = "Errands";
+  model.tasks = tasks;
+  model.count = 1;
+  model.done = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+
+  const auto runs = runsOf(out, text);
+  check(runs.size() == 2, "a two-line item is drawn as two single-line runs", __LINE__);
+  check(joined(runs) == text, "and between them they say the whole item, word for word", __LINE__);
+  const auto bars = strikes(out);
+  // 64 characters at ten pixels against a 396px column is two lines, counted
+  // here from the metrics rather than from the code under test.
+  check(bars.size() == 2, "a done two-line item carries TWO strikes", __LINE__);
+  check(bars.size() == runs.size(), "one strike per line it runs to, whatever that number is", __LINE__);
+  for (size_t i = 0; i < runs.size() && i < bars.size(); i++) {
+    const auto& run = *runs[i];
+    const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+    check(run.style.maxLines == 1, "each line is handed to the renderer as ONE line, so it cannot re-wrap it",
+          __LINE__);
+    check(ink <= run.rect.width, "each line fits the width it was given", __LINE__);
+    check(bars[i].x == run.rect.x && bars[i].width == ink, "each bar is exactly as wide as its own line", __LINE__);
+    check(bars[i].y > run.rect.y && bars[i].y < run.rect.y + run.rect.height,
+          "each bar crosses its own line, not the one above it", __LINE__);
+  }
+}
+
+void anUndoneWrappedItemIsNotStruck() {
+  const std::string text = "Pick up the dry cleaning before the shop closes at six on Friday";
+  notesui::Task tasks[] = {{text.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Errands";
+  model.tasks = tasks;
+  model.count = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+  check(runsOf(out, text).size() == 2, "the undone twin wraps the same way", __LINE__);
+  check(strikes(out).empty(), "and carries no strike at all", __LINE__);
+}
+
+// Every run the note screen draws for an item stays inside the row it belongs
+// to and inside the width it was handed, at every length a person might type.
+void longItemsNeverLeaveTheirRow(const bool page) {
+  const std::string lengths[] = {
+      "Milk",
+      "Book for the plane and a charger that works with the old phone",
+      "Call the landlord about the heating, the window in the back bedroom that will not close, and the key",
+      "https://example.com/a/very/long/link/that/somebody/pasted/from/their/phone/without/any/spaces",
+      "Ask whether the second batch of hinges arrives before June, because if it does not we have to "
+      "rethink the whole order and tell the three people who are waiting on it, which is going to be "
+      "awkward, and write it down this time so nobody has to ask again",
+  };
+  for (const auto& text : lengths) {
+    notesui::Task tasks[] = {{text.c_str(), !page}, {"Next item", false}};
+    notesui::NoteModel model;
+    model.title = "Long";
+    model.page = page;
+    model.tasks = tasks;
+    model.count = 2;
+    model.done = page ? 0 : 1;
+    model.total = page ? 0 : 2;
+    Rendered out;
+    buildNote(out, model);
+    const fui::DeviceContext ctx = device();
+    const FakeTarget::TextRun* next = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.text == "Next item") next = &run;
+    }
+    check(next != nullptr, "the item after a long one is still drawn", __LINE__);
+    for (const auto& run : out.target.texts) {
+      if (&run == next || run.text == "Long") continue;
+      const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+      check(ink <= run.rect.width, "no line of a long item is wider than its box", __LINE__);
+      check(run.rect.x >= 0 && run.rect.x + run.rect.width <= ctx.width, "and no box leaves the panel", __LINE__);
+      if (next != nullptr && isPieceOf(run, text)) {
+        check(run.rect.y + run.rect.height <= next->rect.y, "a long item never runs into the item under it", __LINE__);
+      }
+    }
+    if (!page) {
+      check(strikes(out).size() == runsOf(out, text).size(),
+            "a done long item is struck on every line it shows, whatever its length", __LINE__);
+    }
+  }
+}
+
+void longItemsNeverLeaveTheirRowOnAList() { longItemsNeverLeaveTheirRow(false); }
+void longLinesNeverLeaveTheirRowOnANote() { longItemsNeverLeaveTheirRow(true); }
+
+// The deck: a long name and a long first line both stay inside their card.
+void longDeckCardsStayInsideTheirCard() {
+  const std::string preview =
+      "The hinge is the part that fails first, and the second batch needs checking before anything ships";
+  notesui::DeckItem items[] = {
+      {"Groceries for the long weekend at the lake", nullptr, preview.c_str(), 0, 0},
+      {"Packing", "3/12", nullptr, 3, 12},
+  };
+  notesui::DeckModel model;
+  model.items = items;
+  model.count = 2;
+  Rendered out;
+  buildDeck(out, model);
+  const fui::DeviceContext ctx = device();
+  bool sawPreview = false;
+  for (const auto& run : out.target.texts) {
+    const int16_t ink = out.target.measureText(run.style.font, run.text.c_str(), run.style).width;
+    check(ink <= run.rect.width, "nothing on a deck card is wider than its box", __LINE__);
+    check(run.rect.x + run.rect.width <= ctx.width, "and no box leaves the panel", __LINE__);
+    if (run.text.size() > 3 && run.text.compare(run.text.size() - 3, 3, "...") == 0) sawPreview = true;
+  }
+  check(sawPreview, "a preview longer than its card says it was cut, with three periods", __LINE__);
+}
+
+// One long item used to set the geometry of the WHOLE list: when it would not
+// fit two body lines, every row dropped to the small cut. The cut is the body
+// cut for every row now, whatever the longest one needs.
+void aLongItemDoesNotShrinkTheOthers() {
+  std::string words;
+  for (int i = 0; i < 40; i++) words += "longword ";
+  notesui::Task tasks[] = {{"Eggs", false}, {words.c_str(), true}, {"Bread", false}};
+  notesui::NoteModel model;
+  model.title = "Pasted";
+  model.tasks = tasks;
+  model.count = 3;
+  model.done = 1;
+  model.total = 3;
+  Rendered out;
+  buildNote(out, model);
+  int items = 0;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "Eggs" || isPieceOf(run, words)) {
+      items++;
+      check(run.style.font == toybox::kBodyFont, "every row keeps the body cut beside a long item", __LINE__);
+    }
+  }
+  check(items >= 2, "the short item and the long one were both drawn", __LINE__);
+}
+
+// Draws page `start` of `model` into `out`.
+void notePage(Rendered& out, notesui::NoteModel model, const int start) {
+  model.firstVisible = start;
+  buildNote(out, model);
+}
+
+// Every item is on exactly one page, whole, and no page draws past its band.
+void everyItemLandsOnExactlyOnePage() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 30; i++) {
+    std::string text = "Item " + std::to_string(i);
+    for (int w = 0; w < i % 7; w++) text += " with some more words";
+    texts.push_back(text);
+  }
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+  notesui::NoteModel model;
+  model.title = "Many";
+  model.tasks = tasks.data();
+  model.count = static_cast<int>(tasks.size());
+  model.total = model.count;
+  model.pageLabel = "1 / 9";
+  FakeTarget measure;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(starts.size() > 1 && starts.front() == 0, "thirty items page, and page one starts at the top", __LINE__);
+  const int16_t footerTop = static_cast<int16_t>(device().height - toybox::kMargin - toybox::kPillHeight);
+  std::vector<int> seen(texts.size(), 0);
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      for (size_t i = 0; i < texts.size(); i++) {
+        if (run.text.rfind("Item " + std::to_string(i), 0) == 0 &&
+            (run.text.size() == ("Item " + std::to_string(i)).size() ||
+             run.text[("Item " + std::to_string(i)).size()] == ' ')) {
+          seen[i]++;
+          check(run.rect.y + run.rect.height <= footerTop, "no item line is drawn over the footer", __LINE__);
+        }
+      }
+    }
+  }
+  for (size_t i = 0; i < seen.size(); i++) {
+    check(seen[i] == 1, "every item starts on exactly one page -- none skipped, none twice", __LINE__);
+  }
+}
+
+// A note's paragraphs flow across pages: every word is drawn once, in order,
+// and nothing is drawn past the band.
+void aLongNoteFlowsWithoutLosingAWord() {
+  std::string para;
+  // Long enough at the fake ten-pixel cell that three of them cannot share a
+  // page, so the note must page and the flow across pages is exercised.
+  for (int i = 0; i < 200; i++) para += "w" + std::to_string(i) + " ";
+  para.pop_back();
+  const std::string texts[] = {para, "short one", para, para};
+  notesui::Task tasks[4];
+  for (int i = 0; i < 4; i++) tasks[i] = {texts[i].c_str(), false};
+  notesui::NoteModel model;
+  model.title = "Long";
+  model.page = true;
+  model.tasks = tasks;
+  model.count = 4;
+  model.pageLabel = "1 / 9";
+  FakeTarget measure;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(starts.size() > 1, "a note longer than a page pages", __LINE__);
+  const int16_t footerTop = static_cast<int16_t>(device().height - toybox::kMargin - toybox::kPillHeight);
+  std::string drawn;
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      if (run.text.empty() || run.text == "Long" || run.text == "ADD" || run.text == "1 / 9") continue;
+      check(run.rect.y + run.rect.height <= footerTop, "no line of a note is drawn over the footer", __LINE__);
+      check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width,
+            "no line of a note is wider than the page", __LINE__);
+      drawn += (drawn.empty() ? "" : " ") + run.text;
+    }
+  }
+  const std::string whole = texts[0] + " " + texts[1] + " " + texts[2] + " " + texts[3];
+  check(drawn == whole, "across every page the note says exactly what the file says, once, in order", __LINE__);
+}
+
+// A deck name that needs two lines takes them at the body cut, inside its card.
+void aLongDeckNameWrapsInsideItsCard() {
+  notesui::DeckItem items[] = {
+      {"Groceries for the long weekend at the lake", nullptr, "Milk and eggs", 0, 0},
+      {"Packing", "3/12", nullptr, 3, 12},
+  };
+  notesui::DeckModel model;
+  model.items = items;
+  model.count = 2;
+  Rendered out;
+  buildDeck(out, model);
+  int nameLines = 0;
+  int16_t nameBottom = 0;
+  int16_t previewTop = 0;
+  int16_t packingTop = 0;
+  for (const auto& run : out.target.texts) {
+    if (std::string("Groceries for the long weekend at the lake").find(run.text) != std::string::npos &&
+        run.text.size() > 3) {
+      nameLines++;
+      check(run.style.font == toybox::kBodyFont, "a long name keeps the body cut", __LINE__);
+      nameBottom = static_cast<int16_t>(run.rect.y + run.rect.height);
+    }
+    if (run.text == "Milk and eggs") previewTop = run.rect.y;
+    if (run.text == "Packing") packingTop = run.rect.y;
+  }
+  check(nameLines == 2, "a name too long for one line wraps to two instead of shrinking", __LINE__);
+  check(previewTop > 0 && previewTop >= nameBottom - 12, "its preview sits under the name, not on it", __LINE__);
+  check(packingTop > previewTop, "and the card under it starts below the preview", __LINE__);
+}
+
+// Review finding 1: the note's lone-line rule ran on LISTS too. A list's items
+// carry no paragraphs, so the whole list read as one paragraph and the rule
+// moved a page's last row to the next page although it had room.
+void aListPageHoldsEveryRowItHasRoomFor() {
+  FakeTarget measure;
+  std::vector<std::string> texts;
+  std::vector<notesui::Task> tasks;
+  auto modelOf = [&](const int n) {
+    texts.assign(static_cast<size_t>(n), "Milk");
+    tasks.clear();
+    for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+    notesui::NoteModel model;
+    model.title = "Shopping";
+    model.tasks = tasks.data();
+    model.count = n;
+    model.total = n;
+    return model;
+  };
+  int fit = 1;
+  while (notesui::notePageStarts(measure, device(), modelOf(fit + 1)).size() == 1) fit++;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), modelOf(fit + 1));
+  check(starts.size() == 2 && starts[1] == fit,
+        "when N rows fit one page, N+1 rows put exactly N on the first page, not one fewer", __LINE__);
+}
+
+// Review finding 2: an item cut at its cap lost its ellipsis when a long run of
+// letters inside it split into more lines than the cut had counted.
+void anItemCutAtItsCapStillSaysSo() {
+  std::string text = "Note " + std::string(150, 'x');
+  for (int i = 0; i < 400; i++) text += " word" + std::to_string(i);
+  text += " THEEND";
+  notesui::Task tasks[] = {{text.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Pasted";
+  model.tasks = tasks;
+  model.count = 1;
+  model.total = 1;
+  Rendered out;
+  buildNote(out, model);
+  const FakeTarget::TextRun* last = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (isPieceOf(run, text)) {
+      last = &run;
+      check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width,
+            "every line of a capped item fits its row", __LINE__);
+    }
+  }
+  check(last != nullptr && last->text.size() >= 3 && last->text.compare(last->text.size() - 3, 3, "...") == 0,
+        "an item longer than a page ends in three periods, so it reads as cut", __LINE__);
+}
+
+// Review finding 3: adding a paragraph jumped to the LAST page, but a note's
+// paragraphs flow, so one added at the end can begin on the page before it.
+void everyItemIsOnThePageItsSaidToBeginOn() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 14; i++) {
+    std::string text = "Para" + std::to_string(i);
+    for (int w = 0; w < (i * 7) % 23; w++) text += " filler words here";
+    texts.push_back(text);
+  }
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), false});
+  for (const bool page : {true, false}) {
+    notesui::NoteModel model;
+    model.title = "Flow";
+    model.page = page;
+    model.tasks = tasks.data();
+    model.count = static_cast<int>(tasks.size());
+    model.total = page ? 0 : model.count;
+    FakeTarget measure;
+    const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+    check(starts.size() > 1, "the flow test pages", __LINE__);
+    for (int i = 0; i < model.count; i++) {
+      const int onPage = notesui::notePageOfItem(measure, device(), model, i);
+      check(onPage >= 0 && onPage < static_cast<int>(starts.size()), "the page an item begins on exists", __LINE__);
+      Rendered out;
+      notePage(out, model, starts[static_cast<size_t>(onPage)]);
+      const std::string head = "Para" + std::to_string(i);
+      bool begins = false;
+      for (const auto& run : out.target.texts) {
+        if (run.text.rfind(head, 0) == 0 && (run.text.size() == head.size() || run.text[head.size()] == ' ')) {
+          begins = true;
+        }
+      }
+      check(begins, "an item's first line is on the page notePageOfItem names", __LINE__);
+    }
+  }
+}
+
+// Review finding 4: splitting a long unbroken run measured every prefix of
+// every tail -- cubic -- and a run wider than 32767px wrapped negative in the
+// int16 width, read as fitting, and was silently cut by the renderer.
+void aHugeUnbrokenRunIsCheapAndLosesNothing() {
+  const std::string blob(4000, 'q');
+  notesui::Task tasks[] = {{blob.c_str(), false}};
+  notesui::NoteModel model;
+  model.title = "Blob";
+  model.page = true;
+  model.tasks = tasks;
+  model.count = 1;
+  FakeTarget measure;
+  measure.measureCalls = 0;
+  const std::vector<int> starts = notesui::notePageStarts(measure, device(), model);
+  check(measure.measureCalls < 3000, "laying out a 4000-byte run takes a few measures per line, not millions",
+        __LINE__);
+  std::string drawn;
+  for (const int start : starts) {
+    Rendered out;
+    notePage(out, model, start);
+    for (const auto& run : out.target.texts) {
+      if (!run.text.empty() && run.text.find_first_not_of('q') == std::string::npos) {
+        // Computed in int from the fake cell, NOT through measureText: that
+        // returns int16_t, which is the very width that overflows, so asking it
+        // would pass a 40000px line as a negative one.
+        check(static_cast<int>(run.text.size()) * out.target.charW <= run.rect.width,
+              "each piece of the run fits the page", __LINE__);
+        drawn += run.text;
+      }
+    }
+  }
+  check(drawn == blob, "every byte of a 4000-byte run is drawn exactly once across the pages", __LINE__);
+}
+
+// The sleep screen draws a note read-only: nobody can press anything on a
+// sleeping device, so nothing is registered and no footer is drawn, and the
+// rows take the footer's height. The awake twin is asserted beside it, so the
+// checks are shown able to fail on this same model.
+void aNoteAsleepIsReadOnlyAndTaller() {
+  std::vector<std::string> texts;
+  for (int i = 0; i < 40; i++) texts.push_back("Item " + std::to_string(i));
+  std::vector<notesui::Task> tasks;
+  for (const auto& text : texts) tasks.push_back({text.c_str(), (tasks.size() % 3) == 0});
+  notesui::NoteModel model;
+  model.title = "Groceries";
+  model.tasks = tasks.data();
+  model.count = static_cast<int>(tasks.size());
+  model.anyDone = true;
+  model.done = 14;
+  model.total = model.count;
+
+  Rendered awake;
+  buildNote(awake, model);
+  check(awake.has(notesui::ActionToggleTask) && awake.has(notesui::ActionAddLine),
+        "awake, the rows and ADD are tappable (the control for the checks below)", __LINE__);
+
+  model.asleep = true;
+  Rendered asleep;
+  buildNote(asleep, model);
+  check(asleep.interactions.count() == 0, "asleep, NOTHING is registered: no row, no footer, no menu", __LINE__);
+  bool footerWords = false;
+  for (const auto& run : asleep.target.texts) {
+    if (run.text == "ADD" || run.text == "CLEAR DONE") footerWords = true;
+  }
+  check(!footerWords, "asleep, the footer's buttons are not drawn", __LINE__);
+
+  FakeTarget measure;
+  model.asleep = false;
+  const std::vector<int> awakeStarts = notesui::notePageStarts(measure, device(), model);
+  model.asleep = true;
+  const std::vector<int> asleepStarts = notesui::notePageStarts(measure, device(), model);
+  check(awakeStarts.size() > 1 && asleepStarts.size() > 1, "forty items do not fit one page either way", __LINE__);
+  check(asleepStarts.size() > 1 && awakeStarts.size() > 1 && asleepStarts[1] > awakeStarts[1],
+        "asleep, the first page holds MORE rows: the footer's height went to the list", __LINE__);
+}
+
+}  // namespace notestest
+
+namespace wordletest {
+
+void buildGame(Rendered& out, const wordleui::GameModel& model, wordleui::KeyboardLayout& keys) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  keys = wordleui::buildGame(screen, model);
+}
+
+void buildMenu(Rendered& out, const wordleui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wordleui::buildMenu(screen, model);
+}
+
+bool alwaysWord(void*, const char*) { return true; }
+
+void play(wordle::Game& game, const char* word) {
+  for (int i = 0; i < 5; ++i) game.type(word[i]);
+  game.submit(alwaysWord, nullptr);
+}
+
+// Every key is found where it is drawn: the tap at the centre of each drawn
+// letter resolves to that letter, and the two wide keys to ENTER and delete.
+// The keyboard is one hit region, so this geometry is the only thing standing
+// between a tap and the wrong letter.
+void everyKeyIsWhereItIsDrawn() {
+  wordle::Game game;
+  game.start(0, "PLANT");
+  play(game, "CRANE");
+  wordleui::GameModel model;
+  model.game = &game;
+  model.date = "SEP 28";
+  Rendered out;
+  wordleui::KeyboardLayout keys;
+  buildGame(out, model, keys);
+
+  int letters = 0;
+  bool allFound = true;
+  for (const auto& run : out.target.texts) {
+    if (run.text.size() != 1 || run.rect.y < keys.top) continue;
+    const char letter = run.text[0];
+    if (letter < 'A' || letter > 'Z') continue;
+    ++letters;
+    const int cx = run.rect.x + run.rect.width / 2;
+    const int cy = run.rect.y + run.rect.height / 2;
+    if (wordleui::keyAt(keys, cx, cy) != letter) {
+      allFound = false;
+      std::printf("FAIL wordle: key %c drawn at (%d,%d) resolves to %d\n", letter, cx, cy,
+                  static_cast<int>(wordleui::keyAt(keys, cx, cy)));
+    }
+    if (run.rect.x < 0 || run.rect.x + run.rect.width > 480) allFound = false;
+  }
+  check(letters == 26, "all 26 letter keys are drawn below the grid", __LINE__);
+  check(allFound, "every drawn key resolves to its own letter, inside the panel", __LINE__);
+
+  int enters = 0;
+  int erases = 0;
+  for (const auto& blit : out.target.blits) {
+    if (blit.rect.y < keys.top) continue;
+    const char key = wordleui::keyAt(keys, blit.rect.x + blit.rect.width / 2, blit.rect.y + blit.rect.height / 2);
+    if (key == wordleui::kEnter) ++enters;
+    if (key == wordleui::kErase) ++erases;
+  }
+  check(enters == 1 && erases == 1, "the tick is ENTER and the backspace is delete", __LINE__);
+  check(wordleui::keyAt(keys, 2, keys.top + 2) == 0, "the margin beside the keys is not a key", __LINE__);
+  check(out.has(wordleui::ActionKeyboard) && !out.has(wordleui::ActionArchive) && !out.has(wordleui::ActionNext),
+        "playing, the keyboard takes taps and the end-of-game buttons are not there", __LINE__);
+  check(out.interactions.count() <= 24, "the game fits the interaction table", __LINE__);
+}
+
+// The end: the answer in the header, the result beside it, and any tap goes
+// back to the menu -- the keyboard stops taking letters.
+void aFinishedGameShowsTheAnswerAndLetsGo() {
+  wordle::Game game;
+  game.start(0, "PLANT");
+  play(game, "CRANE");
+  play(game, "PLANT");
+  wordleui::GameModel model;
+  model.game = &game;
+  model.date = "SEP 28";
+  Rendered out;
+  wordleui::KeyboardLayout keys;
+  buildGame(out, model, keys);
+  check(drewText(out, "PLANT") && drewText(out, "2 / 6"), "won: the header says the answer and the guess count",
+        __LINE__);
+  check(!drewText(out, "SEP 28"), "won: the date gives way to the result", __LINE__);
+  // The keyboard gives way to the result and where to go next.
+  check(drewText(out, "SOLVED IN 2") && drewText(out, "ARCHIVE") && drewText(out, "NEXT"),
+        "won: the result, ARCHIVE and NEXT replace the keyboard", __LINE__);
+  check(keys.keyW == 0 && !out.has(wordleui::ActionKeyboard), "won: no key is drawn or takes a letter", __LINE__);
+  bool keyLetters = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "Q" || run.text == "Z") keyLetters = true;
+  }
+  check(!keyLetters, "won: the keyboard is gone", __LINE__);
+  check(!out.has(wordleui::ActionNext) && out.has(wordleui::ActionArchive),
+        "won with nothing left to play: NEXT is greyed and takes no tap, ARCHIVE does", __LINE__);
+  check(out.tap(240, 300).action == fui::NO_ACTION, "won: a tap on the grid does nothing", __LINE__);
+
+  model.canNext = true;
+  Rendered withNext;
+  buildGame(withNext, model, keys);
+  check(withNext.has(wordleui::ActionNext) && withNext.has(wordleui::ActionArchive),
+        "won with a day left: both buttons take a tap", __LINE__);
+  bool nextRoutes = false;
+  for (size_t i = 0; i < withNext.interactions.count(); ++i) {
+    const auto& entry = withNext.interactions.data()[i];
+    if (entry.action != wordleui::ActionNext) continue;
+    const fui::Rect r = entry.rect;
+    nextRoutes = withNext.tap(r.x + r.width / 2, r.y + r.height / 2).action == wordleui::ActionNext;
+  }
+  check(nextRoutes, "won: a tap on NEXT routes to NEXT", __LINE__);
+  model.canNext = false;
+
+  wordle::Game lost;
+  lost.start(0, "PLANT");
+  for (int i = 0; i < 6; ++i) play(lost, "CRANE");
+  Rendered lostOut;
+  model.game = &lost;
+  buildGame(lostOut, model, keys);
+  check(drewText(lostOut, "PLANT") && drewText(lostOut, "X / 6") && drewText(lostOut, "NOT SOLVED"),
+        "lost: the header still says the answer, and the result says so", __LINE__);
+}
+
+void theNotAWordLineIsDrawn() {
+  wordle::Game game;
+  game.start(0, "PLANT");
+  wordleui::GameModel model;
+  model.game = &game;
+  model.message = "Not in the word list.";
+  Rendered out;
+  wordleui::KeyboardLayout keys;
+  buildGame(out, model, keys);
+  check(drewText(out, "Not in the word list."), "the refusal is on the screen", __LINE__);
+}
+
+void theMenuOffersTodayOnlyWhenThereIsOne() {
+  wordleui::MenuModel model;
+  Rendered empty;
+  buildMenu(empty, model);
+  check(drewText(empty, "NONE YET") && drewText(empty, "GET PUZZLES"), "empty: nothing to play, one thing to do",
+        __LINE__);
+  check(empty.tap(100, 180).action != wordleui::ActionMenu || empty.tap(100, 180).value != 0,
+        "empty: the date line opens nothing", __LINE__);
+
+  model.date = "28 SEP 2026";
+  model.state = "SOLVED IN 4";
+  model.stats.played = 3;
+  model.stats.won = 2;
+  model.stats.streak = 2;
+  model.stats.wins[3] = 2;
+  model.puzzles = 1928;
+  model.upToDate = true;
+  Rendered full;
+  buildMenu(full, model);
+  check(drewText(full, "28 SEP 2026") && drewText(full, "SOLVED IN 4") && drewText(full, "ALL CAUGHT UP"),
+        "full: today, how it went, and nothing to fetch", __LINE__);
+  check(full.interactions.count() <= 24, "the menu fits the interaction table", __LINE__);
+}
+
+}  // namespace wordletest
+
 int main() {
+  notestest::aNoteAsleepIsReadOnlyAndTaller();
+  wordletest::everyKeyIsWhereItIsDrawn();
+  wordletest::aFinishedGameShowsTheAnswerAndLetsGo();
+  wordletest::theNotAWordLineIsDrawn();
+  wordletest::theMenuOffersTodayOnlyWhenThereIsOne();
+  notestest::aWrappedDoneItemIsStruckOnEveryLine();
+  notestest::anUndoneWrappedItemIsNotStruck();
+  notestest::longItemsNeverLeaveTheirRowOnAList();
+  notestest::longLinesNeverLeaveTheirRowOnANote();
+  notestest::longDeckCardsStayInsideTheirCard();
+  notestest::aLongItemDoesNotShrinkTheOthers();
+  notestest::everyItemLandsOnExactlyOnePage();
+  notestest::aLongNoteFlowsWithoutLosingAWord();
+  notestest::aLongDeckNameWrapsInsideItsCard();
+  notestest::aListPageHoldsEveryRowItHasRoomFor();
+  notestest::anItemCutAtItsCapStillSaysSo();
+  notestest::everyItemIsOnThePageItsSaidToBeginOn();
+  notestest::aHugeUnbrokenRunIsCheapAndLosesNothing();
+  heartsDrawsNothingOnTopOfAnythingElse();
+  heartsPassOwnsTheTable();
+  heartsScoreSaysWhatHappened();
+  heartsMenuFillsItsPanel();
+  heartsHowToTeachesTheTwoTrickyRules();
   testWallpapersGridHasTwoColumns();
   testWallpapersCellsStayOnScreen();
   testWallpapersCellHitTestMatchesDraw();
@@ -12927,6 +14815,9 @@ int main() {
   testWallpapersChromeIsQuietWhenSomethingIsSet();
   testWallpapersChromeShowsThePage();
   testWallpapersChromeWarningVerbatim();
+  testWallpapersChromeSaysWhenLiveIsTheSleepScreen();
+  testWallpapersChromeSaysWhenANoteIsTheSleepScreen();
+  testWallpapersChromeLiveDoesNotDisplaceTheNoteOrTheWarning();
   testWallpapersEmptyStateSaysSomething();
   testWallpapersCaptionNeverCollidesWithArtwork();
   // testWallpapersHelpCardPointsAtTheUploader is NOT here: app/wallqr deleted
@@ -13038,6 +14929,7 @@ int main() {
   testConnectionsWonBoard();
   testConnectionsTilesShareOneSize();
   testConnectionsCalendarEveryDayIsReachable();
+  testCalendarMarksClearTheirDate();
   testConnectionsMenuOrnamentOpensArchive();
   testConnectionsHowToFitsOnePage();
   testConnectionsImportSaysSomethingIsHappening();
@@ -13075,6 +14967,17 @@ int main() {
   testTheResultNamesTheWinnerFromYourSeat();
   testTheSettingsRowsSayWhatTheyAre();
   testTheFrontDoorIsThreeDoors();
+  testTheHexCellYouTapIsTheCellTheRulesGet();
+  testTheHexBoardRunsCornerToCornerAndClearsTheChrome();
+  testTheHexBoardNamesBothSeatsAndTheirEdges();
+  testTheHexResultNamesTheWinnerFromYourSeat();
+  testTheHexSettingsRowsSayWhatTheyAre();
+  testTheHexFrontDoorIsThreeDoors();
+  testTheHexBorderIsOneBandRoundTheBoard();
+  testTheHexSeatCardIsCentredAsOneGroup();
+  testTheHexResultDoorsKeepClearOfTheBoard();
+  testTheHexSettingsSayOnlyTheirRows();
+  testTheHexFrontDoorIsTheBoardAndTheRecord();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();

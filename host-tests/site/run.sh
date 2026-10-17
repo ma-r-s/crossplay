@@ -408,6 +408,17 @@ for field in url anonKey; do
     && ok || bad "install.js and board-config.js disagree on the field '$field'"
 done
 
+# The Install button's version: GitHub from the visitor's browser, then the
+# site's own cached copy (card #585). release.js is run under node.
+if release_out="$(node "$HERE/release_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$release_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "release_fn: $line"; done < <(printf '%s\n' "$release_out" | grep '^  FAIL'); }
+else
+  bad "release_fn.js could not run, so release.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$release_out"
+fi
+
 # A failed install is a card only when the failure is the page's, not the
 # person's (cards 153 and 157 were a closed port picker and a silent cable).
 # The decision function is lifted from install.js and run under node.
@@ -431,6 +442,22 @@ else
 fi
 # and the page talks only to that gate, never to the board directly
 grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
+
+# assets/fleet.js: version ordering, one row per version, and the services that
+# posted nothing. Pure functions, so they run under plain node.
+if fleet_out="$(node "$HERE/fleet_js.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$fleet_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "fleet_js: $line"; done < <(printf '%s\n' "$fleet_out" | grep '^  FAIL'); }
+else
+  bad "fleet_js.js could not run, so the fleet tables' arithmetic went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$fleet_out"
+fi
+# The page must actually USE it: a helper nobody calls sorts nothing.
+grep -q 'assets/fleet.js' "$ROOT/site/inbox/index.html" \
+  && ok || bad "the inbox page does not load assets/fleet.js, so its tables sort themselves"
+grep -q 'FLEET.foldVersions' "$ROOT/site/inbox/index.html" \
+  && ok || bad "the inbox page does not fold the versions table, so a version can be listed twice"
 
 # api/trivia.js takes question reports off a device. Two of its properties are
 # invisible in the code and only a test can hold them: the device id is used to

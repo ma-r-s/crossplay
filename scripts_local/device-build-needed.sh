@@ -182,6 +182,17 @@ classify() {
     # than a judgement about a file's contents -- which is why it is clean. A
     # cosmetic edit to this one workflow will cut a release it did not need to;
     # that is the conservative direction, and it is edited a few times a year.
+    # THE PUBLISHER MOVED, AND SO DOES THIS ROW. Since 2026-09-21
+    # crossplay-release.yml is deleted and scripts_local/ship.sh does the
+    # merging, naming and uploading. Without a row of its own it falls to
+    # `scripts_local/) echo "yes no"` further down, and `no` on the ships
+    # column means a fix to the publisher CANNOT CUT A RELEASE -- which is
+    # card #190 exactly, the case this row was added for. Fix the bootloader
+    # offset, land it, and the release that would carry the fix is never cut.
+    # The old path stays listed: an old branch or a revert must classify the
+    # same way, and a path that was `quiet` does not become `no` by being
+    # deleted.
+    scripts_local/ship.sh)                            echo "no quiet" ;;
     .github/workflows/crossplay-release.yml)          echo "no quiet" ;;
 
     # Compiled, generated into the image, or naming what gets compiled.

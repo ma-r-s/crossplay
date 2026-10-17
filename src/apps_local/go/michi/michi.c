@@ -143,9 +143,39 @@ Position *michi_expand_scratch(void)
     return expand_scratch;
 }
 
+// FORK CHANGE: expand()'s four board-sized arrays, off the frame for the same
+// reason. They were 5,568 bytes of it at N=19, on the path that ends in the
+// ladder reader's recursion.
+typedef struct {
+    char      cfg_map[BOARDSIZE];
+    Info      sizes[BOARDSIZE];
+    Point     moves[BOARDSIZE];
+    TreeNode *childset[BOARDSIZE];
+} ExpandWork;
+static ExpandWork *expand_work;
+static ExpandWork *michi_expand_work(void)
+{
+    if (expand_work == NULL) expand_work = michi_malloc(sizeof(ExpandWork));
+    return expand_work;
+}
+
+// FORK CHANGE: fix_atari()'s ladder workspace, allocated once beside expand()'s.
+// Upstream copies the whole position into fix_atari()'s frame, twice, and
+// sizeof(Position) is about 16KB at N=19 (5.7KB at 13): that one frame was
+// 16,928 bytes, sitting UNDER the ladder reader's recursion (twelve levels of
+// 1,600), on a 32KB task. fix_atari() is never re-entered -- the recursion runs
+// through fix_atari_r() -- and each copy is dead before the next is made, so
+// one scratch position serves both.
+static Position *fix_atari_scratch;
+static Position *michi_fix_atari_scratch(void)
+{
+    if (fix_atari_scratch == NULL) fix_atari_scratch = michi_malloc(sizeof(Position));
+    return fix_atari_scratch;
+}
+
 // Stack of Positions for use in recursive calls fix_atari/read_ladder_attack
 //
-// FORK CHANGE: allocated, not static, and 128 deep rather than 500.
+// FORK CHANGE: allocated, not static, and MICHI_LADDER_MAX + 1 deep rather than 500.
 //
 // sizeof(Position) is about 5.7KB at N=13, so upstream's `Position
 // stack_pos[500]` is 2.8MB of .bss. On a desktop that is nothing; on this chip
@@ -154,9 +184,10 @@ Position *michi_expand_scratch(void)
 // michi_malloc like everything else here, and michi_stack_free() gives it back
 // when the app closes.
 //
-// 128 rather than 500 because this stack is only the ladder reader's, and a
-// ladder cannot be longer than the board it runs across: twenty-six plies on
-// thirteen lines, plus the fix_atari nesting above it. 128 is five times that.
+// Sized by MICHI_LADDER_MAX, not 500 or 128: this stack is only the ladder
+// reader's, read_ladder_attack_r() pushes one position per level, and the
+// depth cap is the most levels there can be. At N=19 a position is about 16KB,
+// so 128 was 2MB of PSRAM of which twelve slots could ever be used.
 int avail_pos;
 static int stack_pos_depth;
 Position *stack_pos;
@@ -177,6 +208,10 @@ void michi_stack_free(void)
     avail_pos = 0;
     free(expand_scratch);
     expand_scratch = NULL;
+    free(fix_atari_scratch);
+    fix_atari_scratch = NULL;
+    free(expand_work);
+    expand_work = NULL;
     free(cfg_fringe);
     cfg_fringe = NULL;
     ladder_depth = 0;
@@ -198,12 +233,21 @@ int fix_atari_r(Position *pos, Point pt, Slist moves);
 // budget tool cannot bound (it reports cycles and never sums them).
 //
 // Twelve plies reads every ladder a nine by nine board can hold and most of
-// what thirteen can, and costs 12 * 1,072 bytes of the search task's stack --
-// which is the arithmetic scripts_local/stack_budget.py cannot do for itself,
-// because it reports cycles and never sums them. Past it the reader answers "not caught", which is the
+// what thirteen and nineteen can. The arithmetic scripts_local/stack_budget.py
+// cannot do for itself, because it reports cycles and never sums them, at N=19
+// (measured 2026-10-04, -fstack-usage on the x4pro build):
+//
+//   down to fix_atari, deepest (tree_search > mcplayout > ... > fix_atari)  4,128
+//   12 levels of read_ladder_attack 32 + _r 448 + fix_atari_r 1,120       19,200
+//   the leaf (undo_move > compute_block > slist_push)                       3,520
+//   total                                                     26,848 of 32,768
+//
+// That total holds only because fix_atari()'s position copy and expand()'s
+// arrays are off the frame (see fix_atari_scratch, ExpandWork); with them on it
+// it was about 46KB. A frame that grows with N lands here first. Past it the reader answers "not caught", which is the
 // conservative answer: the engine declines to claim a capture it has not
 // proved, rather than crashing on a board somebody is looking at.
-#define MICHI_LADDER_MAX 12
+// (MICHI_LADDER_MAX itself is in michi.h: MichiBridge sizes the stack by it.)
 static Point read_ladder_attack_r(Position *pos, Point pt, Slist libs);
 
 Point read_ladder_attack(Position *pos, Point pt, Slist libs)
@@ -309,9 +353,9 @@ int fix_atari_r(Position *pos, Point pt, Slist moves)
     Block b = point_block(pos, pt);
     int   in_atari=1;
     // FORK CHANGE: MAX_BLOCKS+1, not 256. This is a Slist of BLOCK ids and
-    // there are only MAX_BLOCKS of them (128 at N=13), so 256 is half a
-    // kilobyte of frame that cannot be used -- once per level of a recursion
-    // that is sixteen deep.
+    // there are only MAX_BLOCKS of them (256 at N=19, 128 at N=13), so this is
+    // the most the list can hold -- once per level of a recursion that is
+    // MICHI_LADDER_MAX deep.
     Point l, libs[5], blocks[MAX_BLOCKS+1], blibs[5];
 
     slist_clear(moves);
@@ -392,8 +436,9 @@ int fix_atari(Position *pos, Point pt, int singlept_ok
                 // check that the block cannot be caught in a working ladder
                 // If it can, that's as good as in atari, a capture threat.
                 // (Almost - N/A for countercaptures.)
-                Position workpos = *pos;
-                Point ladder_attack = read_ladder_attack(&workpos, pt, libs);
+                Position *workpos = michi_fix_atari_scratch();
+                *workpos = *pos;
+                Point ladder_attack = read_ladder_attack(workpos, pt, libs);
                 if (ladder_attack) {
                     if(slist_insert(moves, ladder_attack))
                         slist_push(sizes, block_size(pos, b));
@@ -440,8 +485,9 @@ int fix_atari(Position *pos, Point pt, int singlept_ok
         }
         else if (block_nlibs(pos,b)==2) {
             block_compute_libs(pos,b,libs,2);
-            Position workpos = *pos;     // workspace for read_ladder_attack
-            if (read_ladder_attack(&workpos, l, libs) == 0)
+            Position *workpos = michi_fix_atari_scratch();  // workspace for read_ladder_attack
+            *workpos = *pos;
+            if (read_ladder_attack(workpos, l, libs) == 0)
                 if (slist_insert(moves, l))
                     slist_push(sizes, block_size(pos, b));
         }
@@ -729,16 +775,25 @@ TreeNode* new_tree_node(void)
 void expand(Position *pos, TreeNode *tree)
 // add and initialize children to a leaf node which represents the Position pos
 {
-    char     cfg_map[BOARDSIZE];
+    // FORK CHANGE: the arrays are a scratch block, see ExpandWork.
+    ExpandWork *work = michi_expand_work();
+    char     *cfg_map = work->cfg_map;
     int      nchildren = 0;
-    Info     sizes[BOARDSIZE];
-    Point    moves[BOARDSIZE];
+    Info     *sizes = work->sizes;
+    Point    *moves = work->moves;
+    TreeNode **childset = work->childset;
+    TreeNode *node;
+    // Cleared every call. On the frame these were garbage until written; in a
+    // block that outlives the call they would be the LAST tree's pointers, and
+    // the prior loops below read childset[] for capture and pattern moves that
+    // the first loop may not have written. A null is skipped, a stale pointer
+    // would be written through.
+    memset(childset, 0, sizeof(work->childset));
     // FORK CHANGE: heap, not frame. sizeof(Position) is about 5.7KB at N=13,
     // and this function sits in the deepest path the search takes. expand() is
     // not re-entrant -- it is called from tree_descend and from tree_search,
     // never from itself -- so one scratch position serves every call.
     Position *pos2 = michi_expand_scratch();
-    TreeNode *childset[BOARDSIZE], *node;
     if (board_last_move(pos) != PASS_MOVE)
         compute_cfg_distances(pos, board_last_move(pos), cfg_map);
 
@@ -775,6 +830,7 @@ void expand(Position *pos, TreeNode *tree)
         if (ret[0] != 0) continue;
         undo_move(pos);
         node = childset[pt];
+        if (node == NULL) { k++; continue; }
         if (sizes[k] == 1) {
             node->pv += PRIOR_CAPTURE_ONE;
             node->pw += PRIOR_CAPTURE_ONE;
@@ -791,6 +847,7 @@ void expand(Position *pos, TreeNode *tree)
         if (ret[0] != 0) continue;
         undo_move(pos);
         node = childset[pt];
+        if (node == NULL) continue;
         node->pv += PRIOR_PAT3;
         node->pw += PRIOR_PAT3;
     }

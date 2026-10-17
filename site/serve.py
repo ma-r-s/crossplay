@@ -10,6 +10,14 @@ this site has. Without it the Install button is untestable off Vercel: it fails
 at the download with a 404 from the static handler, which looks exactly like a
 broken endpoint and is only a missing one.
 
+It also PROXIES every other /api/ path to the Live service
+(https://fridge.ma-r-s.com, or $LIVE_API). In production /live/ calls that host
+directly and the sender cookie rides along because both names sit under
+ma-r-s.com; from localhost the two are cross-SITE, the Lax cookie is never
+sent, and the page reports "not connected" with nothing in the console to say
+why. The proxy makes the local page same-origin with the API so the journey can
+be driven for real. Reached with /live/?local.
+
 Dev only: with INBOX_FIXTURE set to a JSON file, POST /api/inbox is answered
 from that file whatever the passphrase (op `list` returns its `list` object,
 `numbers` its `numbers` object, `answer` says {ok: true} and changes nothing).
@@ -42,9 +50,43 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
 FIRMWARE_NAMES = {
     "x4pro": "crossplay-{tag}-x4pro-full.bin",
     "sticky": "crossplay-{tag}-sticky-full.bin",
+    "papermono": "crossplay-{tag}-papermono-full.bin",
 }
 TAG_RE = re.compile(r"^v\d{1,3}\.\d{1,3}\.\d{1,3}$")
 RELEASES = "https://github.com/ma-r-s/crossplay/releases/download"
+
+
+def dev_cookie(value: str, https: bool) -> str:
+    """A forwarded Set-Cookie, with the attributes a browser here would refuse.
+
+    TWO OF THEM, AND SILENTLY IS THE WHOLE PROBLEM. The claim returns 200, the
+    cookie is never stored, and the very next /api/state says "not connected":
+    nothing anywhere reports a failure, and it reads as the six digits being
+    wrong when they were right.
+
+    `Domain=.ma-r-s.com`: a browser REFUSES a cookie whose Domain does not
+    cover the host that set it, and this dev server's host does not.
+
+    `Secure`: the service derives it from the scheme its request arrived on, and
+    this proxy calls https://fridge.ma-r-s.com, so the cookie comes back marked
+    Secure. A browser refuses a Secure cookie over plain http, which is what
+    this server speaks. Dropped only when this server is not itself https, so
+    it stays an accommodation rather than a policy.
+
+    HttpOnly and SameSite are left exactly as sent: Lax is what makes the real
+    pair work, and neither is refused here.
+
+    Production never runs this file, so none of this can reach a real cookie.
+    """
+    kept = []
+    for part in value.split("; "):
+        low = part.strip().lower()
+        if low.startswith("domain="):
+            continue
+        if not https and low == "secure":
+            continue
+        kept.append(part)
+    return "; ".join(kept)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -60,13 +102,96 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/board-config":
             self.serve_board_config()
             return
+        if self.live_path():
+            self.proxy_live()
+            return
         super().do_GET()
 
     def do_POST(self):
         if self.path.split("?")[0] == "/api/inbox":
             self.serve_inbox()
             return
+        if self.live_path():
+            self.proxy_live()
+            return
         self.fail(404, "Nothing answers POST here.")
+
+    def do_PUT(self):
+        if self.live_path():
+            self.proxy_live()
+            return
+        self.fail(404, "Nothing answers PUT here.")
+
+    # DELETE, because /live/ deletes a history entry with one. Without it
+    # http.server answers 501 Unsupported method, the page reports "That did not
+    # work" over a service that was never asked, and the one journey this proxy
+    # exists to make drivable is the one that cannot be driven.
+    def do_DELETE(self):
+        if self.live_path():
+            self.proxy_live()
+            return
+        self.fail(404, "Nothing answers DELETE here.")
+
+    # /live/ talks to fridge.ma-r-s.com, which is a DIFFERENT HOST in
+    # production and is same-origin with nothing here. Locally it is reached
+    # through this proxy, because the alternative does not work and looks like
+    # a bug when it fails: a page on localhost is CROSS-SITE with
+    # fridge.ma-r-s.com, so the sender cookie -- SameSite=Lax, which is right
+    # and stays right between two ma-r-s.com subdomains -- is not sent at all,
+    # and every call comes back "not connected" with nothing in the console.
+    # Through the proxy the page is same-origin with the API and the journey
+    # can be driven for real. Reached with /live/?local; see live.js.
+    LIVE_ORIGIN = os.environ.get("LIVE_API", "https://fridge.ma-r-s.com")
+
+    def served_over_https(self):
+        """Whether the page this proxy serves was fetched over https.
+
+        `http.server` has no TLS, so today this is always false; it is written
+        as a question rather than a constant because the moment somebody puts
+        this behind a tunnel the answer changes, and a hardcoded False would
+        then strip an attribute that was doing its job.
+        """
+        return self.headers.get("x-forwarded-proto", "http").lower() == "https"
+
+    def live_path(self):
+        return self.path.split("?")[0].startswith("/api/") and not self.path.split("?")[0] in (
+            "/api/firmware",
+            "/api/board-config",
+            "/api/inbox",
+        )
+
+    def proxy_live(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        payload = self.rfile.read(length) if length else None
+        req = urllib.request.Request(self.LIVE_ORIGIN + self.path, data=payload, method=self.command)
+        # Cloudflare answers urllib's default agent with its own 1010 page, which
+        # arrives as a 403 that looks exactly like the service refusing the call.
+        req.add_header("User-Agent", self.headers.get("User-Agent") or "Mozilla/5.0 (crossplay dev proxy)")
+        for header in ("Content-Type", "Cookie", "Authorization", "If-None-Match"):
+            if self.headers.get(header):
+                req.add_header(header, self.headers[header])
+        try:
+            with urllib.request.urlopen(req, timeout=20) as answer:
+                status, headers, body = answer.status, answer.headers, answer.read()
+        except urllib.error.HTTPError as err:
+            status, headers, body = err.code, err.headers, err.read()
+        except urllib.error.URLError as err:
+            self.fail(502, f"{self.LIVE_ORIGIN} could not be reached: {err}")
+            return
+        self.send_response(status)
+        for key, value in headers.items():
+            if key.lower() == "set-cookie":
+                # Domain and Secure would both be refused by a browser talking
+                # to this server over plain http, silently. See dev_cookie.
+                self.send_header(
+                    key, dev_cookie(value, self.served_over_https())
+                )
+            elif key.lower() not in ("transfer-encoding", "content-encoding", "connection", "content-length"):
+                self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if body:
+            self.wfile.write(body)
 
     def serve_inbox(self):
         # Mirrors api/inbox.js only in shape. The real function checks a
@@ -135,7 +260,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         device = (query.get("device") or [""])[0]
         tag = (query.get("tag") or [""])[0]
         if device not in FIRMWARE_NAMES:
-            self.fail(400, "Unknown device. Use x4pro or sticky.")
+            self.fail(400, "Unknown device. Use x4pro, sticky or papermono.")
             return
         if not TAG_RE.match(tag):
             self.fail(400, "Malformed release tag.")
@@ -194,9 +319,30 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
-socketserver.TCPServer.allow_reuse_address = True
-with socketserver.ThreadingTCPServer(
-    ("127.0.0.1", PORT), functools.partial(Handler, directory=ROOT)
-) as httpd:
-    print(f"serving {ROOT} on {PORT} (cross-origin isolated)")
-    httpd.serve_forever()
+# ALL INTERFACES, DELIBERATELY, AND DEV ONLY.
+#
+# Bound to 127.0.0.1 this is reachable from this Mac and nothing else, and the
+# one thing /live/ most needs before it ships is a phone holding it: the layout
+# is for a 390px screen, the gestures are touch, and neither is really testable
+# in an emulated viewport. So it listens on the LAN.
+#
+# It stays dev-only by construction rather than by promise: production is
+# Vercel's static hosting and never runs this file at all (see the module
+# docstring). What is exposed while it runs is this working tree's copy of the
+# site plus the /api/ proxy, on a local network, for as long as somebody leaves
+# it up. Stop it by pid when you are done.
+#
+# `?local` still matters from a phone, and for the reason the proxy exists: the
+# page would otherwise call fridge.ma-r-s.com directly, the sender cookie is
+# cross-SITE from an IP address, and the page would report "not connected" with
+# nothing on screen to say why.
+# Under `if __name__`, so host-tests/fridge can import dev_cookie and assert the
+# rewriting above against the cookie the service really sets, without this file
+# starting a server to do it.
+if __name__ == "__main__":
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.ThreadingTCPServer(
+        ("0.0.0.0", PORT), functools.partial(Handler, directory=ROOT)
+    ) as httpd:
+        print(f"serving {ROOT} on {PORT} (cross-origin isolated, all interfaces)")
+        httpd.serve_forever()

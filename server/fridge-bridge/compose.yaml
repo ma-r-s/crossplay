@@ -1,0 +1,58 @@
+# Its own subnet, like the other bridges: three services on one box sharing a
+# network would let a compromise in any of them reach the others' ports
+# directly. 172.31.83 is getbooks, .84 anki, .85 read.
+networks:
+  fridgebridge:
+    name: fridgebridge
+    ipam:
+      config:
+        - subnet: 172.31.87.0/24
+
+services:
+  fridgebridge:
+    build: .
+    image: fridgebridge:local
+    container_name: fridgebridge
+    restart: unless-stopped
+    networks: [fridgebridge]
+    # Nothing published on the host. cloudflared joins this network and is the
+    # only way in, so there is no port on the box to find.
+    expose:
+      - "8080"
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    environment:
+      FRIDGE_DATA: /data
+      # Where pairings, check-ins and errors go (docs/workflow/events.md).
+      # Both optional: with either unset the service posts nothing and logs so
+      # once at startup. The anon key can only insert.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+    volumes:
+      - ./data:/data
+    user: "10004:10004"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    cpus: 1.0
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: fridgebridge-cloudflared
+    restart: unless-stopped
+    networks: [fridgebridge]
+    command: tunnel --no-autoupdate run --token ${FRIDGE_TUNNEL_TOKEN}
+    depends_on: [fridgebridge]
+    mem_limit: 128m
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"

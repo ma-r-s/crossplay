@@ -46,11 +46,13 @@ goes in the Authorization header. Only HMAC-SHA1 is supported by the server.
 """
 
 import base64
+import contextlib
 import hashlib
 import hmac
 import logging
 import os
 import secrets
+import threading
 import time
 import urllib.parse
 
@@ -69,6 +71,38 @@ BASE = os.environ.get("READ_INSTAPAPER_BASE", "https://www.instapaper.com").rstr
 LIST_LIMIT = 500
 
 TIMEOUT = httpx.Timeout(20.0, connect=10.0)
+
+# Since 2026-09-30 get_text serves an application acting for anyone but its
+# own developer only when the request carries an Instaparser key; without one
+# every article answers error 1044 (GitHub #298). The key is this bridge's,
+# from the same .env as the consumer pair. Unset sends nothing extra.
+#
+# Instaparser's free tier admits one request a second per key, and every
+# user's sync spends the same key, so the gap is process-wide. It applies only
+# while a key is set: without one, Instaparser is not in the path.
+PARSE_GAP_S = 1.05
+_parse_lock = threading.Lock()
+_parse_last = 0.0
+
+
+def instaparser_key() -> str:
+    return os.environ.get("INSTAPARSER_API_KEY", "")
+
+
+@contextlib.contextmanager
+def _parse_slot():
+    """Held across the request, and the gap runs from its END: timed from
+    the start, a slow TLS handshake on one call could land the next inside
+    Instaparser's second."""
+    global _parse_last
+    with _parse_lock:
+        wait = _parse_last + PARSE_GAP_S - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            yield
+        finally:
+            _parse_last = time.monotonic()
 
 
 def consumer() -> tuple[str, str]:
@@ -162,6 +196,7 @@ FRIENDLY = {
     1040: "Instapaper is rate-limiting this bridge. Try again in a while.",
     1041: "That needs an Instapaper Premium account.",
     1042: "This bridge's Instapaper application has been suspended.",
+    1044: "Instapaper would not send this article's text. Try again in a while.",
     1241: "Instapaper no longer has that article.",
     1500: "Instapaper had a problem on its side. Try again in a while.",
     1550: "Instapaper could not produce a text version of this article.",
@@ -429,7 +464,14 @@ class Instapaper:
         return normalise_listing(self._json("/api/1/bookmarks/list", body))
 
     def get_text(self, bookmark_id: int) -> str:
-        r = self._post("/api/1/bookmarks/get_text", {"bookmark_id": bookmark_id})
+        body = {"bookmark_id": bookmark_id}
+        key = instaparser_key()
+        if key:
+            body["instaparser_api_key"] = key
+            with _parse_slot():
+                r = self._post("/api/1/bookmarks/get_text", body)
+        else:
+            r = self._post("/api/1/bookmarks/get_text", body)
         if r.status_code == 200:
             return r.text
         try:
@@ -440,6 +482,9 @@ class Instapaper:
             for item in items:
                 if isinstance(item, dict) and item.get("type") == "error":
                     code = int(item.get("error_code") or 0)
+                    # Logged because it was not: every article of every sync
+                    # failed for five days with nothing in the log but "400".
+                    log.info("get_text error %s: %s", code, item.get("message"))
                     raise ApiError(FRIENDLY.get(code, "Instapaper could not send this article."), code)
         # A non-200 carrying no error element: the same blind refusal that
         # cost a day on bookmarks/list, in the twin path. Say what arrived.

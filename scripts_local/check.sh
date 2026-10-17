@@ -1,7 +1,7 @@
 #!/bin/bash
 # Everything that can be verified without a device. Run before every commit.
 #
-#   ./scripts_local/check.sh              # host tests, both builds
+#   ./scripts_local/check.sh              # host tests and all device builds
 #   ./scripts_local/check.sh --tests      # host tests only (fast)
 #   ./scripts_local/check.sh --flash      # build x4pro under the lock and flash it, no suites (~3 min)
 #   ./scripts_local/check.sh --flash sticky --ip 192.168.1.42   # env first, then wifi-flash.sh's own flags
@@ -211,9 +211,9 @@ if [ "${1:-}" = "--flash" ]; then
   shift
   FLASH_ENV="x4pro"
   case "${1:-}" in
-    x4pro|sticky|gh_release_x4pro|gh_release_sticky) FLASH_ENV="$1"; shift ;;
+    x4pro|sticky|papermono|gh_release_x4pro|gh_release_sticky|gh_release_papermono) FLASH_ENV="$1"; shift ;;
     --*|"") ;;
-    *) die "--flash: '$1' is not a device env (x4pro, sticky, gh_release_x4pro, gh_release_sticky)" ;;
+    *) die "--flash: '$1' is not a device env (x4pro, sticky, papermono, gh_release_x4pro, gh_release_sticky, gh_release_papermono)" ;;
   esac
   # Whatever follows goes to wifi-flash.sh as it is: --ip when discovery
   # cannot hear the unit, --pair on a fresh Developer Mode session.
@@ -289,6 +289,19 @@ if [ "$_committed" = "1" ]; then
   fi
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
   git worktree add --quiet --detach "$TRIAL" HEAD || die
+  # THE COMMIT THIS RUN IS ABOUT, pinned here and not re-read later.
+  #
+  # The handover directory below is named after it, and ship.sh proves the
+  # images it publishes belong to the commit it tags by comparing that name
+  # against HEAD. Resolving HEAD at the END of the run instead -- after the
+  # host suites and two ESP32 builds, fifteen minutes later -- names the
+  # directory for whatever the branch has moved to since, while it holds the
+  # binaries of what it started with. Both of ship.sh's probes then pass and
+  # the wrong firmware ships under the right tag.
+  #
+  # Not hypothetical: two commits landed in this worktree during one such run
+  # on 2026-09-21. The detached clone cannot move, so it is the honest source.
+  TRIAL_SHA="$(git -C "$TRIAL" rev-parse HEAD)"
   # Clean up even when this run is interrupted. A killed --committed used to
   # leave ~600MB registered in TMPDIR until the same tree ran it again, and
   # long builds get killed on purpose here, so that is the normal case rather
@@ -383,7 +396,50 @@ if [ "$_committed" = "1" ]; then
   # bridge, whose breakage costs a developer and never a user.
   export CHECK_BUILD_RELEASE_ENVS=1
   (cd "$TRIAL" && ./scripts_local/check.sh "${1:-}")
-  exit $?
+  _committed_rc=$?
+
+  # HAND THE RELEASE IMAGES OUT BEFORE THE TRAP DELETES THEM.
+  #
+  # The images this mode builds are the ones that ship, and until 2026-09-21
+  # nothing outside this function could ever see them: they are written into
+  # $TRIAL/.pio/build, and the trap above removes $TRIAL on EXIT. That was
+  # invisible while GitHub rebuilt everything at tag time, and became the
+  # whole problem the moment scripts_local/ship.sh started publishing what
+  # the gate produced. Its first version read $REPO/.pio/build, which on a
+  # normal tree does not exist at all -- and on a tree where somebody had run
+  # `check.sh --flash gh_release_x4pro` held a PRE-BUMP image that would have
+  # published cleanly under the new tag. That is exactly the OTA failure the
+  # bump-before-build ordering exists to prevent, reached by another door.
+  #
+  # Opt-in, because copying ~14MB on every --committed run is a cost only the
+  # publisher needs to pay. Only on a green run: there is no such thing as a
+  # shippable image from a gate that did not pass.
+  if [ "$_committed_rc" = 0 ] && [ -n "${CHECK_KEEP_RELEASE_IMAGES:-}" ]; then
+    # TRIAL_SHA, not a fresh `git rev-parse HEAD`: see where it is set.
+    _out="$REPO/.pio/ship/$TRIAL_SHA"
+    rm -rf "$REPO/.pio/ship"
+    mkdir -p "$_out"
+    _kept=0
+    for _env in gh_release_x4pro gh_release_sticky gh_release_papermono; do
+      if [ -d "$TRIAL/.pio/build/$_env" ]; then
+        mkdir -p "$_out/$_env"
+        for _f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
+          cp "$TRIAL/.pio/build/$_env/$_f" "$_out/$_env/$_f" 2>/dev/null && _kept=$((_kept + 1))
+        done
+      fi
+    done
+    # Named against the COMMIT, so a consumer can prove the images it found
+    # belong to the commit it means to publish rather than to whatever ran
+    # here last. Four files per release board, twelve for the three, or the
+    # directory is not a release.
+    if [ "$_kept" = 12 ]; then
+      echo "CHECKSH-IMAGES: $_out"
+    else
+      rm -rf "$REPO/.pio/ship"
+      echo "CHECKSH-IMAGES: none ($_kept of 12 files; the device builds were skipped or an env is missing)"
+    fi
+  fi
+  exit $_committed_rc
 fi
 
 # The link suite is real UDP on real loopback, and its port range IS its
@@ -815,7 +871,8 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
               "tools_local/study/test_slug_parity.py" \
-              "tools_local/study/test_font_parity.py"; do
+              "tools_local/study/test_font_parity.py" \
+              "tools_local/study/test_unbuildable.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
     # next step's, so the tail printed on failure showed a suite that passed.
@@ -942,11 +999,12 @@ fi
 # and the offsets are picked apart from each other AND from the link suite,
 # which owns LINKPLAY_BASE_PORT+0..7 (LinkRadio.cpp, kSlots). readbridge takes
 # 8..11 because its harness derives a fake-service port from the base; study
-# takes 12. Sharing an offset would only bite when two trees gate at once,
-# which is exactly when nobody is looking.
+# takes 12; fridgebridge takes 13. Sharing an offset would only bite when two
+# trees gate at once, which is exactly when nobody is looking.
 for entry in \
-  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
-  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py"
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_decks.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py" \
+  "server/fridge-bridge:fridgebridge:13:tests/test_events.py tests/test_live_events.py"
 do
   BRIDGE_DIR="$REPO/${entry%%:*}"
   rest="${entry#*:}"
@@ -1016,22 +1074,11 @@ if [ "${1:-}" != "--tests" ]; then
   # would mean committed x4pro builds never took the lock at all.
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
-  BUILD_ENVS="simulator_x4_pro x4pro sticky"
+  BUILD_ENVS="simulator_x4_pro x4pro sticky papermono"
   [ -n "${FLASH_MODE:-}" ] && BUILD_ENVS="${FLASH_ENV:-x4pro}"
-  # --committed SWAPS the dev pair for the release pair. It used to APPEND, and
-  # built four device images where two would do.
-  #
-  # x4pro and sticky are dev builds: they define CROSSPOINT_DEV_SERIAL_BRIDGE,
-  # and the code that is theirs alone is the serial bridge. A break in it costs
-  # the next person who wants to drive a device over the cable -- a real cost,
-  # but a deferred one, and not one worth gating every landing on. The release
-  # pair is different in kind (see the note in the --committed block): it is
-  # otherwise compiled for the FIRST time by the release workflow, after the tag
-  # exists, where a typo costs a delete and a retag.
-  #
-  # A plain check.sh still builds the dev pair, so a broken debug path surfaces
-  # on the next routine run rather than never.
-  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky"
+  # --committed checks the release configurations that ship. A normal run
+  # builds the development configurations, including their serial bridge.
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky gh_release_papermono"
 
   # ---- do these builds need to run for THIS change at all? ----------------
   #

@@ -104,7 +104,9 @@ struct BoardModel {
   // play and worth one point each. `freePoints` is how many are left, and it is
   // the same number the engine's own pass rule reads.
   bool itPlayedOn = false;
-  uint8_t freePoints = 0;
+  // An int, not a byte: nineteen by nineteen has 361 points, and a byte showed
+  // "74 FREE POINTS" with 330 free and dropped the line at exactly 256.
+  int freePoints = 0;
 };
 
 struct CountModel {

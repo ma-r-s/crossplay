@@ -202,9 +202,20 @@
   font-weight: 600;
   margin: 1rem 0 0;
 }
-:root[data-theme="dark"] .wp-error,
-:root:not([data-theme="light"]) .wp-error {
-  color: #f2a; /* readable on the dark paper */
+/* THE DARK COLOUR IS INSIDE THE MEDIA QUERY, and it has to be.
+   `:root:not([data-theme="light"])` is not a dark-mode selector: it matches on
+   a light system too, because the attribute is absent by default. Unguarded,
+   every refusal on this page was drawn in the dark paper's hot pink on cream,
+   which reads as a decoration rather than as something that went wrong. The
+   shape is styles.css's own for tokens: the media query for the system, the
+   explicit attribute for the toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .wp-error {
+    color: #f2a; /* readable on the dark paper */
+  }
+}
+:root[data-theme="dark"] .wp-error {
+  color: #f2a;
 }
 
 /* The transfer steps: how the BMP gets from this page onto the card. A numbered

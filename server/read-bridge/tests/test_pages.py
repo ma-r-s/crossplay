@@ -123,6 +123,68 @@ ok(
     "the asset route is an allowlist, so no name can traverse out of it",
 )
 
+# ------------------------------------------------- one scan, not two (#112)
+# The reader's QR carries its code in the URL fragment, which this server never
+# sees. Signed out, the pair page keeps it in the tab's sessionStorage and the
+# page sign-in lands on goes back to /pair with it. The two scripts are run
+# here under node against a fake tab, because a check that the text is present
+# passes just as well for a script that does nothing.
+import json as _json  # noqa: E402
+import re as _re  # noqa: E402
+import shutil as _shutil  # noqa: E402
+import subprocess as _subprocess  # noqa: E402
+
+
+def _run_tab(scripts, hash_="", stored=None, now=1_000_000):
+    """Run page scripts in one fake tab; return what they did to it."""
+    js = _re.findall(r"<script>(.*?)</script>", "".join(scripts), _re.S)
+    harness = (
+        "const store=new Map(Object.entries(%s));"
+        "const sessionStorage={getItem:k=>store.has(k)?store.get(k):null,"
+        "setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};"
+        "let replaced=null;const location={hash:%s,replace:u=>{replaced=u}};"
+        "Date.now=()=>%d;"
+        "%s;"
+        "console.log(JSON.stringify({replaced,store:Object.fromEntries(store)}));"
+    ) % (_json.dumps(stored or {}), _json.dumps(hash_), now, ";".join(js))
+    out = _subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+    if out.returncode:
+        return {"error": out.stderr.strip()[-300:]}
+    return _json.loads(out.stdout)
+
+
+if _shutil.which("node") is None:
+    ok(False, "node is needed to run the pairing scripts; none on PATH")
+else:
+    carried = _run_tab([chrome.PAIR_CARRY_SCRIPT], hash_="#GAS7V3AY")
+    ok("pairCode" in carried.get("store", {}), f"a scanned code is kept through sign-in: {carried}")
+    back = _run_tab([chrome.PAIR_RESUME_SCRIPT], stored=carried.get("store", {}), now=1_000_000 + 60_000)
+    ok(back.get("replaced") == "/pair#GAS7V3AY", f"after sign-in it goes back to /pair with the code: {back}")
+    ok(back.get("store") == {}, "and the code is used once, then gone")
+    again = _run_tab([chrome.PAIR_RESUME_SCRIPT], stored=back.get("store", {}))
+    ok(again.get("replaced") is None, "a second visit to the landing page does not bounce again")
+    stale = _run_tab([chrome.PAIR_RESUME_SCRIPT], stored=carried.get("store", {}), now=1_000_000 + 301_000)
+    ok(stale.get("replaced") is None and stale.get("store") == {},
+       f"a code older than the five minutes it lives is dropped, not offered: {stale}")
+    junk = _run_tab([chrome.PAIR_CARRY_SCRIPT], hash_="#<img src=x onerror=1>")
+    ok(junk.get("store") == {}, f"only a code-shaped fragment is kept: {junk}")
+    bare = _run_tab([chrome.PAIR_CARRY_SCRIPT], hash_="")
+    ok(bare.get("store") == {}, "a pair page opened without a code keeps nothing")
+    nothing = _run_tab([chrome.PAIR_RESUME_SCRIPT])
+    ok(nothing.get("replaced") is None, "signing in with nothing pending lands where it always did")
+
+# And the two pages actually serve them: the signed-out pair page and the page
+# sign-in redirects to. Read from the routes' source, because rendering them
+# needs a session store this suite does not build.
+_app = (ROOT / "bridge" / "app.py").read_text()
+_pair = _app[_app.index('@app.get("/pair")'):]
+ok("chrome.PAIR_CARRY_SCRIPT" in _pair[: _pair.index("Pair this reader")],
+   "the signed-out pair page carries the code")
+_devices = _app[_app.index('@app.get("/devices")'):]
+ok("chrome.PAIR_RESUME_SCRIPT" in _devices[: _devices.index("\n@app.")],
+   "the page sign-in lands on picks it up")
+ok('RedirectResponse("/devices", status_code=303)' in _app, "and sign-in still lands on /devices")
+
 # -------------------------------------------------------------- the two twins
 # The other service's chrome is this one with three strings changed. Drift
 # between them is how one bridge quietly stops looking like the product.

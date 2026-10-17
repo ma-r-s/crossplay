@@ -1,18 +1,29 @@
 # Go
 
-Nine by nine or thirteen by thirteen, area scoring, komi 7.5, situational
-superko. Two people on one device, two devices in a room, or one person against
+Nine by nine, thirteen by thirteen or nineteen by nineteen, area scoring, komi
+7.5, situational superko. Two people on one device, two devices in a room, or one person against
 michi-c2 at three levels.
 
-**Two board sizes and not three.** Nineteen lines on a 480px panel is a 24px
-pitch with a 20px stone, which is below the fingertip this device is driven
-with. Nine gives 49px and a game that finishes on one train journey; thirteen
-gives 33px, and is playable at that pitch because a stone goes down in two taps
-and the first one can be moved. Nine is the default.
+**Three board sizes.** Nine gives a 49px pitch and a game that finishes on one
+train journey; thirteen gives 33px; nineteen gives 23px with an 18px stone,
+which is below the fingertip this device is driven with. The larger two are
+playable at those pitches because a stone goes down in two taps and the first
+one can be moved. Nine is the default. Nineteen was left out at first for that
+pitch, and offered from 2026-10-03 because it is the board real Go is played on
+(GitHub #282; Mario: "we should allow 19x19, at least allow it"). Twenty-three
+is the widest pitch nineteen allows: at 24 the pad inside the square drops to
+eight pixels, under the stone's radius, and the edge row touches the frame.
 
-Both boards occupy the **same 448px square**, and that is what keeps the seat
-bands, the buttons and the frame in one place across the two: only the pitch and
-the pad inside the square change.
+All three boards occupy the **same 448px square**, and that is what keeps the
+seat bands, the buttons and the frame in one place across them: only the pitch
+and the pad inside the square change.
+
+**A point is two bytes (`go::Point`).** Nineteen by nineteen has 361 points
+and a byte numbers 256, so the ko, the last move, every flood fill's stack and
+every neighbour list hold a `Point`, never a `uint8_t`. The suite plays past
+the 256th point on purpose (`testKoPastTheByteIsTheRightPoint`: in a byte the
+ko at 325 was 69, which forbade an empty point at the top of the board and
+allowed the immediate recapture).
 
 ## The files
 
@@ -61,7 +72,7 @@ at full width.
 | LEVEL | EASY / MEDIUM / HARD | how hard the machine thinks, and nothing else |
 | HANDICAP | NONE / 2..5 STONES | stones spotted to the player, komi 0.5 |
 | YOU PLAY | BLACK / WHITE | dim while a handicap is set: a handicap is Black's |
-| BOARD | 9x9 / 13x13 | applies to the next NEW game |
+| BOARD | 9x9 / 13x13 / 19x19 | applies to the next NEW game |
 
 **The level is strength alone.** It used to carry the opening as well, so EASY
 meant "a weaker opponent AND two free stones" and neither half could be had
@@ -100,8 +111,8 @@ no draw and needs no draw screen**, and `settlesEveryGame()` holds every komi
 the level ladder can set to that promise. The first version had 7.0 and the
 suite found the tie.
 
-`moveLimit(size)` is five times the board -- 405 moves on nine, 845 on thirteen
--- and it is a **[house rule]**. Chinese rules with full superko terminate on
+`moveLimit(size)` is five times the board -- 405 moves on nine, 845 on thirteen,
+1805 on nineteen -- and it is a **[house rule]**. Chinese rules with full superko terminate on
 their own, but the ring in `Game` remembers eight positions rather than every
 one, so a long enough cycle is not forbidden. An opponent that refuses to pass
 while losing (which is correct, below) will happily play into one, and a
@@ -139,9 +150,9 @@ made fail.
 
 The first tap aims, the second commits, and tapping elsewhere moves the aim.
 It costs one tap on a move you were sure of and saves a game on the one you were
-not: the pitch is 49px on nine and 33px on thirteen, which is at or under a
-fingertip, and a stone cannot be taken back in a match. It is also what makes
-the larger board offerable at all.
+not: the pitch is 49px on nine, 33px on thirteen and 23px on nineteen, which is
+at or under a fingertip, and a stone cannot be taken back in a match. It is also
+what makes the larger boards offerable at all.
 
 The pause is also the only place a warning can live. `go::cautionFor` returns
 `FillsOwnEye` or `SelfAtari` for a move that is legal and almost certainly a
@@ -169,9 +180,9 @@ a sync greps for rather than a count to keep in step. Some are ports to a
 machine michi was not written for; the rest are bugs only a build like this one
 reaches:
 
-- `N` is **13**, not 19. It is the compile-time MAXIMUM; the size actually
-  played is `pos->size`, so one build serves both boards and a nine by nine game
-  sits in a corner of the larger array.
+- `N` is the compile-time MAXIMUM, 19 (upstream's value; it was 13 until 19x19
+  was offered); the size actually played is `pos->size`, so one build serves
+  every board and a nine by nine game sits in a corner of the larger array.
 - `log_fmt_s` tolerates a null sink. michi logs through a `FILE*` that `ui.c`
   opens, and `ui.c` is not vendored.
 - Every allocation goes through `michi_malloc`/`michi_calloc`, and on ESP32
@@ -431,8 +442,10 @@ games a level, both engines seeded per game:
 | Hard, 1,500                      | 69%  |
 | michi-c2's own build at N=9, 500 | 34%  |
 
-The last row is the control. This fork compiles michi for a 13x13 maximum and
-plays 9x9 inside it; the row says that costs nothing, which it did not always.
+The last row is the control. This ladder was measured with michi compiled for a
+13x13 maximum and playing 9x9 inside it, and the row says that cost nothing,
+which it did not always. Since 19x19 was offered michi is compiled for a 19x19
+maximum, upstream's own value, and **the ladder has not been re-run at it**.
 
 **What is not known is how any of this maps to a person.** Nobody has played
 this build against a human of known rank. The rungs are ordered and well
@@ -517,10 +530,42 @@ entire board: the playouts were right and the fixture was wrong.
 
 ## What is not done
 
-- **No 13x13 strength measurement.** The simulation counts come from michi-c2's
-  nine by nine ladder. Thirteen by thirteen is a bigger board for the same
-  search, so every level is weaker there in a way nobody here has quantified.
-  The clock, not the count, is what binds on that board.
+- **No 13x13 or 19x19 strength measurement.** The simulation counts come from
+  michi-c2's nine by nine ladder. The larger boards are bigger boards for the
+  same search, so every level is weaker there in a way nobody here has
+  quantified, nineteen most of all: the clock, not the count, is what binds,
+  and a 19x19 playout is about four times a 9x9 one. Expect Hard on nineteen to
+  be a beginner's opponent.
+- **19x19 has not run on hardware.** michi's position is about 16KB at N=19
+  (5.7KB at 13), so the ladder reader's position stack, one slot per level the
+  depth cap allows (13), is about 200KB of PSRAM; it was 128 deep, about 2MB,
+  until review pointed out that twelve slots are the most ever in use.
+  The search task's stack IS measured (`scripts_local/stack-budget.sh`, then
+  the ladder recursion summed by hand at `MICHI_LADDER_MAX` in michi.c): 26,848
+  of 32,768 bytes worst case. Raising N from 13 to 19 first took it to about
+  46KB, because upstream copies a whole position into `fix_atari()`'s frame
+  under the recursion; that copy and `expand()`'s board-sized arrays now live
+  in PSRAM scratch blocks. That applies to every board size, since N is
+  compile-time. Measured on DEVICE 2 (2026-10-04, the per-move `search:` log
+  line carries the stack left): 25.5KB used by move 99 of a 13x13 game the
+  machine was losing at Hard.
+- **Where the search task's stack lives.** Internal RAM when a contiguous
+  32KB block exists, otherwise PSRAM (`xTaskCreatePinnedToCoreWithCaps`). On
+  DEVICE 2 after the reader and Wi-Fi there was never such a block, and the
+  search used to fall back to the 24KB loop task, which the 25.5KB above does
+  not fit: that was GitHub #279, a crash only when the player was winning,
+  because a losing machine runs every simulation and reads the most ladders.
+  The loop task is now the last resort, logged as an error. The PSRAM stack
+  costs no measurable speed (about 170 simulations a move at 13x13 Hard
+  either way).
+- **Hard on the chip is far below its count.** 1,500 simulations is the
+  ladder's number; on DEVICE 2 a 13x13 Hard move gets about 170 in its four
+  seconds, and 76 late in a game. The laptop-times-twenty-six estimate the
+  budgets were set from is off by several times, so every level plays weaker
+  on the device than the ladder above says.
+- The timing of a 19x19 move on the chip is unmeasured. The counting screen's dead-stone guess runs
+  unclocked on the loop task: 29ms on the laptop at nineteen, so roughly three
+  quarters of a second on the chip.
 - **A match between two devices set to different boards** settles on the first
   seat's size as soon as its first move arrives. The size crosses the wire
   inside the game, and the second seat cannot place anything before that move,

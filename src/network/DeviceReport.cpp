@@ -344,12 +344,22 @@ const char* flashErrorName(const int firmwareFlashResult) {
     case Result::OPEN_FAIL:
     case Result::READ_FAIL:
       return "read";
+    // Each refusal by its own name. "invalid" covered all five, and three of
+    // the four SD updates that failed in the field in September read
+    // "invalid", which said nothing about whether people pick the .elf
+    // (bad_magic), lose bytes on the way (bad_sha, bad_checksum) or feed the
+    // updater something else. The fingerprint is the message, so each cause
+    // is its own card.
     case Result::BAD_MAGIC:
+      return "bad_magic";
     case Result::BAD_SEGMENTS:
+      return "bad_segments";
     case Result::BAD_CHECKSUM:
+      return "bad_checksum";
     case Result::BAD_SHA:
+      return "bad_sha";
     case Result::BAD_SIZE:
-      return "invalid";
+      return "bad_size";
     case Result::NO_PARTITION:
       return "no_partition";
     case Result::ERASE_FAIL:

@@ -127,9 +127,9 @@ def last_tag(repo, override=None):
     return max(tags, key=lambda t: tuple(int(x) for x in TAG.match(t).groups()))
 
 
-def merges_since(repo, tag):
+def merges_since(repo, tag, tip="HEAD"):
     out = run(
-        ["git", "log", "--first-parent", "--format=%H%x00%s", f"{tag}..HEAD"], repo
+        ["git", "log", "--first-parent", "--format=%H%x00%s", f"{tag}..{tip}"], repo
     )
     rows = []
     for line in out.splitlines():
@@ -214,7 +214,7 @@ def what_is_new(pr):
     return found or None
 
 
-def reaches_a_user(repo, sha):
+def reaches_a_user(repo, sha, base=None):
     """How does this landing reach a person: "yes", "quiet", or "no"?
 
     v1.12.17 announced seven changes. Four of them -- a board watcher, a
@@ -260,19 +260,24 @@ def reaches_a_user(repo, sha):
     crash. All of them print the bullet, and the refusal prints why. A bullet
     shown needlessly is noise; a bullet hidden wrongly is the bug this function
     exists to fix.
+
+    `base` is for a branch not yet squashed (--squash-onto): its landing is
+    everything from the merge base to the tip, not its last commit alone.
     """
     if not RULE.exists():
         return "yes"
-    parent = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-    )
-    if parent.returncode != 0:
-        return "yes"
+    if base is None:
+        parent = subprocess.run(
+            ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+        )
+        if parent.returncode != 0:
+            return "yes"
+        base = f"{sha}^1"
     r = subprocess.run(
-        ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--ships", "--quiet"],
+        ["bash", str(RULE), "--range", f"{base}..{sha}", "--ships", "--quiet"],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -453,6 +458,29 @@ def main():
     ap.add_argument("--last-tag")
     ap.add_argument("--write", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
+    # THE VERSION, WHEN THE CALLER HAS ALREADY WRITTEN IT.
+    #
+    # Without this the next version is always bump(what platformio.ini says),
+    # which is right for a caller that has not touched the file and wrong for
+    # the only caller there is. scripts_local/ship.sh must write the version
+    # BEFORE the build -- it is compiled into the firmware -- and then calls
+    # this afterwards for the notes, by which point platformio.ini already
+    # holds the target and deriving from it produces target+1.
+    #
+    # Measured before this existed: ini 1.13.13, --dry-run says 1.13.14, ship
+    # writes 1.13.14, --write then computes 1.13.15 and rewrites both notes
+    # files for a release that will never exist -- after the pull request has
+    # already been squash-merged, so it is not recoverable by re-running.
+    ap.add_argument("--version")
+    # THE BRANCH AS THE ONE LANDING IT WILL BECOME. scripts_local/ship.sh
+    # writes the notes before the squash, and walking the unmerged branch's own
+    # first-parent line made every commit on it a bullet and every "Merge
+    # origin/xteink" commit a bullet named after trunk work that had shipped
+    # releases earlier: one pull request drafted fourteen lines and failed
+    # v1.13.25's gate on length. With this, the landings are the ones on REF
+    # since the tag plus HEAD as a single landing, which is what the walk sees
+    # after the squash.
+    ap.add_argument("--squash-onto", metavar="REF")
     a = ap.parse_args()
     repo = pathlib.Path(a.repo_dir).resolve()
     ini = repo / "platformio.ini"
@@ -460,7 +488,16 @@ def main():
     history = repo / "docs" / "release-notes.md"
 
     tag = last_tag(repo, a.last_tag)
-    merges = merges_since(repo, tag)
+    pending, pending_base = None, None
+    if a.squash_onto:
+        merges = merges_since(repo, tag, a.squash_onto)
+        pending = run(["git", "rev-parse", "HEAD"], repo).strip()
+        pending_base = run(["git", "merge-base", a.squash_onto, "HEAD"], repo).strip()
+        if pending_base != pending:
+            subject = run(["git", "log", "-1", "--format=%s", "HEAD"], repo).strip()
+            merges.append((pending, subject))
+    else:
+        merges = merges_since(repo, tag)
     if not merges:
         print(f"nothing merged since {tag}")
         print("NEXT_VERSION=")
@@ -486,7 +523,7 @@ def main():
             title = branch_subject(repo, sha) or subject
             written = None
             lines = [humanize(title)]
-        verdict = reaches_a_user(repo, sha)
+        verdict = reaches_a_user(repo, sha, pending_base if sha == pending else None)
         if verdict == "no":
             dropped.append((humanize(title), lines))
         elif verdict == "quiet" and not written:
@@ -495,9 +532,14 @@ def main():
             # a build workflow is exactly the developer prose this file exists
             # to keep off the page -- Mario read one and called the notes
             # nonsense. So no bullet, and a loud line below rather than a
-            # silent drop: the fix is one sentence in the pull request, which
-            # crossplay-ci.yml asks for at pull-request time so this branch
-            # should never be reached in practice.
+            # silent drop: the fix is one sentence in the pull request.
+            #
+            # This branch IS reached now. crossplay-ci.yml used to ask for
+            # that sentence at pull-request time, which is why this once said
+            # it could not happen; there is no pull-request run left to ask.
+            # scripts_local/ship.sh prints the line below and carries on, so
+            # the landing reaches the page with no bullet of its own rather
+            # than stopping a release.
             unsaid.append((humanize(title), lines))
         else:
             kept.append((humanize(title), lines))
@@ -532,7 +574,20 @@ def main():
         dropped, unsaid = [], []
 
     cur = current_version(ini.read_text())
-    nxt = bump(cur, minor)
+    # --version overrides the derivation, and is checked rather than trusted:
+    # a caller that names a version going backwards or sideways is a caller
+    # that has lost track of which one the firmware was built with, and that
+    # is the OTA bug this whole ordering exists to prevent.
+    if a.version:
+        nxt = a.version
+        if nxt != cur and nxt != bump(cur, minor) and nxt != bump(cur, not minor):
+            raise SystemExit(
+                f"release_notes: --version {nxt} is neither the current version ({cur}) "
+                f"nor one step from it ({bump(cur, False)} / {bump(cur, True)}). "
+                "Refusing rather than writing notes for a version nothing was built with."
+            )
+    else:
+        nxt = bump(cur, minor)
     print(f"last tag {tag}, {len(merges)} merge(s), {cur} -> {nxt}")
     for b in bullets:
         print(f"  - {b}")

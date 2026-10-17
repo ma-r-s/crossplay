@@ -292,7 +292,7 @@ void twoSettlesInOneFrameAgree() {
 //
 // The shape that made this worth closing: the picker hands back on a Back
 // press and the caller goes straight into a flow that blocks the loop and
-// pumps input itself (OpdsBookBrowser, Xkcd and Trivia all read
+// pumps input itself (Xkcd and Trivia both read
 // wasReleased(Back) to cancel a download that way). If the arm outlived the
 // handover, the Back that cancels the download would be swallowed too.
 void aBlockingFlowCanStillCancel() {

@@ -988,24 +988,43 @@ build_flags =
 
 ### CI/CD Pipeline Awareness
 
-> **In CrossPlay, none of the four workflows in this table runs on a pull
-> request.** `ci.yml` and `pr-formatting-check.yml` are disabled on GitHub;
-> `release.yml` and `release_candidate.yml` are dispatch-only, and the latter is
-> additionally gated on a `release/` ref, which the fork's `app/*` work branches
-> never match -- dispatching it from one gives a green run with zero jobs. All
-> four are kept rather than deleted so upstream syncs stay clean, and each
-> carries a `FORK CHANGE:` note saying so.
+> **In CrossPlay, NOTHING on GitHub builds a pull request or a merge.** Since
+> 2026-09-21 the compiling, landing and publishing all happen on Mario's Mac,
+> and GitHub stores the repository, hosts the release assets and serves the
+> site.
 >
-> What actually runs here:
+> Why: one change used to be compiled FOUR times from cold -- the pull
+> request, the merge, the tag, and the version-bump commit the autorelease
+> pushed, which started CI again. Measured over 400 runs and 54 merged pull
+> requests: ~4,955 runner-minutes, 92 per merged pull request, and forty
+> minutes between a merge and the assets existing. None of it was new work.
+> `check.sh --committed` already builds `gh_release_x4pro` and
+> `gh_release_sticky` -- the exact envs that ship -- in 113 seconds against
+> 867 on a runner.
 >
-> - `crossplay-ci.yml` on every pull request and every push to `xteink`: jobs
->   `build` (four device envs, the simulator and every host suite), `relwatch`,
->   `release-notes-line`, `clang-format`, `unit-tests` and `cppcheck`.
+> What actually runs here now:
+>
+> - **`scripts_local/ship.sh`, on this Mac.** Bumps the version, re-gates,
+>   squashes onto `xteink` through GitHub, tags, packages and publishes, in about two
+>   minutes. The guard hook refuses `gh release create` and a `v*` tag from
+>   anything else. **The bump happens BEFORE the build**: `platformio.ini`
+>   compiles the version in and `OtaUpdater.cpp:119` compares a release's tag
+>   against that string, so images built before the bump would leave every
+>   device offering an update it already installed.
+> - `crossplay-ci.yml`, **nightly and on dispatch only**. It blocks nothing.
+>   Its one job is to prove `xteink` builds on a machine that is not Mario's,
+>   from a clean checkout, with nothing of his installed.
 > - `crossplay-emulator.yml` on a push to `xteink` touching the emulator's
->   sources -- concurrently with CI, not after it.
-> - `crossplay-autorelease.yml` after a CI run on `xteink` **concludes
->   successfully**; it is the only one keyed to a green run.
-> - `crossplay-release.yml` on a `v*` tag.
+>   sources. It waits for trunk to hold still first, which is a debounce and
+>   not a delay anybody is inside.
+>
+> `crossplay-autorelease.yml` and `crossplay-release.yml` are **deleted**.
+> `ci.yml` and `pr-formatting-check.yml` are disabled on GitHub;
+> `release.yml` and `release_candidate.yml` are dispatch-only, and the latter
+> is additionally gated on a `release/` ref, which the fork's `app/*` work
+> branches never match -- dispatching it from one gives a green run with zero
+> jobs. Those four are kept rather than deleted so upstream syncs stay clean,
+> and each carries a `FORK CHANGE:` note saying so.
 >
 > The table below is upstream's.
 

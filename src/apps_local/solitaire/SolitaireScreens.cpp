@@ -2,7 +2,7 @@
 
 #include <cstdio>
 
-#include "SolitaireSuits.h"
+#include "../cards/CardArt.h"
 
 namespace solitaireui {
 
@@ -46,186 +46,34 @@ constexpr int kWasteFan = 36;
 
 int columnX(const int column) { return kSideMargin + column * kPitch; }
 
-const char* rankLabel(const int rank) {
-  static const char* kLabels[kRanks] = {"A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"};
-  return (rank >= 0 && rank < kRanks) ? kLabels[rank] : "?";
-}
-
-// Picks the artwork. Two sizes exist and nothing is scaled between them, so a
-// caller asks for a box and gets the cut that was drawn for it.
-const freeink::Icon& suitArt(const Suit suit, const int size, const bool outline) {
-  const bool big = size >= 32;
-  switch (suit) {
-    case Suit::Spades:
-      if (big) return outline ? icon_spadeOutline_46 : icon_spadeSolid_46;
-      return outline ? icon_spadeOutline_18 : icon_spadeSolid_18;
-    case Suit::Hearts:
-      if (big) return outline ? icon_heartOutline_46 : icon_heartSolid_46;
-      return outline ? icon_heartOutline_18 : icon_heartSolid_18;
-    case Suit::Diamonds:
-      if (big) return outline ? icon_diamondOutline_46 : icon_diamondSolid_46;
-      return outline ? icon_diamondOutline_18 : icon_diamondSolid_18;
-    case Suit::Clubs:
-    default:
-      if (big) return outline ? icon_clubOutline_46 : icon_clubSolid_46;
-      return outline ? icon_clubOutline_18 : icon_clubSolid_18;
-  }
-}
-
-// A freeink::Icon is a BitmapRef in Mask1: bit 0 is ink, which is the icon
-// convention the renderer target already understands. So the SDK's asset
-// pipeline reaches a freestanding screen without the screen ever touching a
-// GfxRenderer.
-void drawSuit(toybox::Screen& screen, const fui::Rect& box, const Suit suit, const bool outline) {
-  const freeink::Icon& art = suitArt(suit, box.width, outline);
-  fui::BitmapRef ref;
-  ref.data = art.bits;
-  ref.width = art.w;
-  ref.height = art.h;
-  ref.format = fui::BitmapFormat::Mask1;
-  ref.progmem = false;
-  // Center, never Stretch: the box is the artwork's own size and Center is the
-  // one mode that cannot resample.
-  screen.target().bitmap(box, ref, fui::BitmapMode::Center, fui::Paint::solid(fui::Color::Black));
-}
-
-// Red suits are drawn hollow, black suits solid.
+// THE CARD ITSELF NOW LIVES IN cards/CardArt.cpp.
 //
-// There is no red on a one-bit panel, and the alternating-colour rule is the
-// rule the whole game turns on, so colour has to survive the translation as
-// something. Shape alone would carry it -- a heart is red because it is a heart
-// -- but only if you can tell a heart from a spade in a sliver of a fanned
-// card, which you cannot. Filled versus hollow reads instantly at any size and
-// in peripheral vision, which is exactly how you scan a tableau. Lucide draws
-// these as strokes, so the hollow form is the artwork as shipped and the solid
-// form is the same paths with the fill switched on.
+// It was written here, and it stayed here until Hearts became the second game
+// in this fork to deal from a standard deck. Two copies of a card face is two
+// places for the index bug this one already had -- a covered card that never
+// showed its suit, found by a tester and by no test -- so the drawing moved to
+// the deck and these four forwarders keep every call site in this file exactly
+// where it was.
 void drawPip(toybox::Screen& screen, const fui::Rect& box, const uint8_t card) {
-  drawSuit(screen, box, suitOf(card), isRed(card));
+  cardart::drawSuit(screen, box, suitOf(card), isRed(card));
 }
 
-// `visible` is how much of the card's height is not covered by the card above.
-// A fanned card draws its whole body -- the one on top will paint over it --
-// but only what fits in the visible strip is worth reading.
-//
-// THE INDEX IS ONE LINE, RANK THEN PIP, AND THAT IS THE WHOLE POINT.
-//
-// It used to be stacked: rank at row 2, pip at row 42. A covered card only
-// shows its top `fan.up` pixels, and fan.up is 30 at its most generous,
-// compressing to 16 and to single digits in a deep column (fanFor, below). 42
-// is past 30 in every pile shape that can occur, so no overlapped face-up card
-// had EVER shown its suit -- only the top card of each pile, which draws at
-// full height. A tester reported it as "can't see suit colour when piles form,
-// so it's hard to tell when one pile can stack on another".
-//
-// Klondike's one rule is that a tableau run alternates colour, so the suit is
-// not decoration on a covered card, it is the only thing you need from it. Side
-// by side, both inside the strip that survives, the index reads at the fan
-// widths the game actually produces. There is room: the card is 92 wide and the
-// rank never needs more than 40 of it.
-// The two fans cover a card from different directions, so the index has to go
-// somewhere different in each. `sideways` says which: the waste fans left to
-// right and leaves a tall narrow sliver (kWasteFan px wide, full height), the
-// tableau fans downward and leaves a short wide strip (fan.up px tall, full
-// width). Rank-then-pip fits the strip and falls off the sliver; rank-over-pip
-// fits the sliver and falls off the strip. There is no single placement that
-// survives both -- 36px wide and 16px tall do not overlap in any useful way --
-// and pretending otherwise is what a first pass at this did, moving the pip
-// beside the rank and silently stripping the suit off every covered waste card
-// to buy it back on the tableau.
 void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t card, const int visible,
                   const bool sideways = false) {
-  auto& target = screen.target();
-  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-  target.fill(rect, fui::Paint::solid(fui::Color::White), kRadius);
-  target.stroke(rect, ink, kEdge, kRadius);
-
-  fui::TextStyle rankStyle;
-  rankStyle.font = toybox::kUiFont;
-  rankStyle.align = fui::TextAlign::Left;
-  // A 28px corner against the ui cut's 42px line box: without inkCentred the
-  // clamp drops the rank 7px and it collides with the pip below it.
-  target.text(toybox::inkCentred(fui::makeRect(rect.x + 9, rect.y + 2, 40, 28), toybox::kUiCut),
-              rankLabel(rankOf(card)), rankStyle);
-  if (sideways) {
-    // Under the rank, both inside the left sliver. This is where the pip always
-    // was, and for the waste it was always right.
-    drawPip(screen, fui::makeRect(rect.x + 10, rect.y + 42, 16, 18), card);
-  } else {
-    // The opposite corner from the rank, and an equal inset from both edges it
-    // touches. Sitting it just to the right of the rank put it a long way from
-    // the side and a short way from the top, which reads as a thing that landed
-    // there rather than a thing that belongs there -- a corner mark has to be
-    // square to its corner. kIndexInset matches kRadius so the pip starts
-    // exactly where the rounded corner stops curving.
-    constexpr int16_t kIndexInset = kRadius;
-    constexpr int16_t kPip = 18;
-    drawPip(screen,
-            fui::makeRect(static_cast<int16_t>(rect.x + rect.width - kIndexInset - kPip),
-                          static_cast<int16_t>(rect.y + kIndexInset), kPip, kPip),
-            card);
-  }
-
-  // The big centre pip only exists on a card you can see all of.
-  if (visible < rect.height) return;
-  drawPip(screen, fui::makeRect(rect.x + rect.width / 2 - 20, rect.y + 64, 46, 48), card);
+  cardart::drawCardFace(screen, rect, card, visible, sideways ? cardart::Fan::Sideways : cardart::Fan::Down);
 }
 
-// The card back.
-//
-// This is the most repeated object in the game: twenty-four in the stock at
-// deal time, twenty-eight more buried in the tableau. It was a flat dithered
-// rectangle, which is no design at all, and the top band of the board read as
-// grey mush rather than as a deck.
-//
-// Now: a frame, a lattice, and a mark. `crown` is how much of the card is
-// showing -- a card peeking out of a fan gets the frame and the lattice, and
-// only a card you can see all of gets the mark, because a mark sliced in half
-// is worse than no mark.
 void drawCardBack(toybox::Screen& screen, const fui::Rect& rect, const int visible) {
-  auto& target = screen.target();
-  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-  target.fill(rect, fui::Paint::solid(fui::Color::White), kRadius);
-  target.stroke(rect, ink, kEdge, kRadius);
-
-  const fui::Rect inner = fui::makeRect(rect.x + 7, rect.y + 7, rect.width - 14, rect.height - 14);
-  target.fill(inner, fui::Paint::dither(fui::Color::DarkGray), kRadius / 2);
-  target.stroke(inner, ink, kEdge, kRadius / 2);
-  if (visible < rect.height) return;
-
-  const int mark = 46;
-  const fui::Rect halo =
-      fui::makeRect(rect.x + (rect.width - mark) / 2 - 5, rect.y + (rect.height - mark) / 2 - 5, mark + 10, mark + 10);
-  target.fill(halo, fui::Paint::solid(fui::Color::White), 6);
-  drawSuit(screen, fui::makeRect(halo.x + 5, halo.y + 5, mark, mark), Suit::Spades, false);
+  cardart::drawCardBack(screen, rect, visible);
 }
 
-// An empty slot.
-//
-// It used to be a rounded rect with a hairline border, which is pixel-identical
-// to a face-up card with nothing printed on it: four blank cards is what a
-// player saw where the foundations should be. Now it is a dashed outline, which
-// reads as a place rather than as a thing, and it says which rank it wants.
-//
-// The first attempt ghosted the target suit inside in dither. Two problems, one
-// of them only visible on screen: triangle() does not honour a dither paint, so
-// a diamond drew as a solid black lozenge and every club and spade grew a solid
-// tail; and the foundations in this game are not suit-assigned in the first
-// place, so promising one was a lie. A letter is honest and cannot misrender.
 void drawSlot(toybox::Screen& screen, const fui::Rect& rect, const char* wants) {
-  auto& target = screen.target();
-  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-  const int dash = 10;
-  for (int x = rect.x + kRadius; x < rect.right() - kRadius; x += dash * 2) {
-    const int run = (x + dash > rect.right() - kRadius) ? rect.right() - kRadius - x : dash;
-    target.fill(fui::makeRect(x, rect.y, run, kEdge), ink);
-    target.fill(fui::makeRect(x, rect.bottom() - kEdge, run, kEdge), ink);
-  }
-  for (int y = rect.y + kRadius; y < rect.bottom() - kRadius; y += dash * 2) {
-    const int run = (y + dash > rect.bottom() - kRadius) ? rect.bottom() - kRadius - y : dash;
-    target.fill(fui::makeRect(rect.x, y, kEdge, run), ink);
-    target.fill(fui::makeRect(rect.right() - kEdge, y, kEdge, run), ink);
-  }
+  // `wants` named the rank a foundation was waiting for and was never drawn:
+  // the dashed outline says "a place" and a letter promising a suit this game
+  // does not assign was a lie. Kept in the signature so the call sites read the
+  // same; dropped on the way through.
   (void)wants;
+  cardart::drawCardSlot(screen, rect);
 }
 
 // A chip knocked out of the black header: white ground, black type. This is

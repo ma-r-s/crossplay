@@ -5,12 +5,12 @@ namespace {
 
 // A scratch stack for the flood fills. The whole board is the ceiling for every
 // one of them, so nothing here allocates and nothing recurses: a recursive fill
-// on a snake filling a thirteen by thirteen board is 169 frames deep on a
+// on a snake filling a nineteen by nineteen board is 361 frames deep on a
 // device whose task stacks are measured in kilobytes.
 struct Fill {
-  uint8_t stack[kMaxPoints];
+  Point stack[kMaxPoints];
   int top = 0;
-  void push(const int point) { stack[top++] = static_cast<uint8_t>(point); }
+  void push(const int point) { stack[top++] = static_cast<Point>(point); }
   bool empty() const { return top == 0; }
   int pop() { return stack[--top]; }
 };
@@ -21,7 +21,7 @@ struct Fill {
 //
 // Returns how many stones were taken.
 int captureAround(Game& game, const int at, const uint8_t colour) {
-  uint8_t around[4];
+  Point around[4];
   const int count = neighbours(game.size, at, around);
   int taken = 0;
   for (int i = 0; i < count; ++i) {
@@ -63,18 +63,18 @@ void rememberPosition(Game& game) {
 
 }  // namespace
 
-int neighbours(const int size, const int point, uint8_t out[4]) {
+int neighbours(const int size, const int point, Point out[4]) {
   const int row = rowOf(size, point);
   const int col = colOf(size, point);
   int count = 0;
-  if (row > 0) out[count++] = static_cast<uint8_t>(point - size);
-  if (row < size - 1) out[count++] = static_cast<uint8_t>(point + size);
-  if (col > 0) out[count++] = static_cast<uint8_t>(point - 1);
-  if (col < size - 1) out[count++] = static_cast<uint8_t>(point + 1);
+  if (row > 0) out[count++] = static_cast<Point>(point - size);
+  if (row < size - 1) out[count++] = static_cast<Point>(point + size);
+  if (col > 0) out[count++] = static_cast<Point>(point - 1);
+  if (col < size - 1) out[count++] = static_cast<Point>(point + 1);
   return count;
 }
 
-int handicapPoints(const int size, const int handicap, uint8_t out[kMaxHandicap]) {
+int handicapPoints(const int size, const int handicap, Point out[kMaxHandicap]) {
   if (handicap < 2) return 0;
   const int wanted = handicap > kMaxHandicap ? kMaxHandicap : handicap;
   // The corner star points, then the centre. Two OPPOSITE corners first, then
@@ -82,23 +82,23 @@ int handicapPoints(const int size, const int handicap, uint8_t out[kMaxHandicap]
   // first two being opposite is what keeps a two-stone game balanced across the
   // board rather than heavy on one side.
   //
-  // Nine takes its stars at the 3-3 points, thirteen at the 4-4s, which is
-  // where each board's stars are drawn.
-  const int near = size == kSmallSize ? 2 : 3;
+  // Nine takes its stars at the 3-3 points, thirteen and nineteen at the 4-4s,
+  // which is where each board's stars are drawn.
+  const int near = starLine(size);
   const int far = size - 1 - near;
   const int middle = size / 2;
-  const uint8_t order[kMaxHandicap] = {
-      static_cast<uint8_t>(pointAt(size, far, near)),      static_cast<uint8_t>(pointAt(size, near, far)),
-      static_cast<uint8_t>(pointAt(size, near, near)),     static_cast<uint8_t>(pointAt(size, far, far)),
-      static_cast<uint8_t>(pointAt(size, middle, middle)),
+  const Point order[kMaxHandicap] = {
+      static_cast<Point>(pointAt(size, far, near)),      static_cast<Point>(pointAt(size, near, far)),
+      static_cast<Point>(pointAt(size, near, near)),     static_cast<Point>(pointAt(size, far, far)),
+      static_cast<Point>(pointAt(size, middle, middle)),
   };
   for (int i = 0; i < wanted; ++i) out[i] = order[i];
   return wanted;
 }
 
 void reset(Game& game, const int size, const int handicap, const int16_t komiHalves) {
-  game.size = static_cast<uint8_t>(size == kLargeSize ? kLargeSize : kSmallSize);
-  // The whole array, not just this board's points: a thirteen by thirteen game
+  game.size = static_cast<uint8_t>(isBoardSize(size) ? size : kSmallSize);
+  // The whole array, not just this board's points: a nineteen by nineteen game
   // followed by a nine by nine one would otherwise leave stones in the tail,
   // and the save file carries them.
   for (int i = 0; i < kCellBytes; ++i) game.cell[i] = 0;
@@ -118,7 +118,7 @@ void reset(Game& game, const int size, const int handicap, const int16_t komiHal
   game.stage = static_cast<uint8_t>(Stage::Playing);
   game.accepted = 0;
 
-  uint8_t stones[kMaxHandicap];
+  Point stones[kMaxHandicap];
   const int placed = handicapPoints(game.size, handicap, stones);
   if (placed == 0) return;
   for (int i = 0; i < placed; ++i) game.put(stones[i], kBlack);
@@ -151,7 +151,7 @@ void group(const Game& game, const int point, uint8_t stones[kMaskBytes], int& s
   while (!fill.empty()) {
     const int current = fill.pop();
     ++size;
-    uint8_t around[4];
+    Point around[4];
     const int count = neighbours(game.size, current, around);
     for (int i = 0; i < count; ++i) {
       const int next = around[i];
@@ -244,7 +244,7 @@ bool play(Game& game, const int point) {
     int liberties = 0;
     group(game, point, stones, size, liberties);
     if (size == 1 && liberties == 1) {
-      uint8_t around[4];
+      Point around[4];
       const int count = neighbours(game.size, point, around);
       for (int i = 0; i < count; ++i) {
         if (game.at(around[i]) == kEmpty) {
@@ -257,7 +257,7 @@ bool play(Game& game, const int point) {
 
   game.toMove = other(colour);
   game.passes = 0;
-  game.lastMove = static_cast<uint8_t>(point);
+  game.lastMove = static_cast<Point>(point);
   ++game.moveNumber;
   if (game.moveNumber >= moveLimit(game.size)) game.stage = static_cast<uint8_t>(Stage::Scoring);
   return true;
@@ -267,7 +267,7 @@ bool isEye(const Game& game, const int point, const uint8_t colour) {
   if (point < 0 || point >= game.points()) return false;
   if (game.at(point) != kEmpty) return false;
 
-  uint8_t around[4];
+  Point around[4];
   const int count = neighbours(game.size, point, around);
   for (int i = 0; i < count; ++i) {
     if (game.at(around[i]) != colour) return false;
@@ -342,7 +342,7 @@ void territory(const Game& game, uint8_t owner[kMaxPoints]) {
     bool touchesWhite = false;
     while (!fill.empty()) {
       const int current = fill.pop();
-      uint8_t around[4];
+      Point around[4];
       const int count = neighbours(game.size, current, around);
       for (int i = 0; i < count; ++i) {
         const int next = around[i];

@@ -32,6 +32,13 @@ intent" --from tooling --body "<both sides, in prose>"`, leave the
    and the simulator build. A red suite that is red on `crosspoint/develop`
    too is upstream's and is noted in the pull request, not fixed here.
 
+   **Then look at every Home theme.** Upstream reviews its themes without
+   GAMES and APPS appended to them, so a sync can break a theme upstream's own
+   screenshots passed: 1.13.28 shipped with Apps cut off or paged out of sight
+   in three of five themes once a catalog was configured. Run
+   `tools_local/themesweep/` (its README is the procedure) and hand the PNGs to
+   a fresh-context reviewer with its `review-brief.md`.
+
    **Before that, look for the seam the merge took without saying so.** A
    conflict marker is the easy case; the dangerous one is upstream refactoring
    the lines a fork seam hangs on, which deletes the seam cleanly and reports
@@ -70,7 +77,12 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    request's URL, title and summary, and the board opens a task card in
    `review` from it (`20260904001300_sync_pr_card.sql`); that card is where
    the orchestrator's critic finds the pull request. CI gates it; the critic
-   reviews it; it merges on green like any other pull request.
+   reviews it; it lands like any other pull request, through
+   `scripts_local/ship.sh`, which sees the merge of history trunk lacks and
+   lands it with a MERGE COMMIT rather than its usual squash. A squash would
+   drop `crosspoint/develop` as a parent, the merge base would never advance,
+   and the next sync would re-merge and re-conflict on everything this one
+   carried. Never land a sync with `gh pr merge --squash` by hand.
 6. **The X4 Pro branch is not this.** Upstream's X4 Pro branch is a sit-down
    merge per `LOCAL_SCOPE.md` and stays manual.
 

@@ -33,6 +33,12 @@ log = logging.getLogger("bridge.engine")
 # loud rather than looking like it stopped early.
 MAX_FETCH_PER_SYNC = 25
 
+# Refusals that will say the same thing again for the same article: Instapaper
+# has no text for it (1550) or no longer has it (1241). Each try spends an
+# Instaparser credit, so they are remembered rather than retried on every
+# sync. Anything else (busy, rate limit, a key problem) is worth another try.
+LASTING_CODES = {1241, 1550}
+
 # The device's own library cap (InstapaperLibrary::kMaxArticles). Sending more
 # than the reader can hold would have it drop rows silently, and then re-ask
 # for them forever because its `have` list never mentions them.
@@ -60,6 +66,24 @@ def _load_meta(st, bid) -> dict:
         return json.loads(p.read_text())
     except ValueError:
         return {}
+
+
+def _remembered_failure(st, bid, bhash: str, url: str) -> str:
+    """The sentence a lasting refusal left for this article, or "". Matched
+    the way cached text is: same hash, or same URL, because Instapaper's hash
+    moves with metadata that cannot change what its parser makes of a page."""
+    meta = _load_meta(st, bid)
+    why = meta.get("failed")
+    if not why:
+        return ""
+    if meta.get("hash") == bhash or (url and meta.get("url") == url):
+        return str(why)
+    return ""
+
+
+def _remember_failure(st, bid, bhash: str, url: str, why: str) -> None:
+    st.article_dir(bid).mkdir(parents=True, exist_ok=True)
+    _meta_path(st, bid).write_text(json.dumps({"hash": bhash, "url": url, "failed": why}))
 
 
 def _keep_only(st, bid, keep_path):
@@ -210,23 +234,36 @@ def sync_cycle(st, token: str, secret: str, have: list[dict], archive_ids: list[
         except (TypeError, ValueError):
             continue
         bhash = str(bm.get("hash") or "")
+        url = str(bm.get("url") or "")
         cached = st.article_path(bid, bhash).exists()
-        if not cached and fetched >= MAX_FETCH_PER_SYNC:
-            withheld += 1
-            continue
+        if not cached:
+            remembered = _remembered_failure(st, bid, bhash, url)
+            if remembered:
+                failed.append({"id": bid, "why": remembered})
+                continue
+            # The cap counts attempts, not successes: a sync whose every
+            # parse is refused (a bad key, an exhausted month) would otherwise
+            # walk the whole 500-row listing at one parse a second.
+            if fetched >= MAX_FETCH_PER_SYNC:
+                withheld += 1
+                continue
+            fetched += 1
         try:
             text, renderable = _fetch_text(client, st, bm, bid, bhash)
-        except (ip.ApiError, art.Unconvertible) as e:
+        except art.Unconvertible as e:
+            _remember_failure(st, bid, bhash, url, str(e))
+            failed.append({"id": bid, "why": str(e)})
+            continue
+        except ip.ApiError as e:
+            if e.code in LASTING_CODES:
+                _remember_failure(st, bid, bhash, url, str(e))
             failed.append({"id": bid, "why": str(e)})
             continue
         except Exception:
             log.exception("converting %s failed", bid)
             failed.append({"id": bid, "why": "This one could not be prepared for the reader."})
             continue
-        if not cached:
-            fetched += 1
         _keep_only(st, bid, st.article_path(bid, bhash))
-        url = str(bm.get("url") or "")
         words = art.word_count(text)
         articles.append(
             {

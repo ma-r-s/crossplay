@@ -30,6 +30,7 @@
 #include "ForeheadScreens.h"
 #include "ForeheadWords.h"
 #include "HackerNewsScreens.h"
+#include "HeartsScreens.h"
 #include "LinkScreens.h"
 #include "ToyBattleCore.h"
 #include "ToyBattleMenus.h"
@@ -168,6 +169,70 @@ bool aCutWouldHaveFitted(const fitted::RealTarget& target, const fitted::TextRun
     if (target.measureText(slot, source.c_str(), fui::TextStyle{}).width <= run.rect.width) return true;
   }
   return false;
+}
+
+// WHOLE IS NOT THE SAME QUESTION AS FULL SIZE, and this suite only ever asked
+// the first one.
+//
+// expectWhole passes when the panel would show the entire string. A string that
+// dropped a cut to fit IS entire -- so "PICK THREE TO PASS ACROSS" came back
+// green while rendering at half the cap height of "PICK THREE TO PASS LEFT",
+// beside it, one word different, in a box it then left 190px of empty. The
+// corpus was right and the assertion was the wrong one.
+//
+// Everything Hearts draws is at a chosen cut, so a downgrade is a defect rather
+// than the ladder working. This asks the run which font really drew it.
+void expectAtCut(Tally& tally, const fitted::RealTarget& target, const std::string& source, const fui::FontId wanted) {
+  ++tally.walked;
+  const fitted::TextRun* run = carrier(target.texts, source);
+  if (run == nullptr) {
+    ++tally.missing;
+    if (tally.worst.empty()) {
+      tally.worst = source;
+      tally.worstDrawn = "(never drawn)";
+    }
+    return;
+  }
+  if (run->drawn != source) {
+    ++tally.avoidable;
+    if (tally.worst.size() < source.size()) {
+      tally.worst = source;
+      tally.worstDrawn = run->drawn;
+    }
+    return;
+  }
+  if (run->font != wanted) {
+    ++tally.avoidable;
+    if (tally.worst.size() <= source.size()) {
+      tally.worst = source;
+      tally.worstDrawn = "(shrunk a cut to fit)";
+    }
+  }
+}
+
+// EVERY RUN ON THIS SCREEN, rather than a list of strings somebody remembered.
+//
+// The tally below used to name seven strings in its comment and assert two of
+// them, which is a clean list hiding an absence one level down from the one it
+// was written to close. Listing them is also the wrong shape: the list has to
+// be maintained beside the app, and the string that gets missed is the one
+// somebody adds next.
+//
+// Nothing in Hearts steps its own cut any more -- fittedLabel is gone -- so the
+// only way a string can come up short is the renderer truncating it, and that
+// is a property of the run rather than of a corpus. Asking every run closes the
+// whole screen and keeps closing it.
+void expectNothingCut(Tally& tally, const fitted::RealTarget& target, const char* screen) {
+  for (const fitted::TextRun& run : target.texts) {
+    if (run.asked.empty()) continue;
+    ++tally.walked;
+    if (!run.cut()) continue;
+    ++tally.avoidable;
+    if (tally.worst.size() < run.asked.size()) {
+      tally.worst = std::string(screen) + ": " + run.asked;
+      tally.worstDrawn = run.drawn;
+    }
+  }
 }
 
 void expectWhole(Tally& tally, const fitted::RealTarget& target, const std::string& source) {
@@ -367,6 +432,196 @@ void dungeonGuide() {
 // treat them differently on purpose: the menu's foot is one line beside an icon
 // and a TUTORIAL button, and the cleared screen is two centred lines with the
 // map underneath.
+// --- Hearts ---------------------------------------------------------------
+//
+// THE FIRST LANDSCAPE SCREEN IN THIS SUITE, and it is here because a cold
+// play-tester found three separate strings that had been shrunk a cut, cut
+// short, or both, on screens I had looked at. Measuring in the real face is the
+// only way to see that: host-tests/ui answers a flat ten pixels a character and
+// is blind to it entirely.
+//
+// Every string walked here is one the app draws at a FIXED cut, so a failure is
+// a string that needs rewriting rather than a ladder that needs another rung.
+fui::DeviceContext landscapePanel() {
+  fui::DeviceContext device;
+  device.width = 800;
+  device.height = 480;
+  device.hasTouch = true;
+  device.safeArea = fui::Insets{1, 0, 1, 10};
+  return device;
+}
+
+toybox::Screen heartsScreen(toybox::Frame& frame, fui::ThemeTokens& tokens) {
+  tokens = toybox::themeTokens();
+  tokens.headerHeight = heartsui::kHeaderBand;
+  return toybox::Screen(frame, tokens);
+}
+
+void heartsRules() {
+  Tally rules{"hearts: every line of the rules screen"};
+  for (int page = 0; page < heartsui::howToPages(); ++page) {
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::HowToModel model;
+    model.page = page;
+    heartsui::buildHowTo(screen, model);
+    expectNothingCut(rules, paint.target, "rules");
+    expectAtCut(rules, paint.target, heartsui::howToTitle(page), toybox::kDisplayFont);
+    for (int line = 0; line < heartsui::howToLines(page); ++line) {
+      expectAtCut(rules, paint.target, heartsui::howToLine(page, line), toybox::kUiFont);
+    }
+  }
+  report(rules);
+}
+
+// The board's status row carries two strings side by side in one row, and the
+// right-hand one is assembled from two halves. Every combination is walked
+// rather than a sample: four states of the pair, plus all six refusals, which
+// take the same box.
+void heartsStatusLines() {
+  Tally status{"hearts: board status and refusal lines"};
+  uint32_t seed = 909;
+  hearts::Game game;
+  hearts::newGame(game, seed);
+  for (int s = 0; s < hearts::kSeats; ++s) {
+    uint8_t three[hearts::kPassCount] = {game.hands[s].at(0), game.hands[s].at(1), game.hands[s].at(2)};
+    hearts::setPass(game, static_cast<hearts::Seat>(s), three, hearts::kPassCount);
+  }
+  hearts::commitPass(game);
+
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+  // Every status template at its LONGEST instantiation, every refusal, and all
+  // four states of the pair -- READ OUT OF THE APP rather than retyped here. A
+  // corpus written into a test stops matching the app the day somebody rewords
+  // a string, which is the failure this suite exists to catch.
+  const int kStatuses = static_cast<int>(heartsui::Status::Count);
+  const int kRefusals = static_cast<int>(heartsui::Refusal::Count);
+  for (int variant = 0; variant < 4 + kStatuses + kRefusals; ++variant) {
+    char sub[64];
+    char longest[80];
+    const char* main = nullptr;
+    std::snprintf(sub, sizeof(sub), "%s   %s", heartsui::heartsStateText((variant & 1) != 0),
+                  heartsui::queenStateText((variant & 2) != 0));
+    if (variant < 4) {
+      main = heartsui::statusTemplate(heartsui::Status::YourLead);
+    } else if (variant < 4 + kStatuses) {
+      heartsui::longestStatus(static_cast<heartsui::Status>(variant - 4), longest, sizeof(longest));
+      main = longest;
+    } else {
+      main = heartsui::refusalText(static_cast<heartsui::Refusal>(variant - 4 - kStatuses));
+    }
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::BoardModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      // THE WIDEST NUMBER THE PLAQUE CAN EVER SHOW. It draws total + taken, so
+      // a seat on 99 that takes all 26 projects 125: three digits, which is
+      // what the column has to hold and what it did not.
+      model.seats[s].total = 99;
+      model.seats[s].taken = hearts::kMoonPoints;
+      model.legal[s] = true;
+    }
+    model.status = main;
+    model.subStatus = sub;
+    heartsui::Layout layout;
+    heartsui::buildBoard(screen, model, layout);
+    expectAtCut(status, paint.target, main, toybox::kUiFont);
+    expectAtCut(status, paint.target, sub, toybox::kSmallFont);
+    // And the four seat names, which must all survive at the shared cut: the
+    // rail rendered three at cap 50 and NORTH at 26 when they were fitted
+    // independently.
+    for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(status, paint.target, kNames[s], toybox::kUiFont);
+    // AND EVERYTHING ELSE THE BOARD DREW. This tally was an explicit list of
+    // six strings while the score and menu had been generalised, so the seat
+    // plaques' running totals were in no corpus anywhere -- and that is exactly
+    // where the next defect landed: 114 rendered as "1" on the largest number
+    // on the board, for the whole last hand of every game. The same complement
+    // that put the status-line defect and the three fittedLabel strings outside
+    // their own suites, one screen over.
+    expectNothingCut(status, paint.target, "board");
+  }
+  report(status);
+}
+
+// THE OTHER TWO SCREENS. 136 strings, green, and neither buildScore nor
+// buildMenu was in the suite at all -- so TIED ON, WIN/WINS ON, SHOT THE MOON,
+// PLAY AGAIN, HAND %d SCORED, DISCARD IT? and the four place names were
+// measured by nothing. A clean list hiding an absence.
+void heartsScoreAndMenu() {
+  Tally sheet{"hearts: score screen and menu"};
+  static const char* kNames[hearts::kSeats] = {"YOU", "WEST", "NORTH", "EAST"};
+
+  // Three shapes of finished hand: ordinary, a moon (which adds a banner and
+  // shortens every row), and game over (which inverts the winner).
+  for (int shape = 0; shape < 3; ++shape) {
+    hearts::Game game;
+    for (int s = 0; s < hearts::kSeats; ++s) game.total[s] = shape == 2 ? 88 : 20;
+    if (shape == 1) {
+      game.taken[seatIndex(hearts::Seat::North)] = hearts::kMoonPoints;
+    } else {
+      game.taken[0] = 5;
+      game.taken[1] = 8;
+      game.taken[2] = 13;
+    }
+    hearts::scoreHand(game);
+
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::ScoreModel model;
+    model.game = &game;
+    for (int s = 0; s < hearts::kSeats; ++s) {
+      model.seats[s].name = kNames[s];
+      model.seats[s].initial = kNames[s][0];
+      model.seats[s].isMe = s == 0;
+    }
+    model.gameOver = shape == 2;
+    heartsui::buildScore(screen, model);
+    for (int s = 0; s < hearts::kSeats; ++s) expectAtCut(sheet, paint.target, kNames[s], toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.gameOver ? "PLAY AGAIN" : "NEXT HAND", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, "MENU", toybox::kUiFont);
+    // And everything else this screen drew: the standings note, TIED ON, the
+    // moon banner, the places, the rule line, every number.
+    expectNothingCut(sheet, paint.target, "score");
+  }
+
+  // Both menu states, and the armed discard.
+  for (int variant = 0; variant < 3; ++variant) {
+    Paint paint("toyboxFaces");
+    toybox::Frame frame(paint.target, landscapePanel(), fui::InputSnapshot{}, paint.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = heartsScreen(frame, tokens);
+    heartsui::MenuModel model;
+    model.hasSave = variant > 0;
+    model.savedHand = 12;
+    model.savedHandDone = variant == 2;
+    model.confirmingNew = variant == 2;
+    model.gamesPlayed = 99;
+    model.gamesWon = 42;
+    model.bestPlace = 4;
+    model.sharp = variant == 0;
+    heartsui::buildMenu(screen, model);
+    expectAtCut(sheet, paint.target, "HEARTS", toybox::kDisplayFont);
+    expectAtCut(sheet, paint.target, "RULES", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.sharp ? "TABLE: SHARP" : "TABLE: ROOKIE", toybox::kUiFont);
+    expectAtCut(sheet, paint.target, model.hasSave ? "TABLE WAITING" : "FOUR SEATS", toybox::kDisplayFont);
+    if (model.hasSave)
+      expectAtCut(sheet, paint.target, model.confirmingNew ? "DISCARD IT?" : "NEW GAME", toybox::kUiFont);
+    static const char* kCells[3] = {"GAMES", "WON", "BEST"};
+    for (const char* cell : kCells) expectAtCut(sheet, paint.target, cell, toybox::kSmallFont);
+    expectNothingCut(sheet, paint.target, "menu");
+  }
+  report(sheet);
+}
+
 void dungeonNames() {
   Tally menu{"dungeon: next-dungeon name"};
   Tally win{"dungeon: cleared-dungeon name"};
@@ -599,6 +854,9 @@ int main() {
   theLadderItself();
   themeKeepsTheFittedCut();
   dungeonGuide();
+  heartsRules();
+  heartsStatusLines();
+  heartsScoreAndMenu();
   dungeonNames();
   foreheadCategories();
   linkGames();

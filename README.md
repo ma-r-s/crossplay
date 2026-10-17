@@ -21,12 +21,12 @@
 
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
-The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
+The **Xteink X4 Pro**, **Seeed reTerminal Sticky**, and **M5Stack PaperMono / Lite** are e-ink
 devices with an 800x480 panel, capacitive touch and two physical buttons
-(three on the Sticky, and the design targets the two both boards share), and
+(three on the Sticky; the design uses the two shared buttons), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
-that holds still is good at: **21 games and 8 apps**,
+that holds still is good at: **25 games and 8 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -54,6 +54,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Battleship**   | Lay out a fleet, then hunt someone else's.                                   |
 | **Connections**  | The daily word grid, with an archive of past boards.                         |
 | **Solitaire**    | Klondike, turned sideways because that is the shape of a tableau.            |
+| **Hearts**       | Duck the tricks. Every heart costs one and the queen of spades costs 13.     |
 | **D&Diagrams**   | A nonogram whose clues are a dungeon. 64 of them.                            |
 | **Insider**      | A party game for a table and one device.                                     |
 | **Jaipur**       | The two-player trading game, solo or nearby.                                 |
@@ -70,7 +71,10 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |
 | **Trivia**       | 50,000 questions off 42 years of Jeopardy. Read them out, or play alone.     |
 | **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
-| **Go**           | 9x9 or 13x13, against the device or someone next to you. It counts for you.  |
+| **Go**           | 9x9, 13x13 or 19x19, against the device or someone next to you. It counts.   |
+| **Hex**          | Join your two edges before they join theirs. No captures, and no draws.      |
+| **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
+| **Wordle**       | Six guesses for the day's word, with every past day in an archive.           |
 
 ### Apps
 
@@ -79,21 +83,21 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Study**       | Anki decks with the FSRS scheduler, offline.                             |
 | **Hacker News** | The front page in a reading serif, articles kept on the card.            |
 | **xkcd**        | The archive, packed for the card and drawn one to one.                   |
-| **Get Books**   | Browse any OPDS catalog and download straight to the card, no computer.  |
 | **Instapaper**  | Your read-later queue, synced both ways: reading position and archiving. |
 | **Wallpapers**  | Pick an image on the card as the sleep screen, one tap to set it.        |
 | **Wikipedia**   | Fifty thousand articles on the card, read like a book, no internet.      |
 | **Calculator**  | A calculator with keys the size of a thumb, and the sums you already did. |
+| **Notes**       | Lists you tick with one hand, kept as plain text files on the card.      |
 
 And the reader is still CrossPoint's reader: the EPUB engine, sync and the file
 browser are theirs and stay theirs.
 
 ### Two devices, nothing to type
 
-Ten of the games play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
-Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt, Toy Battle and Go. Put two
-devices next to each other and they find one another. No pairing screen, no room
-code, no account, no router, no internet.
+Eleven of the games play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
+Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt, Toy Battle, Go and Hex. Put
+two devices next to each other and they find one another. No pairing screen, no
+room code, no account, no router, no internet.
 
 ### Why it is shaped like this
 
@@ -114,14 +118,14 @@ short version of one of them:
 ## Install it
 
 > **The X4 Pro is not the X4.** CrossPlay is for the Xteink **X4 Pro** and the
-> Seeed reTerminal Sticky, both ESP32-S3. The plain **X4** and the **X3** are
+> Seeed reTerminal Sticky and M5Stack PaperMono / Lite, all ESP32-S3. The plain **X4** and the **X3** are
 > ESP32-C3, and writing an S3 image to one of those used to brick it. Install
 > [CrossPoint](https://crosspointreader.com/) on those instead: it is excellent,
 > and it is what this is built on.
 >
 > **You do not have to work out which you have.** The browser installer below
 > reads the chip off the device before it writes anything, and stops with
-> "Nothing was written" if it is a C3. Between the two S3 devices every image
+> "Nothing was written" if it is a C3. Between the supported S3 devices every image
 > carries its board name and both updaters refuse an image built for the other
 > board.
 
@@ -138,8 +142,9 @@ are left alone, and installing stock CrossPoint over the top puts the device
 back where it was.
 
 [**docs/install.md**](docs/install.md) covers the rest: installing by hand with
-esptool, updating a device you already flashed, and Developer Mode, which
-reflashes over Wi-Fi with no cable. If a flash goes wrong,
+esptool, updating a device you already flashed, a **USB-locked X4 Pro** (the
+Xteink Unlocker to CrossPoint, then our `firmware.bin` from the SD card), and
+Developer Mode, which reflashes over Wi-Fi with no cable. If a flash goes wrong,
 [docs/fix-bricked-xteink.md](docs/fix-bricked-xteink.md) is the way back.
 
 Once it is running, [USER_GUIDE.md](USER_GUIDE.md) is the guide to the device
@@ -162,11 +167,13 @@ Most of the shelf never touches the network. Of the parts that do:
   upstream's infrastructure rather than this fork's, inherited so that flashing
   CrossPlay over CrossPoint does not orphan an existing sync. The address is a
   setting and can be pointed at any KOSync server.
-- **Connections, xkcd, Hacker News, Trivia, Get Books and Instapaper** fetch
-  what you ask them for, when you ask. Connections downloads the published
-  puzzle archive in one go when you press the button for it, from a GitHub
-  mirror rather than from the New York Times, and CrossPlay ships none of the
-  puzzles; Trivia's question pack and xkcd's comics are downloaded once onto
+- **Connections, Wordle, xkcd, Hacker News, Trivia and Instapaper**
+  fetch what you ask them for, when you ask. Connections downloads the
+  published puzzle archive in one go when you press the button for it, from a
+  GitHub mirror rather than from the New York Times, and CrossPlay ships none
+  of the puzzles. Wordle does the same from another mirror, and asks the New
+  York Times itself only for the day or two that mirror has not caught up with,
+  never for a day after today; Trivia's question pack and xkcd's comics are downloaded once onto
   the card.
 - **Opening a Hacker News article sends its URL to a third party.** The story
   list comes from the public [Algolia API](https://hn.algolia.com/api), and
@@ -215,8 +222,14 @@ fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; CrossPlay ships none of them and fetches the archive, when
 you ask it to, from the community mirror at
 [Eyefyre/NYT-Connections-Answers](https://github.com/Eyefyre/NYT-Connections-Answers).
+Wordle's answers and its list of accepted guesses are the New York Times' too;
+CrossPlay ships none of them and fetches them, when you ask, from
+[mfilej/wrdl](https://github.com/mfilej/wrdl) and, for the newest days, from
+the Times' own daily answer.
 Trivia's questions are built from the community
 [Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset).
+Underhand's cards are the text of Underhand (Spoopy Squad, Cornell GDIAC, 2017),
+used with its authors' permission; none of its art or sound is.
 Type is Jersey 25 and Instrument Serif, both SIL OFL. The Calculator's
 arithmetic is IBM's [decNumber](https://speleotrove.com/decimal/decnumber.html),
 under the ICU License (ICU 1.8.1 and later), vendored at `lib/decNumber` with

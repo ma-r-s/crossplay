@@ -12,7 +12,6 @@
 #include "ShelfFolderActivity.h"
 #include "ShelfHidden.h"
 #include "ShelfState.h"
-#include "activities/browser/OpdsBookBrowserActivity.h"
 #include "battleship/BattleshipActivity.h"
 #include "calculator/CalculatorActivity.h"
 #include "checkers/CheckersActivity.h"
@@ -23,12 +22,15 @@
 #include "forehead/ForeheadActivity.h"
 #include "go/GoActivity.h"
 #include "hackernews/HackerNewsActivity.h"
+#include "hearts/HeartsActivity.h"
+#include "hex/HexActivity.h"
 #include "insider/InsiderActivity.h"
 #include "instapaper/InstapaperActivity.h"
 #include "jaipur/JaipurActivity.h"
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
+#include "notes/NotesActivity.h"
 #include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
 #include "seasalt/SeaSaltActivity.h"
@@ -38,9 +40,11 @@
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "underhand/UnderhandActivity.h"
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
 #include "wikipedia/WikipediaActivity.h"
+#include "wordle/WordleActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
 
@@ -54,6 +58,7 @@ constexpr shelf::Item kGames[] = {
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
+    {"HEARTS", &icon_hearts_32, &HeartsActivity::create},
     {"D&DIAGRAMS", &icon_dungeon_32, &DungeonActivity::create},
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
@@ -71,16 +76,21 @@ constexpr shelf::Item kGames[] = {
     {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
     {"WAVELENGTH", &icon_wavelength_32, &WavelengthActivity::create},
     {"GO", &icon_go_32, &GoActivity::create},
+    {"HEX", &icon_hex_32, &HexActivity::create},
+    {"UNDERHAND", &icon_underhand_32, &UnderhandActivity::create},
+    {"WORDLE", &icon_wordle_32, &WordleActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
-    {"GET BOOKS", &icon_getbooks_32, &OpdsBookBrowserActivity::create},
     {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
     {"WALLPAPERS", &icon_wallpapers_32, &WallpapersActivity::create},
     {"WIKIPEDIA", &icon_wikipedia_32, &WikipediaActivity::create},
     {"CALCULATOR", &icon_calculator_32, &CalculatorActivity::create},
+    // Card #516. The icon is the Lucide list mark borrowed from Murdle while
+    // the screens are being chosen; a Notes mark comes with the real app.
+    {"NOTES", &icon_murdle_face_clues_32, &NotesActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because
@@ -131,6 +141,10 @@ constexpr char kHiddenPath[] = "/.crosspoint/shelf-hidden.cfg";
 // Where leave() sends an app. Set when an item is opened, read when it leaves.
 // -1 means "nothing is open below Home", which is what a folder itself sees.
 int openFolderIndex = -1;
+
+// Set when a folder or an app of ours is opened, taken by Home on entry. See
+// takeHomeReturn().
+bool homeReturn = false;
 
 // The remembered position, mirroring /.crosspoint/shelf.cfg:
 //
@@ -328,6 +342,7 @@ void openFolder(const int index, GfxRenderer& renderer, MappedInputManager& mapp
   // rather than in leave() keeps the fact true even when a folder is reached by
   // some route that did not go through leave().
   openFolderIndex = -1;
+  homeReturn = true;
   ensureLoaded();
   saveIfChanged(index, state.resumeRow[index]);
   setOpenTitle(nullptr);
@@ -348,6 +363,7 @@ bool openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   // Recorded before the launch, not after: replaceActivity destroys the caller,
   // so there is no "after" to run in.
   openFolderIndex = folder;
+  homeReturn = true;
   saveIfChanged(folder, item);
   setOpenTitle(parent.items[item].title);
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
@@ -465,6 +481,7 @@ void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   // the same reason openItem does it: replaceActivity destroys the caller.
   ensureLoaded();
   openFolderIndex = state.lastFolder;
+  homeReturn = true;
   setOpenTitle(nullptr);
   if (!replaceWith(PlayerActivity::create(renderer, mappedInput), "Player")) {
     openFolderIndex = -1;
@@ -482,6 +499,12 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
 int lastFolderOnHome() {
   ensureLoaded();
   return state.lastFolder;
+}
+
+bool takeHomeReturn() {
+  const bool was = homeReturn;
+  homeReturn = false;
+  return was;
 }
 
 int resumeRowIn(const int index) {

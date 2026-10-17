@@ -47,6 +47,8 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/forehead/ForeheadCore.cpp \
   ../../src/apps_local/forehead/ForeheadScreens.cpp \
   ../../src/apps_local/hackernews/HackerNewsScreens.cpp \
+  ../../src/apps_local/hex/HexScreens.cpp \
+  ../../src/apps_local/hex/HexCore.cpp \
   ../../src/apps_local/instapaper/InstapaperScreens.cpp \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
@@ -61,6 +63,9 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/toybattle/ToyBattleCore.cpp \
   ../../src/apps_local/toybattle/ToyBattleFlow.cpp \
   ../../src/apps_local/trivia/TriviaScreens.cpp \
+  ../../src/apps_local/notes/NotesScreens.cpp \
+  ../../src/apps_local/wordle/WordleScreens.cpp \
+  ../../src/apps_local/wordle/WordleCore.cpp \
   ../../src/apps_local/murdle/MurdleCast.cpp \
   ../../src/apps_local/murdle/MurdleCore.cpp \
   ../../src/apps_local/murdle/MurdleScreens.cpp \
@@ -80,6 +85,10 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/jaipur/JaipurScreens.cpp \
   ../../src/apps_local/solitaire/SolitaireCore.cpp \
   ../../src/apps_local/solitaire/SolitaireScreens.cpp \
+  ../../src/apps_local/cards/CardArt.cpp \
+  ../../src/apps_local/hearts/HeartsCore.cpp \
+  ../../src/apps_local/hearts/HeartsBrain.cpp \
+  ../../src/apps_local/hearts/HeartsScreens.cpp \
   ../../src/apps_local/yahtzee/YahtzeeScreens.cpp \
   ../../src/apps_local/wikipedia/WikipediaScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"

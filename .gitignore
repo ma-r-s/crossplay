@@ -99,3 +99,9 @@ site/wikipedia/mock/*.zst
 site/wikipedia/mock/*.idx
 site/wikipedia/mock/*.dir
 site/wikipedia/mock/shards/
+
+# scripts_local/ship.sh assembles the release here. Not committed, and
+# ignored so a finished run does not leave the tree dirty -- which would
+# make the NEXT ship.sh die at its own preflight until somebody cleared it.
+dist/
+.pio/

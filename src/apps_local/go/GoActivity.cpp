@@ -5,7 +5,9 @@
 #include <Memory.h>
 
 #if defined(ARDUINO_ARCH_ESP32)
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/task.h>
 #endif
 
@@ -26,32 +28,18 @@
 // The search descends tree_search -> tree_descend -> expand, and from the
 // playout policy into fix_atari -> read_ladder_attack, which recurses through
 // fix_atari_r back into itself once per ply of a ladder. Upstream runs that on
-// a desktop with an eight megabyte stack; the Arduino loop task on this chip
-// gets eight KILOBYTES, and one frame of expand() alone was 8.5KB before the
-// vendored copy was trimmed.
+// a desktop with an eight megabyte stack; the loop task here gets 24KB
+// (main.cpp), under the worst case below, and one frame of expand() alone was
+// 8.5KB before the vendored copy was trimmed.
 //
 // So the search gets a task of its own, created when the app opens and ended
 // when it closes, and the loop waits on it.
 //
-// The number is measured, and here is the whole of the arithmetic, because
-// scripts_local/stack_budget.py can only do the first half of it -- it reports
-// cycles and never sums them:
-//
-//   12,192  the deepest ACYCLIC path, from that tool on gh_release_x4pro.
-//           searchLoop -> chooseMove -> genmove -> tree_search -> tree_descend
-//           -> expand (2,816) -> gen_playout_moves_capture -> fix_atari (6,496)
-//           -> one level of the ladder reader.
-//   11,792  eleven more levels of that reader at 1,072 bytes each
-//           (read_ladder_attack 32 + read_ladder_attack_r 448 + fix_atari_r
-//           592), which is MICHI_LADDER_MAX = 12 in michi.c.
-//    1,760  the deepest thing under the last level, undo_move.
-//   ------
-//   25,744  against 32,768, leaving about 7KB.
-//
-// Re-measure rather than trust this if any of those frames moves:
-//   PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" \
-//   PLATFORMIO_BUILD_CACHE_DIR= ./scripts_local/check.sh --flash gh_release_x4pro
-//   python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_x4pro
+// The number is measured. scripts_local/stack_budget.py can only do half of
+// the arithmetic -- it reports cycles and never sums them -- so the other half
+// is written at MICHI_LADDER_MAX in michi.c, at N=19: 26,848 of 32,768 worst
+// case. Re-measure rather than trust it if any michi frame or N moves:
+//   ./scripts_local/stack-budget.sh --verbose
 #define GO_SEARCH_TASK_STACK 32768
 
 std::unique_ptr<Activity> GoActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -89,15 +77,29 @@ void GoActivity::onEnter() {
 #else
   constexpr BaseType_t searchCore = 0;
 #endif
+  searchStackExternal = false;
   if (xTaskCreatePinnedToCore(&GoActivity::searchTrampoline, "go_search", GO_SEARCH_TASK_STACK, this, 1, &handle,
                               searchCore) == pdPASS) {
     searchTask = handle;
+  } else if (xTaskCreatePinnedToCoreWithCaps(&GoActivity::searchTrampoline, "go_search", GO_SEARCH_TASK_STACK, this, 1,
+                                             &handle, searchCore, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS) {
+    // Internal RAM had no contiguous 32KB, which on an X4 Pro after the reader
+    // and Wi-Fi is the ordinary case, not the rare one: seen on DEVICE 2 on the
+    // first move asked of it (GitHub #279). The stack goes to PSRAM instead
+    // (CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY is on in this core). Nothing
+    // the search does needs to run with the flash cache disabled, which is the
+    // one thing a PSRAM stack cannot do.
+    searchTask = handle;
+    searchStackExternal = true;
+    LOG_INF("GO", "Search task stack in PSRAM (%d bytes; no internal block that large)", GO_SEARCH_TASK_STACK);
   } else {
-    // Not fatal: the search then runs on the loop task, which is where it used
-    // to run and where it may overflow. Saying so is the point -- a fallback
-    // nobody can see is a crash nobody can explain.
+    // The last resort, and a bad one: the loop task has 24KB and michi's worst
+    // case is about 27KB (see MICHI_LADDER_MAX), so a deep enough ladder read
+    // overflows it -- and a LOSING machine runs every simulation and reads the
+    // most ladders, which is how "it crashes when I am winning" (GitHub #279)
+    // reads to a player. Reaching this line now means PSRAM is out as well.
     searchTask = nullptr;
-    LOG_ERR("GO", "No search task (%d bytes); searching on the loop task", GO_SEARCH_TASK_STACK);
+    LOG_ERR("GO", "No search task (%d bytes, internal or PSRAM); searching on the loop task", GO_SEARCH_TASK_STACK);
   }
 #endif
   // The seed has to differ between boots or the computer plays the same game
@@ -113,13 +115,29 @@ void GoActivity::onExit() {
 #if defined(ARDUINO_ARCH_ESP32)
   // The task has to be GONE before this object is, because its loop reads this
   // object's members. It is parked on a notification, so waking it with
-  // `searchEnding` set is what ends it, and it acknowledges before it deletes
-  // itself.
+  // `searchEnding` set is what ends it: it acknowledges, suspends itself, and
+  // is deleted from HERE. A task whose stack came from heap_caps must not
+  // delete itself (vTaskDeleteWithCaps, idf_additions.h), and must not be
+  // deleted while it still runs on the other core, hence the wait for the
+  // suspend. Both kinds of stack take the same path.
   if (searchTask != nullptr) {
+    const TaskHandle_t task = static_cast<TaskHandle_t>(searchTask);
     searchEnding = true;
     searchWaiter = xTaskGetCurrentTaskHandle();
-    xTaskNotifyGive(static_cast<TaskHandle_t>(searchTask));
+    xTaskNotifyGive(task);
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(2000));
+    for (int i = 0; i < 100 && eTaskGetState(task) != eSuspended; ++i) vTaskDelay(1);
+    if (eTaskGetState(task) == eSuspended) {
+      if (searchStackExternal) {
+        vTaskDeleteWithCaps(task);
+      } else {
+        vTaskDelete(task);
+      }
+    } else {
+      // Never seen. Deleting a task that is still running on the other core
+      // is the crash; leaking one is a few kilobytes until the next reboot.
+      LOG_ERR("GO", "Search task did not park; leaking it rather than deleting it mid-run");
+    }
     searchTask = nullptr;
   }
 #endif
@@ -142,7 +160,8 @@ void GoActivity::searchLoop() {
   // delete it the moment it is notified.
   TaskHandle_t waiter = static_cast<TaskHandle_t>(searchWaiter);
   xTaskNotifyGive(waiter);
-  vTaskDelete(nullptr);
+  // Parked rather than self-deleted; onExit deletes it. See there for why.
+  for (;;) vTaskSuspend(nullptr);
 }
 #endif
 
@@ -170,7 +189,7 @@ int GoActivity::chooseComputerMove(const go::Game& snapshot) {
 void GoActivity::loadSave() {
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
   if (!Storage.exists(kSavePath)) return;
-  char buffer[1600] = {};
+  char buffer[gosave::kMaxLine] = {};
   if (Storage.readFileToBuffer(kSavePath, buffer, sizeof(buffer)) == 0) return;
 
   gosave::Save save;
@@ -189,7 +208,7 @@ void GoActivity::loadSave() {
   level = save.level;
   playAs = save.playAs;
   handicap = save.handicap >= 2 && save.handicap <= go::kMaxHandicap ? save.handicap : 0;
-  boardSize = save.boardSize == go::kLargeSize ? go::kLargeSize : go::kSmallSize;
+  boardSize = go::isBoardSize(save.boardSize) ? save.boardSize : go::kSmallSize;
   inProgress = save.inProgress;
   if (inProgress) {
     game = save.game;
@@ -224,7 +243,7 @@ void GoActivity::writeSave() {
   save.game = game;
   save.seat = seat;
 
-  char line[1600];
+  char line[gosave::kMaxLine];
   const int bytes = gosave::pack(save, line, sizeof(line));
   if (bytes <= 0) {
     LOG_ERR("GO", "Save line did not fit %d bytes", static_cast<int>(sizeof(line)));
@@ -315,11 +334,24 @@ void GoActivity::takeComputerTurn() {
   // ratio, and the spread in that estimate is a rank and a half -- so this is
   // the one line that turns an estimate into a fact, and it is also the line
   // somebody needs if a move ever takes long enough to trip the watchdog.
+  //
+  // And how close the search came to the end of its stack, lowest since the app
+  // opened: michi's ladder reader recurses, the budget for it is arithmetic
+  // rather than a measurement (see MICHI_LADDER_MAX), and a losing machine runs
+  // every simulation and so reads the most ladders. -1 means the search ran on
+  // the loop task because its own could not be created (onEnter logs why).
   const gomichi::Settings settings = gomichi::settingsFor(level);
-  LOG_INF("GO", "search: level %d, %ux%u, %u ms of %u, %d of %u sims (move %u)", static_cast<int>(level),
-          static_cast<unsigned>(game.size), static_cast<unsigned>(game.size), static_cast<unsigned>(took),
-          static_cast<unsigned>(settings.budgetMs), gomichi::lastSimulations(),
-          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(game.moveNumber));
+  int stackFree = -1;
+#if defined(ARDUINO_ARCH_ESP32)
+  if (searchTask != nullptr) {
+    stackFree = static_cast<int>(uxTaskGetStackHighWaterMark(static_cast<TaskHandle_t>(searchTask)));
+  }
+#endif
+  LOG_INF("GO", "search: level %d, %ux%u, %u ms of %u, %d of %u sims (move %u), stack free %d of %d",
+          static_cast<int>(level), static_cast<unsigned>(game.size), static_cast<unsigned>(game.size),
+          static_cast<unsigned>(took), static_cast<unsigned>(settings.budgetMs), gomichi::lastSimulations(),
+          static_cast<unsigned>(settings.simulations), static_cast<unsigned>(game.moveNumber), stackFree,
+          GO_SEARCH_TASK_STACK);
   // Before the move lands, because playing it resets the pass count.
   passWasPlayedThrough = game.passes >= 1 && move != go::kPass;
   if (!go::play(game, move)) {
@@ -897,7 +929,7 @@ void GoActivity::gameRender() {
       model.nothingLeft = !go::hasUsefulMove(game, game.toMove);
       model.disagreed = disagreed;
       model.itPlayedOn = passWasPlayedThrough && opponent == go::Opponent::Computer;
-      model.freePoints = static_cast<uint8_t>(go::freePoints(game, game.toMove));
+      model.freePoints = go::freePoints(game, game.toMove);
       player::shortName(inMatch() ? opponentName() : nullptr, theirName, sizeof(theirName));
       model.opponentName = inMatch() ? theirName : nullptr;
       model.sharedDevice = !inMatch() && opponent == go::Opponent::Human;

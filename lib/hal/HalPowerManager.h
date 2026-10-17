@@ -40,7 +40,16 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode
-  void startDeepSleep(HalGPIO& gpio) const;
+  // `timerWakeMicros` arms an RTC timer beside the power button, so the device
+  // ends its own sleep. 0 keeps the old behaviour: only the button wakes it.
+  // Ends in freeink::PowerManager::deepSleepUntilPowerButtonOrTimer, which is
+  // itself [[noreturn]]. Declared so here too, because main.cpp's boot path
+  // relies on it: a boot that decides to sleep again must be unable to reach
+  // the frontlight and the sleep-screen repaint that follow the wake switch,
+  // and without the attribute that is a comment rather than a fact the
+  // compiler checks. The simulator links its OWN HalPowerManager, whose deep
+  // sleep returns when the window closes, so the attribute is device-only.
+  [[noreturn]] void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMicros = 0) const;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

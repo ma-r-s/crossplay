@@ -1,6 +1,6 @@
 # What is in docs/apps/
 
-One directory, 34 files, and until this index they were a raw file listing. A
+One directory, and until this index its files were a raw listing. A
 doc lands here when something about an app would otherwise be rediscovered the
 hard way; not every app has one, and some have several.
 
@@ -36,10 +36,14 @@ them. These are the ones worth a stranger's time.
 | [`sudoku.md`](sudoku.md) | Difficulty proved by a grader rather than estimated. |
 | [`jaipur.md`](jaipur.md) | The two-player trading game, solo or nearby. |
 | [`seasalt.md`](seasalt.md) | Sea Salt & Paper, and the rulebook contradiction Mario settled. |
+| [`hearts.md`](hearts.md) | The shelf's first trick-taking game, and the shared deck it created. |
 | [`toybattle.md`](toybattle.md) | The fork's first graph board. |
+| [`hex.md`](hex.md) | A connection game with no captures and no draws, and the geometry that fills the panel. |
 | [`murdle.md`](murdle.md) | A logic grid built through the solver, so a case is never a guess. |
 | [`wavelength.md`](wavelength.md) | The dial, and why the board is public. |
 | [`forehead.md`](forehead.md) | The first game to make both physical buttons load-bearing. |
+| [`underhand.md`](underhand.md) | The cult card game, its rules read from the original's compiled code, and a screen that never moves. |
+| [`wordle.md`](wordle.md) | The daily word in Connections' shape: one download, an archive, and the marks a black-and-white panel can tell apart. |
 | [`trivia.md`](trivia.md) | Also the app doc, above. |
 
 ## Where the content came from
@@ -100,11 +104,11 @@ edited.
 | --- | --- |
 | [`guesswho.md`](guesswho.md) | There is no `src/apps_local/guesswho/`. The doc talks the idea down to the reason it does not work: the faces are hashes, and hashes have no askable attributes. |
 
-## Eight things on the shelf have no doc of their own
+## Seven things on the shelf have no doc of their own
 
-Battleship, Connections, Solitaire, Insider, Hacker News, xkcd, Wallpapers and
-Get Books. Some have auxiliary records here (a format, a plan, a flow) and Get
-Books has nothing at all; none has a file saying what the app is. That is a gap
+Battleship, Connections, Solitaire, Insider, Hacker News, xkcd and Wallpapers.
+Some have auxiliary records here (a format, a plan, a flow); none has a file
+saying what the app is. That is a gap
 rather than a decision. To check the number, read `Shelf.cpp`'s `kGames` and
 `kApps` against the two sections above that say what a thing IS -- "What an app
 is" and "The rules a game implements". A format or a plan is not a doc for the

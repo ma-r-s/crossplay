@@ -192,6 +192,16 @@ ALLOWED = {
     "crosspointreadercom": "the same sync-server hostname inside a markdown anchor",
     "CrossPoint upstream": "the site pointing other devices at upstream",
     "CrossPoint first": "the site's flashing instructions",
+    # Upstream renamed its reading-progress sync from KOReader Sync to
+    # CrossPoint Sync (#3804, 2026-10): the feature now names upstream's own
+    # service and account, and its server types include CrossPoint's.
+    "CrossPoint Sync": "upstream's progress-sync service and the feature named after it",
+    "CrossPoint sync": "the same, in a sentence",
+    "CrossPoint Username": "an account on upstream's sync service",
+    "CrossPoint Password": "the same account's password",
+    "CrossPoint-compatible": "servers speaking upstream's sync protocol",
+    "CrossPoint-specific": "the same protocol's extra position data, by name",
+    "**CrossPoint**": "the sync server type named CrossPoint",
 }
 
 # Literals that are protocol or persisted keys rather than labels. Allowed only
@@ -202,8 +212,21 @@ ALLOWED_EXACT = {
 }
 
 # Translation keys naming something upstream publishes, so the words stay
-# whatever language they are in.
-ALLOWED_KEYS = ("STR_CALIBRE_INSTRUCTION_1",)
+# whatever language they are in. STR_CROSSPOINT is the KOReader sync server
+# type that means CrossPoint's own server (sync.crosspointreader.com), a
+# choice beside "KOSync server" and "Other", not this app's name.
+ALLOWED_KEYS = (
+    "STR_CALIBRE_INSTRUCTION_1",
+    "STR_CROSSPOINT:",
+    # The sync feature's labels, translated: each names upstream's service or
+    # an account on it (see "CrossPoint Sync" above).
+    "STR_KOREADER_SYNC:",
+    "STR_KOREADER_USERNAME:",
+    "STR_KOREADER_PASSWORD:",
+    "STR_KOREADER_AUTH:",
+    "STR_SYNC_READY:",
+    "STR_KOSYNC:",
+)
 SCAN = [
     ("src", (".cpp", ".h", ".html", ".js", ".c")),
     ("lib", (".cpp", ".h", ".c")),
@@ -276,16 +299,20 @@ check(not missing, "every language defines the wordmark", ", ".join(missing))
 
 # ---------------------------------------------------------------------------
 # PART THREE. The names a person reads without opening the device. Located by
-# grep so a moved constant is still checked, and BOTH User-Agent call sites are
-# covered -- the header is set two different ways in one file.
+# grep so a moved constant is still checked, and BOTH ways of setting the
+# User-Agent are covered. Since the 2026-09-30 sync every fetch goes through
+# SecureHttpClient::setUserAgent (upstream deleted the esp_http_client
+# transport), so the raw-header form is no longer required to exist -- but one
+# that comes back saying CrossPoint still fails.
 # ---------------------------------------------------------------------------
-def literal_of(pattern, label):
+def literal_of(pattern, label, required=True):
     out = subprocess.run(
         ["grep", "-rhoE", pattern, os.path.join(root, "src"), os.path.join(root, "lib")],
         capture_output=True, text=True,
     ).stdout.strip().splitlines()
-    check(bool(out), f"{label} is still defined somewhere",
-          "grep found nothing -- has it been renamed away?")
+    if required:
+        check(bool(out), f"{label} is still defined somewhere",
+              "grep found nothing -- has it been renamed away?")
     for line in out:
         check("crosspoint" not in line.lower(), f"{label} does not say CrossPoint", line.strip())
 
@@ -294,7 +321,7 @@ literal_of(r'AP_SSID *= *"[^"]*"', "the Wi-Fi hotspot name")
 literal_of(r'(AP_)?HOSTNAME *= *"[^"]*"', "the mDNS name shown on screen")
 literal_of(r'DEVICE_NAME\[\] *= *"[^"]*"', "the name a sync server shows")
 literal_of(r'setUserAgent\("[^"]*"', "the HTTP User-Agent (setUserAgent)")
-literal_of(r'"User-Agent", *"[^"]*"', "the HTTP User-Agent (esp_http_client)")
+literal_of(r'"User-Agent", *"[^"]*"', "the HTTP User-Agent (raw header)", required=False)
 literal_of(r'info \+= "CrossP[^"]*"', "the crash report header")
 
 # ---------------------------------------------------------------------------

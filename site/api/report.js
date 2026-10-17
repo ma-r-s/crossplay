@@ -50,7 +50,7 @@ const PHOTO_TYPES = {
   "image/png": "png",
   "image/webp": "webp",
 };
-const DEVICES = ["x4pro", "sticky"];
+const DEVICES = ["x4pro", "sticky", "papermono"];
 const VERSION = /^v?\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 

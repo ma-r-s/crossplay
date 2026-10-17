@@ -35,13 +35,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 REPO="$(pwd)"
+source "$REPO/scripts_local/lib-sim.sh"
 DEST="${1:-$REPO/site/assets/shots/forehead.png}"
 
 # The agent's own card, the one sim-shot.sh drives. Never Mario's fs_mario.
 CARD="$REPO/fs_agent/.crosspoint"
 mkdir -p "$CARD"
 python3 tools_local/forehead/seed_save.py "$REPO/fs_agent" >/dev/null
-printf '0 16 0' > "$CARD/shelf.cfg"
 
 # 240,150 is the headline block on the front door, which opens the READY card.
 # DOWN starts the round; after that every key press is a card, and the six of
@@ -52,5 +52,4 @@ CROSSPLAY_AUTOSTART=FOREHEAD ./scripts_local/sim-shot.sh \
   2>&1 | grep -E "FAILED|error:|\.png" | sed 's/^/  /'
 
 [ -f "$REPO/qa-artifacts/site-forehead.png" ] || { echo "no shot produced"; exit 1; }
-cp "$REPO/qa-artifacts/site-forehead.png" "$DEST"
-echo "wrote $DEST"
+write_site_shot "$REPO/qa-artifacts/site-forehead.png" "$DEST"

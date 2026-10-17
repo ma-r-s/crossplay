@@ -175,11 +175,15 @@ Every card carries a `reporter`:
 | --- | --- |
 | `mario` | he hit it, asked for it, or ruled on it, and said so |
 | `user` | a person who is not Mario: the public report form, a GitHub issue |
-| `session` | our own side found it: an audit, a gate, a cold review, a probe, the error trigger |
+| `session` | a session's own work, bound to it at filing (`--session`), or the error trigger. A session's FIND is not a card: `board noticed` |
 | `unknown` | nothing establishes either way |
 
 ```bash
-board new "<title>" --from <app> --reporter mario|user|session
+board new "<title>" --from <app> --reporter mario|user
+board new "<title>" --from <app> --reporter session --session <id>   # work that starts now
+board noticed "<one line>" --from <app>   # seen, not being fixed: expires in 14 days, shown to Mario at 3 sightings
+board notices                             # what is noticed and live
+board promote n<id> --reporter mario      # he asked for it: now it is a card
 board list --from-mario           # the question he asks
 board list --reporter unknown     # what nobody stamped
 ```

@@ -84,6 +84,23 @@ TASKS = [
         None,
     ),
     (
+        # Hex's opponent. Nothing here recurses -- the tree descent is a loop,
+        # the playout is a loop, and the flood fill that scores it carries its
+        # own explicit stack -- so unlike go_search this tool CAN see the whole
+        # path. What costs is the arrays: a playout holds a board, a shuffled
+        # order, two bridge queues and a seen map, all 121 bytes, on top of the
+        # descent's 244-byte path.
+        "hex_search",
+        "HEX_SEARCH_TASK_STACK",
+        "src/apps_local/hex/HexActivity.cpp",
+        # The return type is part of the needle for the reason spelled out
+        # above go_search: the lambda this function lends the brain as a clock
+        # demangles to "...HexActivity::searchLoop()::<lambda()>::_FUN()",
+        # which contains the bare name, has a tiny frame, and sorts first.
+        "void HexActivity::searchLoop()",
+        None,
+    ),
+    (
         "fi_input",
         4096,
         "freeink-sdk/libs/hardware/InputManager/src/InputManager.cpp:175",

@@ -8,7 +8,7 @@
 // a finger has chosen but not yet committed -- which belongs to neither.
 //
 // **A stone goes down in two taps, not one.** Go is played on intersections at
-// a 49px pitch on nine lines and 33px on thirteen, which is at or under a
+// a 49px pitch on nine lines, 33px on thirteen and 23px on nineteen, at or under a
 // fingertip, and a stone cannot be taken back in a match. So the first tap aims
 // and the second commits, and tapping a different point moves the aim rather
 // than playing there. It costs one tap on a move you were sure of and saves a
@@ -48,10 +48,13 @@ enum class Opponent : uint8_t { Computer, Human };
 // given more time. See GoEngine.h.
 enum class Level : uint8_t { Easy, Medium, Hard, Count_ };
 
-// The two boards. A setting rather than a constant, and it takes effect on the
-// next NEW game: changing the board under a game in progress would have to
-// either discard it or reinterpret its stones, and both are worse than waiting.
-constexpr int nextBoardSize(const int size) { return size == kSmallSize ? kLargeSize : kSmallSize; }
+// The three boards, in the order the setting steps through them. A setting
+// rather than a constant, and it takes effect on the next NEW game: changing the
+// board under a game in progress would have to either discard it or
+// reinterpret its stones, and both are worse than waiting.
+constexpr int nextBoardSize(const int size) {
+  return size == kSmallSize ? kLargeSize : (size == kLargeSize ? kFullSize : kSmallSize);
+}
 
 constexpr Screen back(const Screen screen) {
   switch (screen) {

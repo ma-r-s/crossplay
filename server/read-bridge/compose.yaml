@@ -41,6 +41,9 @@ services:
       READ_ALLOWLIST: ${READ_ALLOWLIST}
       READ_CONSUMER_KEY: ${READ_CONSUMER_KEY}
       READ_CONSUMER_SECRET: ${READ_CONSUMER_SECRET}
+      # Instapaper serves article text to other people's accounts only with
+      # an Instaparser key since 2026-09-30 (README, "What it needs to run").
+      INSTAPARSER_API_KEY: ${INSTAPARSER_API_KEY:-}
       # Where sync and error events go (docs/workflow/events.md). Both
       # optional: with either unset the service posts nothing and logs so
       # once at startup. The anon key can only insert.

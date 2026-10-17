@@ -56,6 +56,9 @@ void CalibreConnectActivity::onEnter() {
 void CalibreConnectActivity::onExit() {
   Activity::onExit();
 
+  // Closes the listening socket and any queued client connections; they must go
+  // before the radio teardown below frees the netif they hang off.
+  webServer.reset();
   MDNS.end();
 
   // Not ours to drop if Developer Mode raised it. Every other wifi user here
@@ -106,13 +109,6 @@ void CalibreConnectActivity::startWebServer() {
   } else {
     state = CalibreConnectState::ERROR;
     requestUpdate();
-  }
-}
-
-void CalibreConnectActivity::stopWebServer() {
-  if (webServer) {
-    webServer->stop();
-    webServer.reset();
   }
 }
 

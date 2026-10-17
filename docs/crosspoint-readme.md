@@ -41,9 +41,7 @@ CrossPoint is open-source e-reader firmware - community-built, fully hackable, f
   - WebDAV handler
   - AP mode (hotspot) and STA mode (join existing Wi-Fi), both with QR helpers
   - Calibre wireless connect flow
-  - Get Books: search OPDS catalogs, preview cover and details, then download.
-    Project Gutenberg is set up on first run; up to 8
-    catalogs, with a language filter
+  - OPDS browser: up to 8 catalogs, browsed and downloaded on the device
   - OTA update checks and installs from GitHub releases
 
 - **Customization**: multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes including transparent overlays, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.

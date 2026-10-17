@@ -152,7 +152,7 @@ constexpr int kMaxCommentDepth = 5;
 // So it is scanned as it arrives off the socket and never assembled.
 // HttpDownloader's chunk callback exists for exactly this.
 //
-// The obvious reuse, lib/JsonParser/StreamingJsonParser, does not fit: its
+// The obvious reuse, the SDK's StreamingJsonParser (JsonSax), does not fit: its
 // token buffer is a fixed 512 bytes, and real comments run past that. A
 // truncated comment is worse than a slow one, so this scanner accumulates a
 // string value of any length and bounds itself where bounding is honest, on the

@@ -228,6 +228,101 @@ def main():
             "and the bridge drops its cached text for it",
         )
 
+        # --- the Instaparser key (GitHub #298, card #655)
+        # From 2026-09-30 Instapaper answers get_text with error 1044 unless
+        # the request carries an Instaparser key, and every article of every
+        # sync failed: "0 new or updated. 12 Instapaper could not prepare".
+        remote = json.loads(state_file.read_text())
+        remote["instaparser_key"] = "ipk-test"
+        state_file.write_text(json.dumps(remote))
+        keyed = store.UserStore("instaparser-test").ensure()
+        os.environ.pop("INSTAPARSER_API_KEY", None)
+        bare = engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+        ok(
+            not bare["articles"] and len(bare["failed"]) == len(remote["bookmarks"]),
+            f"without a key every article fails, as it did live ({len(bare['failed'])})",
+        )
+        ok(
+            all("1044" not in f["why"] for f in bare["failed"]),
+            "and the reader is given a sentence, not an error code",
+        )
+
+        os.environ["INSTAPARSER_API_KEY"] = "ipk-test"
+        original_gap = instapaper.PARSE_GAP_S
+        instapaper.PARSE_GAP_S = 0.3
+        try:
+            started = time.monotonic()
+            fixed = engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+            took = time.monotonic() - started
+        finally:
+            instapaper.PARSE_GAP_S = original_gap
+            os.environ.pop("INSTAPARSER_API_KEY", None)
+        n = len(remote["bookmarks"])
+        # The fake checks the OAuth signature over every body field, so an
+        # article arriving proves the key was both sent and signed.
+        ok(
+            len(fixed["articles"]) == n and not fixed["failed"],
+            f"with the key every article arrives ({len(fixed['articles'])}/{n})",
+        )
+        ok(
+            took >= (n - 1) * 0.3,
+            f"one parse per gap, the free tier's rate ({took:.2f}s for {n})",
+        )
+
+        # --- what a parse costs
+        # Every attempt can spend a credit, so the per-sync cap counts
+        # attempts: with a refused key, a sync stops at the cap rather than
+        # walking the whole listing at one parse a second.
+        capped = store.UserStore("instaparser-cap").ensure()
+        original_cap = engine.MAX_FETCH_PER_SYNC
+        engine.MAX_FETCH_PER_SYNC = 2
+        try:
+            refused = engine.sync_cycle(capped, "tok-1", "sec-1", [], [])
+        finally:
+            engine.MAX_FETCH_PER_SYNC = original_cap
+        ok(
+            len(refused["failed"]) == 2 and refused["withheld"] == n - 2,
+            f"refusals count toward the cap ({len(refused['failed'])} tried,"
+            f" {refused['withheld']} withheld)",
+        )
+
+        # And an article Instapaper has no text for is asked about once, not
+        # on every sync for as long as it stays in the list.
+        remote = json.loads(state_file.read_text())
+        template = bookmarks(1)[0]
+        remote["bookmarks"].append(
+            dict(template, bookmark_id=300, url="https://example.com/no-text", text_fails=True)
+        )
+        remote["bookmarks"].append(
+            dict(template, bookmark_id=301, url="https://example.com/short", text="<p>Hi.</p>")
+        )
+        state_file.write_text(json.dumps(remote))
+        calls = []
+        real_get_text = instapaper.Instapaper.get_text
+
+        def counting(self, bookmark_id):
+            calls.append(bookmark_id)
+            return real_get_text(self, bookmark_id)
+
+        instapaper.Instapaper.get_text = counting
+        os.environ["INSTAPARSER_API_KEY"] = "ipk-test"
+        instapaper.PARSE_GAP_S = 0
+        try:
+            engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+            first_calls = sorted(calls)
+            calls.clear()
+            again = engine.sync_cycle(keyed, "tok-1", "sec-1", [], [])
+        finally:
+            instapaper.Instapaper.get_text = real_get_text
+            instapaper.PARSE_GAP_S = original_gap
+            os.environ.pop("INSTAPARSER_API_KEY", None)
+        ok(first_calls == [300, 301], f"the first sync asks about both ({first_calls})")
+        ok(calls == [], f"the next sync asks about neither ({calls})")
+        ok(
+            sorted(f["id"] for f in again["failed"]) == [300, 301],
+            "and still reports both as not prepared",
+        )
+
         print(f"{checks} checks, {failures} failed")
         return 1 if failures else 0
     finally:

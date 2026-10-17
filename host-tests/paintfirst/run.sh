@@ -24,8 +24,8 @@
 # in which a render can overlap the fetch, which is a worse bug than the one it
 # fixes.
 #
-# WHERE A PROGRESS CALLBACK EXISTS, IT IS BETTER THAN ANY OF THIS. Get Books'
-# downloadBook() survives a whole transfer because HttpDownloader's abortPoll()
+# WHERE A PROGRESS CALLBACK EXISTS, IT IS BETTER THAN ANY OF THIS. A download
+# with one survives a whole transfer because HttpDownloader's abort poll
 # (src/network/HttpDownloader.cpp) invokes the progress callback every 50ms --
 # through the connect and the headers, not just the body -- and that callback
 # both repaints and pumps input. That is why Back works mid-download. Nothing
@@ -167,40 +167,6 @@ locked_at() {
 
 I2="  "
 I4="    "
-
-# ---------------------------------------------------------------------------
-# CASE 1: Get Books. The cold start is the worst of them -- it is what a new
-# reader hits first, and the screen left behind is the shelf.
-# ---------------------------------------------------------------------------
-OPDS=src/activities/browser/OpdsBookBrowserActivity.cpp
-need_file "$OPDS"
-
-# THE COST OF PAINTING IMMEDIATELY, and the reason this suite still has a lock
-# check after the handshake work was dropped. requestUpdate(true) wakes the
-# render task on the other core while this one blocks, so a render overlaps the
-# fetch BY CONSTRUCTION -- wider than the deferred call it replaced, which could
-# not run during a blocking call at all. fetchFeed() replaces `entries` and
-# rebuilds `rowItems`, whose ListItems hold const char* INTO entries[i].title.
-# Without the lock that is a use-after-free by design rather than by race.
-ff=$(body "$OPDS" '^void OpdsBookBrowserActivity::fetchFeed[(]')
-if locked_at 'entries = std::move' "$ff"; then ok
-else bad "fetchFeed() replaces entries with no RenderLock alive in an enclosing scope; requestUpdate(true) means a render is concurrent by construction, and rowItems points into the strings being freed"; fi
-
-if locked_at 'rebuildRowItems[(][)];' "$ff"; then ok
-else bad "fetchFeed() rebuilds rowItems with no RenderLock alive in an enclosing scope"; fi
-
-if locked_at 'swap[(]entries[)]' "$(body "$OPDS" '^void OpdsBookBrowserActivity::releaseEntries[(]')"; then ok
-else bad "releaseEntries() frees entries with no RenderLock alive; three navigation paths reach it while a render woken by an earlier requestUpdate(true) may still be reading rowItems"; fi
-
-# ...and every path in is painted, not just the ones an audit happened to list.
-# Six reach fetchFeed(); the definition line starts at column 0 and is excluded.
-if nocomment < "$OPDS" | preceded_within '^[[:space:]]+requestUpdate[(]true[)];' '^[[:space:]]+fetchFeed[(]' 3; then ok
-else bad "a fetchFeed() in $OPDS is not preceded by requestUpdate(true); that path blocks with no repaint asked for -- see bounding-one-of-two-input-paths"; fi
-
-# The render that has to publish the frame, at function-body level and not
-# behind an early return. See the memory activity-render-contract.
-if reached "$(stmt "$I2" 'renderer\.displayBuffer\(\)')" "$(body "$OPDS" '^void OpdsBookBrowserActivity::render[(]')"; then ok
-else bad "OpdsBookBrowserActivity::render() has no REACHABLE displayBuffer() at function-body level; the busy frame would be built and never shown"; fi
 
 # ---------------------------------------------------------------------------
 # CASE 2: KOReader authentication, over TLS, reachable straight from onEnter().

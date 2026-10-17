@@ -85,7 +85,9 @@ int main() {
   const std::map<int, EpdFontFamily> noBuiltins;
   SdCardFont font;
   const std::map<int, SdCardFont*> sdFonts{{7, &font}};
-  FontCacheManager fcm(noBuiltins, sdFonts);
+  // TrueType fonts (upstream, PSRAM boards) play no part in the scope's lifetime.
+  const std::map<int, TtfEpdFont*> noTtf;
+  FontCacheManager fcm(noBuiltins, sdFonts, noTtf);
 
   // -- a scope starts from an empty cache -----------------------------------
   {
@@ -136,7 +138,7 @@ int main() {
     counts = Counts{};
     SdCardFont second;
     const std::map<int, SdCardFont*> two{{7, &font}, {8, &second}};
-    FontCacheManager mixed(noBuiltins, two);
+    FontCacheManager mixed(noBuiltins, two, noTtf);
     auto scope = mixed.createPrewarmScope();
     mixed.recordText("body", 7, EpdFontFamily::REGULAR);
     mixed.recordText("bar", 8, EpdFontFamily::REGULAR);

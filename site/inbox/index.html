@@ -106,6 +106,31 @@
   .sec small { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.04em; color: var(--muted); margin-left: 0.6rem; }
   .owner details { margin-top: 0.6rem; border-top: 0; padding-top: 0; }
   .owner summary { font-weight: 400; font-size: 0.95rem; color: var(--muted); }
+  /* One device per row, openable. The summary carries what he asked to see
+     without a click -- what it runs and which services it has used -- and the
+     two histories are inside. A table would need eight columns on a phone;
+     this needs four and the rest is one line of prose. */
+  .fleet { margin: 0.6rem 0 0.4rem; }
+  .dev { margin: 0; border-top: 0; border-bottom: 1px solid var(--edge); padding: 0; }
+  .dev > summary { font-weight: 400; font-size: 0.9rem; padding: 0.5rem 0.2rem; list-style-position: outside; }
+  .dev > summary::marker { color: var(--muted); }
+  .dev .id { font-family: var(--mono); font-size: 0.82rem; }
+  .dev .meta { color: var(--muted); }
+  .dev .uses { display: block; margin-top: 0.15rem; font-size: 0.82rem; }
+  .dev .none { color: var(--muted); font-style: italic; }
+  .dev-body { padding: 0.2rem 0 0.8rem 1.1rem; }
+  .dev-body .nums-h { margin-top: 0.5rem; }
+  /* The count above a list that can be capped. When a cap is hit the page
+     says which rows are missing rather than showing a short table that reads
+     as the whole fleet. */
+  .capped { color: var(--ink); font-weight: 600; }
+  /* What the page cannot see. Drawn as content, not as a footnote: a number
+     whose blind spots are in small grey type is a number that gets quoted
+     without them. */
+  .gaps { border: 1px solid var(--edge); border-left: 4px solid var(--ink); border-radius: 4px; padding: 0.8rem 1rem; margin: 0.6rem 0 0; }
+  .gaps ul { margin: 0; padding-left: 1.1rem; }
+  .gaps li { margin: 0.35rem 0; font-size: 0.92rem; }
+  .gaps li b { font-weight: 600; }
   /* The photo a person attached, shown whole under their words; the link
      opens the original. */
   .report .shot img { display: block; max-width: 100%; height: auto; margin-top: 0.7rem; border: 1px solid var(--edge); border-radius: 4px; }
@@ -187,8 +212,16 @@
   <section class="owner" id="inbox-owner" hidden>
     <h2 class="sec">Devices <small>each counted once</small></h2>
     <div id="owner-devices"><p class="status">Counting...</p></div>
+    <h2 class="sec">Versions <small>one row each, newest first</small></h2>
+    <div id="owner-versions"></div>
+    <h2 class="sec">Every device <small>what it runs, what it uses</small></h2>
+    <div id="owner-fleet"></div>
+    <h2 class="sec">Services <small>how many devices use each</small></h2>
+    <div id="owner-services"></div>
     <h2 class="sec">In the field <small>last 7 days</small></h2>
     <div id="owner-field"></div>
+    <h2 class="sec">What this page cannot see</h2>
+    <div id="owner-gaps"></div>
   </section>
 
   <details id="inbox-everything" hidden>
@@ -204,6 +237,9 @@
   <p class="foot"><span>One message at a time. A tap is the whole answer.</span><button class="btn quiet" id="inbox-signout" hidden>Forget passphrase</button></p>
 </main>
 
+<!-- The version ordering and the one-row-per-version fold, kept in a file a
+     test can run (host-tests/site/fleet_js.js). -->
+<script src="/assets/fleet.js"></script>
 <script>
 (function () {
   "use strict";
@@ -245,7 +281,7 @@
       $("inbox-login").hidden = true;
       say("");
       render();
-      triage(res.triage);
+      triage(res.now, res.recurring);
       loadNumbers();
     }).catch(function (err) {
       if (err.status === 401) { savePass(null); showLogin("That is not the passphrase."); return; }
@@ -254,21 +290,19 @@
     });
   }
 
-  // One line on how far behind triage is: what waits in `reported` with no
-  // session bound, the oldest of it, how many of those are Mario's own
-  // decisions, what is claimed but never moved, and when anything was last
-  // triaged. Bold once the oldest has waited a day; the question "is triage
-  // up to date?" once took a database query.
+  // The board in one line: what people asked for and is open, what is being
+  // worked on, which alarms are ringing; and under it, what sessions keep
+  // noticing. It used to be a line about the triage backlog, and the backlog
+  // was 203 cards nobody was going to read. Sessions' finds are notices now
+  // and expire by themselves; only one seen three times reaches this page.
   function hours(h) { return h >= 48 ? Math.round(h / 24) + " days" : h + " h"; }
-  function triage(t) {
+  function triage(t, recurring) {
     var el = $("inbox-triage");
-    if (!t || typeof t.waiting !== "number") { el.hidden = true; return; }
-    var s = !t.waiting ? "Triage: nothing waiting."
-      : "Triage: " + t.waiting + (t.waiting === 1 ? " card" : " cards") + " waiting, oldest " + hours(t.oldest_h) +
-        (t.for_mario ? ", " + t.for_mario + " of them for you" : "") +
-        (t.claimed ? "; " + t.claimed + " claimed but never moved" : "") +
-        (t.since_triage_h != null ? "; last triage " + hours(t.since_triage_h) + " ago" : "") + ".";
-    el.innerHTML = (t.waiting && t.oldest_h >= 24) ? "<b>" + esc(s) + "</b>" : esc(s);
+    if (!t || typeof t.from_people !== "number") { el.hidden = true; return; }
+    var s = "Board: " + t.from_people + " asked by you or users and open, " + t.in_progress + " being worked on, " +
+      t.alarms + (t.alarms === 1 ? " alarm" : " alarms") + " ringing.";
+    var again = (recurring || []).map(function (note) { return esc(note.what) + " (seen " + note.seen + " times)"; });
+    el.innerHTML = esc(s) + (again.length ? "<br>Keeps coming up: " + again.join("; ") + "." : "");
     el.hidden = false;
   }
 
@@ -438,6 +472,8 @@
   // names its window, because a count without one reads as "always".
   function loadNumbers() {
     var devEl = $("owner-devices"), fieldEl = $("owner-field"), body = $("inbox-numbers-body");
+    var verEl = $("owner-versions"), fleetEl = $("owner-fleet"),
+        svcEl = $("owner-services"), gapsEl = $("owner-gaps");
     $("inbox-numbers").hidden = false;
     body.innerHTML = '<p class="status">Counting...</p>';
     function tbl(head, rows) {
@@ -462,6 +498,37 @@
       return '<div class="num-grid">' + list.map(function (t) { return '<div class="tile"><b>' + esc(t[0]) + '</b><span>' + esc(t[1]) + '</span></div>'; }).join("") + '</div>';
     }
     var count = function (v) { return v == null ? "?" : v; };
+    // Live, whose numbers were meaningless until 2026-09-21: every visit to
+    // the pairing screen minted a fridge, so 67 records were 19 hours of one
+    // person testing. A pairing proves curiosity. A reader that has checked
+    // in MORE THAN ONCE is the first number here that means the thing is on
+    // somebody's fridge, so the two are never added together.
+    function liveBlock(l) {
+      var seen = Number(l.codes_shown) || 0;
+      var paired = Number(l.paired) || 0;
+      var back = Number(l.returning) || 0;
+      // Nothing has arrived. Five rows of zeros beside a "nothing yet" row in
+      // the table above says the same thing twice and reads as "Live has no
+      // users" rather than "Live has not reported yet", which are different
+      // facts and only one of them is known.
+      if (!l.last_at && !seen && !paired && !back) {
+        return '<p class="nums-h">Live, last 30 days</p>' +
+          '<p class="status">Live has not posted an event yet, so there is nothing to count. That is a gap in the reporting, not a measurement of how many people use it.</p>';
+      }
+      return '<p class="nums-h">Live, last 30 days</p>' +
+        tbl(["what", "how many", "what it proves"], [
+          ["codes shown", seen, "somebody opened the pairing screen"],
+          ["paired", paired, "somebody at the other end typed the code"],
+          ["readers that checked in", count(l.checked_in), "the reader asked for a picture at least once"],
+          ["readers that came back", back, "checked in more than once: it is on a fridge"],
+          ["pictures sent", count(l.pictures_sent), "a phone sent an image"]
+        ]) +
+        '<p class="status">Five different numbers, and only one of them means somebody has this on their fridge: readers that came back. ' +
+        (seen && !back
+          ? "That is " + back + " of " + seen + ". Every pairing so far was opened and abandoned, so the honest count of fridges in use is zero."
+          : "A pairing that never checked in twice is an abandoned setup, not a user.") +
+        ' ' + count(l.reader_devices) + ' of these readers sent an id, so only those join the fleet above.</p>';
+    }
     Promise.all([
       api("numbers").catch(function () { return {}; }),
       fetch("https://api.github.com/repos/ma-r-s/crossplay/releases/latest").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
@@ -472,9 +539,16 @@
       // that updated inside the window would count twice); then what runs
       // right now with each device at the version it last reported.
       var heard = n.heard || {}, fresh = n.fresh || {}, field = n.field || {};
-      var now = n.now || [], every = n.devices || [];
-      var total = now.reduce(function (a, r) { return a + (r.devices || 0); }, 0);
-      var onLatest = now.filter(function (r) { return r.version === latest; }).reduce(function (a, r) { return a + (r.devices || 0); }, 0);
+      var every = n.devices || [];
+      // One row per version, newest first, whichever shape the board is on.
+      // The page folds rather than trusting the view to have been migrated:
+      // the site deploys separately from the board's SQL, so for a while
+      // after a release one of the two is older than the other.
+      var versions = FLEET.foldVersions(n.now || []);
+      var boards = FLEET.boardColumns(versions);
+      var total = versions.reduce(function (a, r) { return a + r.devices; }, 0);
+      var latestRow = versions.filter(function (r) { return r.version === latest; })[0];
+      var onLatest = latestRow ? latestRow.devices : 0;
       devEl.innerHTML =
         tiles([
           [count(heard.d7), "devices, last 7 days"],
@@ -482,11 +556,65 @@
           [count(fresh.this_week), "first heard this week" + (fresh.last_week != null ? " (" + fresh.last_week + " the week before)" : "")],
           [latest ? onLatest + " of " + total : "?", "on the latest release" + (latest ? ", " + latest : "")]
         ]) +
-        '<p class="status">A device is counted when it uses a service or checks for an update, and never twice: each sits at the version it last reported. One that only reads is never heard from, so these are floors.</p>' +
-        block("Running right now, devices heard from in 30 days", ["version", "board", "devices"], now.map(function (r) { return [r.version, r.board, r.devices]; })) +
-        '<details><summary>Every device, latest first (' + every.length + ')</summary>' +
-        tbl(["device", "board", "version", "since", "first seen", "last seen", "versions run"], every.map(function (d) { return [String(d.device || "").slice(0, 8), d.board, d.version, when(d.since), String(d.first_seen || "").slice(0, 10), when(d.last_seen), d.versions_run]; })) +
-        '</details>';
+        '<p class="status">A device is counted when it uses a service or checks for an update, and never twice: each sits at the version it last reported. One that only reads is never heard from, so these are floors.</p>';
+      // Versions: one row each, newest first, with every board as its own
+      // column. It was keyed (version, board), so a release shipped to two
+      // boards filled two rows and the reader had to add them up.
+      verEl.innerHTML =
+        tbl(["version", "devices"].concat(boards),
+          versions.map(function (r) {
+            return [r.version + (r.version === latest ? "  latest" : ""), r.devices]
+              .concat(boards.map(function (b) { return r.boards[b] || 0; }));
+          })) +
+        '<p class="status">' + (versions.length ? "Every device once, so these add up to " + total + ". " : "") +
+        'Ordered by number, not by text: 1.13.15 is newer than 1.13.9 and sorts above it.</p>';
+      // Every device: what it runs, what it has used, and both histories.
+      // The summary carries the services so the answer to "what does this one
+      // use" needs no click; a device is opened only to read its dates.
+      var per = FLEET.byDevice(n.deviceVersions || [], n.deviceServices || []);
+      fleetEl.innerHTML =
+        '<p class="status">' + every.length + (every.length === 1 ? " device" : " devices") +
+        ' heard from in the last 30 days, most recent first. Open one for its update history and the services it has used.</p>' +
+        '<div class="fleet">' + every.map(function (d) {
+          var id = String(d.device || "");
+          var mine = per[id] || { versions: [], services: [] };
+          var used = mine.services.map(function (s) { return s.service; });
+          // versions_run comes from the device row and counts every version
+          // the board has ever seen it on; the list below it is what is still
+          // inside the 90-day window. The bigger of the two is the honest
+          // answer to "how many has it run", and they differ for a device
+          // that has been around longer than the events have.
+          var ran = Math.max(mine.versions.length, Number(d.versions_run) || 0);
+          return '<details class="dev"><summary>' +
+            '<span class="id">' + esc(id.slice(0, 8)) + '</span> ' +
+            '<span class="meta">' + esc(d.board || "unknown") + ' &middot; ' + esc(d.version || "?") +
+            ' &middot; last seen ' + esc(when(d.last_seen)) + '</span>' +
+            '<span class="uses">' +
+            (used.length
+              ? "uses " + esc(used.join(", "))
+              : '<span class="none">no service use recorded</span>') +
+            ' &middot; ' + ran + (ran === 1 ? ' version run' : ' versions run') + '</span>' +
+            '</summary><div class="dev-body">' +
+            '<p class="nums-h">Update history, newest first</p>' +
+            tbl(["version", "first seen on it", "last seen on it"],
+              mine.versions.map(function (v) { return [v.version, when(v.first_at), when(v.last_at)]; })) +
+            '<p class="nums-h">Services it has used</p>' +
+            tbl(["service", "times", "first", "last", "errors"],
+              mine.services.map(function (s) { return [s.service, s.events, when(s.first_at), when(s.last_at), s.errors]; })) +
+            '</div></details>';
+        }).join("") + '</div>';
+      // Services: how many devices use each, and which have never posted.
+      var svc = FLEET.withSilentServices(n.serviceMetrics || []);
+      var live = n.live || null;
+      svcEl.innerHTML =
+        tbl(["service", "devices, 7 days", "devices, 30 days", "events, 7 days", "errors, 7 days", "last heard"],
+          svc.map(function (r) {
+            return r.silent
+              ? [r.service, "nothing yet", "nothing yet", 0, 0, "never"]
+              : [r.service, count(r.devices_7d), count(r.devices_30d), count(r.events_7d), count(r.errors_7d), when(r.last_at)];
+          })) +
+        '<p class="status">"Nothing yet" means the service has never posted an event, which is not the same as nobody using it. Only services with a server can appear at all: a game, the reader and everything else that runs entirely on the device is invisible here by construction.</p>' +
+        (live ? liveBlock(live) : "");
       // In the field: is the firmware hurting anyone.
       fieldEl.innerHTML =
         tiles([
@@ -495,6 +623,30 @@
           [count(field.updated), "updated fine"]
         ]) +
         block("Why they crashed, devices first", ["reason", "devices", "times", "last"], (n.crashes || []).map(function (c) { return [String(c.message || "").slice(0, 70), c.devices, c.times, when(c.last)]; }), true);
+      // What the page cannot see. Written as content rather than a footnote:
+      // a number whose blind spots are in small grey type gets quoted without
+      // them. Each line is a specific thing that makes a figure above a floor
+      // or a split, not a general disclaimer.
+      // The limit comes from the answer, never from a copy kept here: the
+      // board's own row cap is what truncates, and a threshold guessed in this
+      // file could sit above it forever and never fire.
+      var cap = Number(n.rowLimit) || 0;
+      var capped = [];
+      if (cap && (n.deviceVersions || []).length >= cap) capped.push("update histories");
+      if (cap && (n.deviceServices || []).length >= cap) capped.push("service lists");
+      var silent = FLEET.withSilentServices(n.serviceMetrics || []).filter(function (r) { return r.silent; })
+        .map(function (r) { return r.service; });
+      gapsEl.innerHTML = '<div class="gaps"><ul>' + [
+        "<b>A reader that only reads is never counted.</b> A device appears here when it talks to one of CrossPlay's own services or checks for an update. Somebody who reads books and plays games and never does either is invisible, so every device figure on this page is a floor and none of them is a total.",
+        "<b>Only services with a server can be attributed.</b> Which games a device plays, which books it opens and how long it reads are never sent anywhere, by design. \"Services it has used\" means the ones it made a request to.",
+        "<b>One reader can become two ids.</b> The id is the device's MAC hashed with a secret kept in NVS, so an over-the-air update keeps it and an update history is safe across a normal upgrade. Three things break it: erasing the whole flash by hand (<code>esptool erase-flash</code>) makes a new secret; any flash that wipes the NVS partition does the same, though the site's Install button deliberately writes around it; and a device whose NVS will not open falls back to a fixed salt, which is a second stable id for the same reader that flips back when NVS recovers. Nothing here can tell such a pair apart, so it reads as one device leaving and another arriving, and that device's history is split with no marker. The device counts therefore read HIGH and the longest update histories read SHORT.",
+        "<b>A device can turn reporting off.</b> Settings &gt; System stops the headers; it then uses services without appearing here.",
+        silent.length
+          ? "<b>" + esc(silent.join(", ")) + "</b> " + (silent.length === 1 ? "has" : "have") + " never posted an event. That is a gap in this page, not a fact about usage."
+          : "<b>Every known service has posted at least once.</b>",
+        "<b>Nothing here is older than 90 days.</b> Raw events are folded into daily totals and deleted after that, so a device quiet for longer drops out of the histories above."
+      ].concat(capped.length ? ["<b>The " + esc(capped.join(" and ")) + " hit the row cap</b> and some devices' detail is missing. The device list itself is complete."] : [])
+        .map(function (s) { return "<li>" + s + "</li>"; }).join("") + "</ul></div>";
       // The workshop.
       var L = n.latency || null;
       var h = '<div class="num-cols">';

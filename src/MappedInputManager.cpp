@@ -4,18 +4,23 @@
 #include <FreeInkUICore.h>
 #include <GfxRenderer.h>
 #include <HalFrontlight.h>
+#include <HalHaptics.h>
 #include <Logging.h>
 
 #include <algorithm>
 #include <cstdlib>
 
 #include "CrossPointSettings.h"
+#include "components/HeaderBackTapTarget.h"
 #include "components/UITheme.h"
 
 namespace fui = freeink::ui;
 
 void MappedInputManager::update(const bool deferHomeButtonAction) const {
   gpio.update();
+  const bool pagePressed =
+      SETTINGS.vibration == CrossPointSettings::VIBRATION_TOUCH_PAGE && gpio.wasCapacitivePagePressed();
+  HalHaptics::feedback(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, pagePressed, SETTINGS.hapticIntensity);
   homeAction = HomeButtonAction::Ignore;
   if (gpio.hasHomeKey()) {
     homeAction = homeButtonInput.update(millis(), gpio.wasHomeKeyTapped(), gpio.wasHomeKeyLongPressed(),
@@ -23,6 +28,11 @@ void MappedInputManager::update(const bool deferHomeButtonAction) const {
                                         static_cast<HomeButtonAction>(SETTINGS.homeButtonTapAction),
                                         static_cast<HomeButtonAction>(SETTINGS.homeButtonDoubleTapAction),
                                         static_cast<HomeButtonAction>(SETTINGS.homeButtonLongPressAction));
+    if (gpio.wasHomeKeyLongPressed() && homeAction != HomeButtonAction::Ignore) {
+      HalHaptics::longPress(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, SETTINGS.hapticIntensity);
+    } else if (homeAction != HomeButtonAction::Ignore) {
+      HalHaptics::feedback(SETTINGS.vibration != CrossPointSettings::VIBRATION_OFF, true, SETTINGS.hapticIntensity);
+    }
   }
   if (deferHomeButtonAction) {
     // Keep the first action observed during a synchronous transfer. Home must
@@ -126,6 +136,9 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
           return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, fn);
         case CrossPointSettings::NEXT_PREV:
           return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, fn);
+        case CrossPointSettings::PREV_PREV:
+          return readButton(HalGPIO::BTN_UP, fn) || readButton(HalGPIO::BTN_DOWN, fn);
+        case CrossPointSettings::NEXT_NEXT:
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:
           return false;
@@ -137,6 +150,9 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
           return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_UP : HalGPIO::BTN_DOWN, fn);
         case CrossPointSettings::NEXT_PREV:
           return readButton(isNavDirectionSwapped() ? HalGPIO::BTN_DOWN : HalGPIO::BTN_UP, fn);
+        case CrossPointSettings::NEXT_NEXT:
+          return readButton(HalGPIO::BTN_UP, fn) || readButton(HalGPIO::BTN_DOWN, fn);
+        case CrossPointSettings::PREV_PREV:
         case CrossPointSettings::SIDE_BUTTONS_DISABLED:
         default:
           return false;
@@ -177,8 +193,24 @@ bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;
   if (!gpio.wasTouchTap(nx, ny)) return false;
-  renderer.tapToLogical(nx, ny, x, y);
+  int tapX = 0;
+  int tapY = 0;
+  renderer.tapToLogical(nx, ny, tapX, tapY);
+  // A tap on the header back button is Button::Back (wasBackGesture), not a
+  // screen tap: screens that route every tap (the keyboard's key router)
+  // would otherwise swallow it before their Back check.
+  if (HeaderBackTapTarget::contains(tapX, tapY)) return false;
+  x = tapX;
+  y = tapY;
   rememberTouchHeldTime();
+  return true;
+}
+
+bool MappedInputManager::wasScreenTouchPressed(int& x, int& y) const {
+  float nx = 0.0f;
+  float ny = 0.0f;
+  if (!gpio.wasTouchDown(nx, ny)) return false;
+  renderer.tapToLogical(nx, ny, x, y);
   return true;
 }
 
@@ -310,6 +342,20 @@ bool MappedInputManager::wasEdgeSwipe(const freeink::ui::ScreenEdge edge) const 
 }
 
 bool MappedInputManager::wasBackGesture() const {
+  // Tap on the header back button (rect recorded by BaseTheme::drawHeader;
+  // empty on screens without one). Folded into Button::Back alongside the
+  // swipe so every activity's existing Back handling picks it up.
+  float nx = 0.0f;
+  float ny = 0.0f;
+  if (gpio.wasTouchTap(nx, ny)) {
+    int tapX = 0;
+    int tapY = 0;
+    renderer.tapToLogical(nx, ny, tapX, tapY);
+    if (HeaderBackTapTarget::contains(tapX, tapY)) {
+      rememberTouchHeldTime();
+      return true;
+    }
+  }
   // Back = left-to-right swipe starting near the left edge. Edge-anchored so that
   // mid-screen horizontal swipes stay available to activities that consume
   // SwipeDir::Left/Right (e.g. percent selection, image viewer).
@@ -368,6 +414,9 @@ bool MappedInputManager::wasLongPressed(const Button button, const unsigned long
   if ((longPressFiredButtons & bit) != 0 || getHeldTime() < thresholdMs) return false;
   longPressFiredButtons |= bit;
   suppressNextRelease(button);
+  if (mapButton(button, &HalGPIO::isCapacitivePagePressed)) {
+    HalHaptics::longPress(SETTINGS.vibration == CrossPointSettings::VIBRATION_TOUCH_PAGE, SETTINGS.hapticIntensity);
+  }
   return true;
 }
 
@@ -418,10 +467,6 @@ void MappedInputManager::swallowNextReleaseOfHeldButtons() const {
   LOG_DBG("INPUT", "Activity changed with buttons 0x%02x down; their next release is not the new screen's",
           static_cast<unsigned>(heldMask));
 }
-
-bool MappedInputManager::wasAnyPressed() const { return gpio.wasAnyPressed(); }
-
-bool MappedInputManager::wasAnyReleased() const { return gpio.wasAnyReleased(); }
 
 unsigned long MappedInputManager::getHeldTime() const {
   // A mapped action has its own meaning, independent of the contact duration.

@@ -2,12 +2,13 @@
 
 // Go: the rules. Freestanding -- no renderer, no Activity, no storage, no heap.
 //
-// **Two board sizes, nine and thirteen, chosen per game.** Nineteen lines on a
-// 480px panel gives a 24px grid pitch, which is below the fingertip this device
-// is driven with, so it is not offered. Nine gives 49px and a game that
-// finishes in twenty minutes on a train; thirteen gives 33px, which is playable
-// because a stone goes down in two taps rather than one and the first tap can
-// be moved (see GoFlow.h).
+// **Three board sizes, nine, thirteen and nineteen, chosen per game.** Nine
+// gives a 49px grid pitch and a game that finishes in twenty minutes on a
+// train; thirteen gives 33px; nineteen gives 23px, which is below the fingertip
+// this device is driven with. Both larger boards are playable because a stone
+// goes down in two taps rather than one and the first tap can be moved (see
+// GoFlow.h). Nineteen is offered because it is the board real Go is played on
+// (GitHub #282); it is a setting, never the default.
 //
 // The size is a FIELD of the game rather than a compile-time constant. It was a
 // constant, and every rule in this file read it from the same place the screens
@@ -27,10 +28,11 @@
 // rules here stop at "two passes ends it"; who is dead is a separate agreement.
 //
 // This struct IS the wire format and IS the save format: trivially copyable,
-// comfortably inside the link layer's 192-byte packet, so two devices share one
-// description of a game and cannot drift. A thirteen by thirteen position does
-// not fit at one byte a point, which is why the board is held two bits a point
-// and reached through `at()` and `put()` rather than indexed directly.
+// inside the link layer's 192-byte packet, so two devices share one description
+// of a game and cannot drift. A nineteen by nineteen position does not fit at
+// one byte a point, which is why the board is held two bits a point and reached
+// through `at()` and `put()` rather than indexed directly. At nineteen it is a
+// tight fit, not a comfortable one.
 //
 // The exact size is deliberately NOT written here. It was, as 140, and adding
 // one byte for `accepted` made every copy of that number wrong at once -- in
@@ -41,11 +43,21 @@
 
 namespace go {
 
-// The sizes a game can be played at. Nine is the default; thirteen is a
-// setting. Every array here is sized for thirteen.
+// The sizes a game can be played at. Nine is the default; thirteen and
+// nineteen are settings. Every array here is sized for nineteen.
 constexpr int kSmallSize = 9;
 constexpr int kLargeSize = 13;
-constexpr int kMaxSize = kLargeSize;
+constexpr int kFullSize = 19;
+constexpr int kMaxSize = kFullSize;
+
+// Whether `size` is one of the three boards. The one place that list is
+// written: the save reader, reset() and the settings row all ask this.
+constexpr bool isBoardSize(const int size) { return size == kSmallSize || size == kLargeSize || size == kFullSize; }
+
+// The line the corner star points sit on, counted from the edge from zero: the
+// 3-3 points on nine, the 4-4s on thirteen and nineteen. The handicap stones
+// and the drawn stars both read it, so a stone can never land off a star.
+constexpr int starLine(const int size) { return size == kSmallSize ? 2 : 3; }
 constexpr int kMaxPoints = kMaxSize * kMaxSize;
 
 // Bytes in a one-bit-a-point mask (Game::dead, the group masks).
@@ -59,6 +71,12 @@ constexpr uint8_t kEmpty = 0;
 constexpr uint8_t kBlack = 1;
 constexpr uint8_t kWhite = 2;
 
+// A point index, or one of the two values below. Two bytes, because nineteen by
+// nineteen has 361 points and a byte holds 256: every stored point (the ko, the
+// last move, a flood fill's stack, a neighbour list) is a Point and never a
+// uint8_t, which would silently wrap past the 256th point.
+using Point = uint16_t;
+
 // A move is a point index, or one of these. `kPass` is a real move -- it ends
 // the game when doubled and it is the only legal move in a filled position --
 // so it lives in the same space as the points rather than in a flag beside
@@ -67,8 +85,8 @@ constexpr uint8_t kWhite = 2;
 // Both sit above the largest board rather than just above the current one: a
 // value that means "pass" on nine and "the last point" on thirteen is a save
 // file that changes meaning when a setting is toggled.
-constexpr uint8_t kPass = 254;
-constexpr uint8_t kNoPoint = 255;
+constexpr Point kPass = 0xFFFE;
+constexpr Point kNoPoint = 0xFFFF;
 
 // Komi, in half points, always to White. 7.5 is what CGOS and every 9x9 engine
 // tournament play, and the half point is not decoration: at a flat 7.0 a 44/37
@@ -102,7 +120,7 @@ constexpr bool settlesEveryGame(const int16_t komiHalves) { return (komiHalves %
 // (which is the correct behaviour, see GoEngine.h) will happily play into one.
 // A self-play game ran past four hundred moves during testing.
 //
-// Five times the board: 405 on nine, 845 on thirteen. A real game is forty to a
+// Five times the board: 405 on nine, 845 on thirteen, 1805 on nineteen. A real game is forty to a
 // hundred and fifty moves and a human cannot reach this by playing; it exists
 // so that a game on a device with a sleep timer cannot fail to end. Checkers
 // carries the same kind of rule for the same reason.
@@ -139,7 +157,7 @@ constexpr bool onBoard(const int size, const int row, const int col) {
 // edge of the board is expressed. Callers that open-code `point - size` wrap
 // round the board and produce a game that is subtly not Go; there is exactly
 // one such loop here and it is this.
-int neighbours(int size, int point, uint8_t out[4]);
+int neighbours(int size, int point, Point out[4]);
 
 // What a game is. This is the wire format and the save payload.
 //
@@ -158,10 +176,11 @@ struct Game {
   int16_t komiHalves;
 
   uint16_t moveNumber;
+  Point ko;        // the point simple ko forbids, or kNoPoint
+  Point lastMove;  // the move just played, for the marker on the board
 
   // The position, two bits a point, row major. Reached through at()/put():
-  // eighty-one bytes was the old shape and a hundred and sixty-nine does not
-  // fit in a packet beside everything else here.
+  // a byte a point would be 361 at nineteen, and the whole packet is 192.
   uint8_t cell[kCellBytes];
 
   // Stones the players have agreed are dead, as a bit a point. Meaningless
@@ -169,7 +188,7 @@ struct Game {
   // than a computation.
   uint8_t dead[kMaskBytes];
 
-  // Nine or thirteen. Fixed when the game is reset and never changed under a
+  // Nine, thirteen or nineteen. Fixed when the game is reset and never changed under a
   // game in progress: the setting takes effect on the next new game.
   uint8_t size;
 
@@ -177,9 +196,7 @@ struct Game {
   // How many stones Black was given before the first move. Zero is an even
   // game. Kept so the board can say so and the result can be read honestly.
   uint8_t handicap;
-  uint8_t ko;        // the point simple ko forbids, or kNoPoint
-  uint8_t passes;    // consecutive passes; two ends the game
-  uint8_t lastMove;  // the move just played, for the marker on the board
+  uint8_t passes;  // consecutive passes; two ends the game
   uint8_t recentCount;
   uint8_t stage;  // go::Stage, held as a byte so the struct stays trivially copyable
 
@@ -242,9 +259,8 @@ enum class Outcome : uint8_t { Running, BlackWins, WhiteWins };
 void reset(Game& game, int size = kSmallSize, int handicap = 0, int16_t komiHalves = kDefaultKomiHalves);
 
 // Where the handicap stones go, in the order they are added. The corner star
-// points and the centre, which is where every handicap on these two boards is
-// set.
-int handicapPoints(int size, int handicap, uint8_t out[kMaxHandicap]);
+// points and the centre, which is where every handicap on these boards is set.
+int handicapPoints(int size, int handicap, Point out[kMaxHandicap]);
 
 // Whether `colour` may play at `point` right now. Points are 0..points()-1;
 // `kPass` is always legal and answers true.

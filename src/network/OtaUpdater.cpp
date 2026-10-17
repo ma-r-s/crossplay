@@ -6,9 +6,9 @@
 // the local header last and break the build.
 #include "HttpDownloader.h"
 #include <Logging.h>
+#include <Memory.h>
 #include <ReleaseJsonParser.h>
 #include <esp_ota_ops.h>
-#include <esp_wifi.h>
 // clang-format on
 
 #include <algorithm>
@@ -59,7 +59,13 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   std::string firmwareUrl;
   size_t firmwareSize = 0;
   for (const char* source : release_sources::kUrls) {
-    ReleaseJsonParser parser;
+    // Heap-allocated: the parser embeds a 2 KB JSON token buffer.
+    auto parserPtr = makeUniqueNoThrow<ReleaseJsonParser>();
+    if (!parserPtr) {
+      LOG_ERR("OTA", "OOM: release parser");
+      return OOM_ERROR;
+    }
+    ReleaseJsonParser& parser = *parserPtr;
     parser.setFirmwareAssetName(CROSSPOINT_RELEASE_ASSET);
     const bool ok = HttpDownloader::fetchUrl(source, [&parser](const uint8_t* data, size_t len) {
       parser.feed(reinterpret_cast<const char*>(data), len);
@@ -200,9 +206,6 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return INTERNAL_UPDATE_ERROR;
   }
 
-  /* For better timing and connectivity, we disable power saving for WiFi */
-  esp_wifi_set_ps(WIFI_PS_NONE);
-
   processedSize = 0;
   int lastReportedPct = -1;
   bool flashOk = true;
@@ -257,9 +260,6 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     }
     return true;
   });
-
-  /* Return back to default power saving for WiFi in case of failing */
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
   if (wrongChip || tagScanner.mismatch()) {
     LOG_ERR("OTA", "Firmware install aborted: wrong device");

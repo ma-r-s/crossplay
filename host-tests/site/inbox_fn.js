@@ -94,11 +94,10 @@ global.fetch = async function (url, opts) {
       ]),
       { status: 200 },
     );
-  if (u.includes("/rest/v1/triage_backlog"))
-    return new Response(
-      JSON.stringify([{ waiting: 2, claimed: 0, for_mario: 1, oldest_h: 30, last_triaged_at: null, since_triage_h: null }]),
-      { status: 200 },
-    );
+  if (u.includes("/rest/v1/board_now"))
+    return new Response(JSON.stringify([{ from_people: 35, in_progress: 13, alarms: 18, notices: 4 }]), { status: 200 });
+  if (u.includes("/rest/v1/notices_recurring"))
+    return new Response(JSON.stringify([{ id: 7, app: "shelf", what: "one pixel into the bezel", seen: 3 }]), { status: 200 });
   if (u.includes("/rest/v1/blockers") && opts.method === "PATCH")
     return new Response(null, { status: 204 });
   if (u.includes("/rest/v1/history"))
@@ -324,6 +323,10 @@ const expect = (label, got, want) =>
     "state_dwell",
     "inbox_latency",
     "open_cards_by_app",
+    "device_versions",
+    "device_services",
+    "service_metrics",
+    "live_fridges",
   ].forEach(function (v) {
     expect(
       "and reads " + v,
@@ -347,11 +350,13 @@ const expect = (label, got, want) =>
   calls = [];
   r = await call({ pass: "open sesame", op: "list" });
   expect(
-    "the list reads the triage backlog",
-    calls.some(function (c) { return c.url.includes("/rest/v1/triage_backlog"); }),
+    "the list reads the board in one row",
+    calls.some(function (c) { return c.url.includes("/rest/v1/board_now"); }),
     true,
   );
-  expect("and carries it", r.json && r.json.triage && r.json.triage.waiting, 2);
+  expect("and carries it", r.json && r.json.now && r.json.now.from_people, 35);
+  expect("and what sessions keep noticing", r.json && r.json.recurring && r.json.recurring[0].seen, 3);
+  expect("and no longer a triage backlog", r.json && r.json.triage, undefined);
 
   console.log(`${pass + fail} checks, ${fail} failed`);
   process.exit(fail ? 1 : 0);

@@ -91,6 +91,50 @@ expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WO
 expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
 expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
 
+# Publishing by hand.
+#
+# scripts_local/ship.sh is the only path from a green gate to a release since
+# the GitHub builds were removed, and it is the only one that bumps the
+# version BEFORE the build. platformio.ini compiles the version into both
+# release envs and OtaUpdater compares a release's tag against that compiled
+# string, so a hand-cut tag over older images leaves every device offering an
+# update it already installed -- silently, and on every device at once.
+#
+# Read-only gh release verbs stay allowed: refusing `gh release list` would
+# make the guard something to work around rather than something to obey.
+echo "releases are cut by ship.sh"
+expect "gh release create refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3 dist/*\"}}"
+expect "gh release create after a cd refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && gh release create v1.2.3\"}}"
+expect "gh release upload refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release upload v1.2.3 firmware.bin\"}}"
+expect "a version tag refused"                  2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag v1.13.12\"}}"
+expect "an annotated version tag refused"       2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -a v1.13.12 -m release\"}}"
+expect "pushing a version tag refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin v1.13.12\"}}"
+expect "ship.sh allowed"                        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/ship.sh\"}}"
+expect "gh release list allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release list --repo ma-r-s/crossplay\"}}"
+expect "gh release view allowed"                0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release view v1.13.11\"}}"
+expect "listing tags allowed"                   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --list 'v1.13.*'\"}}"
+expect "pushing a work branch allowed"          0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin app/shipfast\"}}"
+expect "a non-version tag allowed"              0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag baseline-before-sync\"}}"
+
+# The bypasses a cold review found on the first version, all of which worked:
+# the anchor was not re.MULTILINE so any multi-line command walked through,
+# and the ship.sh escape was a SUBSTRING test, so a trailing `# ship.sh`
+# disabled the guard -- one copy-paste from the refusal text, which tells you
+# to run ./scripts_local/ship.sh.
+expect "a newline is a command separator too" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x\\ngh release create v1.2.3\"}}"
+expect "mentioning ship.sh is not running it" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release create v1.2.3  # ship.sh says no\"}}"
+expect "a quoted version tag refused"         2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag \\\"v1.2.3\\\"\"}}"
+expect "pushing refs/tags/v refused"          2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin refs/tags/v1.2.3\"}}"
+expect "git push --tags refused"              2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin --tags\"}}"
+
+# UNDOING a bad publish must stay possible. A guard that blocks recovery is a
+# guard people disable, and the moment you need these is right after
+# something went wrong.
+expect "deleting a bad release allowed"       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"gh release delete v1.2.3\"}}"
+expect "deleting a bad tag allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag -d v1.2.3\"}}"
+expect "deleting a remote tag allowed"        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git push origin :v1.2.3\"}}"
+expect "git tag --contains allowed"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git tag --contains HEAD\"}}"
+
 echo "quotes are stripped before the command is split"
 bashjson() { python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' "$WORKER" "$1"; }
 expect "a pipe inside quotes does not cut the quotes"     0 pretool "$(bashjson "cd $ROOT/firmware-next && echo \"in: \$(git tag --contains abc | tr '\\n' ' ')\"")"
@@ -469,6 +513,17 @@ if [ -z "$added" ]; then
 else
   ok "the rebuild stages: $(printf '%s' "$added" | tr '\n' ' ')"
   ignored="$(sed -n '/paths-ignore:/,/^  [a-z_]*:/p' "$CI" | grep -oE "'[^']+'" | tr -d "'")"
+  # Since 2026-09-21 crossplay-ci.yml is a nightly audit with no push trigger,
+  # so the rebuild's commit starts nothing and there is nothing to ignore. The
+  # pairing below is kept and re-arms by itself if a push trigger returns:
+  # host-tests/ci asserts that it does not, and this is the second half of the
+  # same invariant seen from the emulator's side.
+  ci_triggers="$(sed -n '/^on:/,/^[a-z]/p' "$CI")"
+  case "$ci_triggers" in
+    *"  push:"*) ;;
+    *) ok "crossplay-ci.yml has no push trigger, so the rebuild's commit starts no run to ignore"
+       added="" ;;
+  esac
   for path in $added; do
     match=no
     for pat in $ignored; do
@@ -670,7 +725,7 @@ board show "$NOSTAMP" | grep -q "reported by unknown" \
   && ok "a card filed without --reporter is unknown, never session" \
   || bad "an unstamped card did not read unknown: $(board show "$NOSTAMP" | head -2)"
 MINE=$(board new "Yahtzee: the dice sit under the header rule" --from yahtzee --kind bug --reporter mario | sed 's/^#\([0-9]*\).*/\1/')
-OURS=$(board new "Yahtzee: contentTop derives from the constant, not the chrome" --from yahtzee --kind bug --reporter session --anyway | sed 's/^#\([0-9]*\).*/\1/')
+OURS=$(board new "Yahtzee: contentTop derives from the constant, not the chrome" --from yahtzee --kind bug --reporter session --session reporter-suite --anyway | sed 's/^#\([0-9]*\).*/\1/')
 THEIRS=$(board new "Study: pairing says the bridge is invitation-only" --from study --kind bug --reporter user | sed 's/^#\([0-9]*\).*/\1/')
 board show "$MINE" | grep -q "reported by mario" && ok "--reporter mario is recorded" || bad "--reporter mario was not stored"
 board show "$THEIRS" | grep -q "reported by user" && ok "--reporter user is recorded" || bad "--reporter user was not stored"
@@ -948,6 +1003,35 @@ print(m.MARIO_SAID)")
 [ -n "$JS_SAID" ] && [ "$JS_SAID" = "$PY_SAID" ] \
   && ok "the CLI and the page file his note under the same prefix" \
   || bad "his note is prefixed '$PY_SAID' by the CLI and '$JS_SAID' by the page"
+
+echo "what a session notices is a notice, not a card"
+# 2026-09-20: 547 cards in 17 days, 145 of the 203 open ones filed by sessions
+# "for later", which on a board where nothing is worked without Mario's word
+# means for never. A session's observation is now one line that expires; a
+# card a session files for itself is work that starts in the same call.
+CARDS_BEFORE="$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')"
+if board new "The shelf draws one pixel into the bezel on the last row" --from shelf --kind bug --reporter session >"$WORK/n.out" 2>&1; then bad "a session's unbound observation was filed as a card"; else grep -q "board noticed" "$WORK/n.out" && ok "a session's unbound card is refused, and the refusal names board noticed" || bad "wrong refusal: $(cat "$WORK/n.out")"; fi
+[ "$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')" = "$CARDS_BEFORE" ] && ok "and nothing was filed" || bad "the refused card exists"
+board noticed "The shelf draws one pixel into the bezel on the last row" --from shelf --session note-a | grep -q "^noticed (n" && ok "board noticed takes the line" || bad "board noticed refused a line"
+[ "$(ls "$ROOT/.board/cards" | wc -l | tr -d ' ')" = "$CARDS_BEFORE" ] && ok "without making a card" || bad "a notice made a card"
+board noticed "Last row of the shelf draws a pixel into the bezel" --from shelf --session note-b | grep -q "noticed again, 2 times" && ok "the same thing in other words counts up instead of adding a line" || bad "a rewording was a second notice"
+board noticed "shelf: the last row draws one pixel into the bezel" --from shelf --session note-c | grep -q "3 times now.*shown to Mario" && ok "seen three times, it is shown to Mario" || bad "the third sighting did not surface"
+board notices | grep -q "x3 .*shelf" && ok "board notices lists it, most seen first" || bad "board notices: $(board notices)"
+board new "Yahtzee scores a full house of five sixes as zero" --from yahtzee --kind bug --reporter mario >/dev/null
+board noticed "Yahtzee: a full house of five sixes scores zero" --from yahtzee | grep -q "already a card" && ok "what is already a card is not noticed a second time" || bad "a notice duplicated an open card"
+NID="$(board notices | head -1 | sed 's/^n\([0-9]*\).*/\1/')"
+board promote "n$NID" --reporter mario | grep -q "^#" && ok "a person asking for it turns the notice into a card" || bad "promote failed"
+board notices | grep -q "bezel" && bad "a promoted notice is still listed" || ok "and the notice is gone from the list"
+OUT="$(board new "Fix the gate's stale sweep now" --from tooling --kind bug --reporter session --session note-d)"
+NEWID="$(printf '%s' "$OUT" | sed 's/^#\([0-9]*\).*/\1/')"
+board show "$NEWID" | grep -q "working" && board show "$NEWID" | grep -q "note-d" && ok "a card a session files WITH its id is its own work, bound and working at once" || bad "new --session did not bind: $(board show "$NEWID" | head -3)"
+python3 - "$ROOT/.board/notices.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+rows.append({"id": 999, "app": "x", "what": "an old line nobody saw again since then", "seen": 1, "sessions": [], "last_seen": "2020-01-01T00:00:00+00:00", "expires_at": "2020-01-15T00:00:00+00:00"})
+json.dump(rows, open(sys.argv[1], "w"))
+PY
+board notices | grep -q "old line nobody" && bad "an expired notice is still listed" || ok "a notice past its date is not listed: expiry needs nobody"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -3,7 +3,7 @@
 // Device reporting: the device never makes a request of its own to report.
 //
 // When the firmware talks to one of CrossPlay's own services for some other
-// reason (a Get Books catalog page, an Anki sync, an Instapaper sync), that
+// reason (an Anki sync, an Instapaper sync, a pack download), that
 // request carries three headers: a hashed device id, the board, and a small
 // JSON report (battery, lowest free heap, uptime, and, only while pending, the
 // panic the device just recovered from and the install it attempted). The

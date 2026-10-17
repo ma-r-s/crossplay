@@ -4,6 +4,7 @@
 #include <HalClock.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 #include <esp_mac.h>
 
@@ -18,6 +19,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/PluginEvents.h"
 
 namespace fui = freeink::ui;
 
@@ -580,12 +582,21 @@ void WifiSelectionActivity::checkConnectionStatus() {
       }
     }
 
+    // Every station join is a chance to snap the loan-clock floor to real
+    // time (non-blocking; see TrustedTime).
+    trustedtime::startSync();
+
     // Save this as the last connected network - SD card operations need lock as
     // we use SPI for both
     {
       RenderLock lock(*this);
       WIFI_STORE.setLastConnectedSsid(selectedSSID);
     }
+
+    // Every station join is a window where plugin senders are deliverable, so
+    // drain the plugin outboxes here (web server up and sleep entry are the
+    // other such moments). Cheap no-op when nothing is queued.
+    pluginevents::drain(&renderer);
 
     // If we entered a new password, ask if user wants to save it
     // Otherwise, immediately complete so parent can start web server
@@ -901,7 +912,10 @@ void WifiSelectionActivity::render(RenderLock&&) {
   // so 32 truncated it. See ClockSyncActivity for the same class of bug.
   char countStr[64];
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
-  GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
+  // fork-local seam: the header and the sub-band below it span the panel, as
+  // every other screen's do; clipped to the bezel's safe area their rules
+  // stopped 3px short of both edges.
+  GUI.drawHeader(renderer, Rect{0, screen.y + metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
                  tr(STR_WIFI_NETWORKS), countStr);
   // Why the remembered network failed, on the screen the user is actually
   // handed. Auto-connect returns to the list rather than to CONNECTION_FAILED,
@@ -912,7 +926,7 @@ void WifiSelectionActivity::render(RenderLock&&) {
   const bool showingAutoConnectError = state == WifiSelectionState::NETWORK_LIST && !autoConnectError.empty();
   GUI.drawSubHeader(
       renderer,
-      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+      Rect{0, screen.y + metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(), metrics.tabBarHeight},
       showingAutoConnectError ? autoConnectError.c_str() : cachedMacAddress.c_str(),
       showingAutoConnectError ? cachedMacAddress.c_str() : nullptr);
 

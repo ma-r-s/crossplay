@@ -31,7 +31,7 @@ struct Settings {
   uint16_t simulations;
   // The wall clock it may spend, whatever the count says. Whichever binds
   // first wins: the count keeps the tests deterministic (they lend no clock at
-  // all), the clock keeps the device under five seconds on both boards. The
+  // all), the clock keeps the device under five seconds on every board. The
   // clock is read inside the search's own loop, so this is a real bound rather
   // than an estimate, and it costs at most one simulation of overshoot; see
   // MichiBridge.c.

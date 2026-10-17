@@ -15,6 +15,13 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 TOOL = os.path.dirname(HERE)
 sys.path.insert(0, TOOL)
+# Pin "drawable" to the reader serif these expectations were written against
+# (see tests/fixtures/notoserif_14_regular.2026-09.intervals.h): the rules are
+# under test here, not whichever glyphs upstream's font gained this week.
+os.environ.setdefault(
+    "CROSSPLAY_WIKI_FONT_HEADER",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "notoserif_14_regular.2026-09.intervals.h"),
+)
 
 import pack_format as pf  # noqa: E402
 from article_html import article_xhtml  # noqa: E402

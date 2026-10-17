@@ -26,19 +26,3 @@ inline freeink::ui::StyleSet uiButtonStyles() {
   }
   return button;
 }
-
-// A header's action icons are chrome, not buttons.
-//
-// Screen::header() hands the LEADING action `theme_.button` when the caller
-// leaves leadingStyles unset, and plainStyles() to the trailing one. Those are
-// the same thing on screen -- an icon sitting on the band -- so an outlined
-// tokens.button boxes one end and not the other, and plainStyles() carries no
-// fill in ANY state, so the other end acknowledges a tap with nothing at all.
-// Both ends take defaultButtonStyles() here: no box, and the same tap flash.
-//
-// Call it on every HeaderProps before handing it to Screen::header(). Ends
-// with no icon are unaffected -- header() only styles an action it draws.
-inline void applyHeaderActionChrome(freeink::ui::HeaderProps& header) {
-  header.leadingStyles = freeink::ui::defaultButtonStyles();
-  header.trailingStyles = freeink::ui::defaultButtonStyles();
-}

@@ -185,8 +185,11 @@ EXEMPT = {
     # a C3 image. That note is asserted below.
     "docs/crosspoint-readme.md",
 }
+# `.agents` is upstream's agent rulebook (#3890), written for upstream's C3
+# default and linked from nowhere in this fork's AGENTS.md; a raw build is
+# refused by the guard hook here whatever it says.
 SKIP_DIRS = {".git", ".pio", "freeink-sdk", "node_modules", "fs_agent",
-             "fs_mario", "qa-artifacts", "emulator", ".cache", "archive"}
+             "fs_mario", "qa-artifacts", "emulator", ".cache", "archive", ".agents"}
 # Deliberately NOT fence-aware. Fence tracking was a toggle that a nested or
 # `~~~` block desynced silently, and it made a four-space indented code block
 # invisible. The whole tree has exactly one env-less invocation outside a fence
@@ -257,20 +260,70 @@ for rel in ["README.md", "AGENTS.md"] + [
 # The branch is DISCOVERED, from the remote HEAD git already records, so this
 # check does not become the literal it is guarding.
 # ---------------------------------------------------------------------------
-# origin/HEAD first, but a --single-branch clone and actions/checkout both
-# leave that ref unset, so it cannot be the only source: keying on it alone
-# turned a fresh checkout red. crossplay-ci.yml's own `branches:` filter is the
-# fallback, in the repository, needing no network and no remote.
+# TWO SOURCES, and which one answered decides what can be cross-checked.
+#
+# origin/HEAD is the truthful one, but a --single-branch clone and
+# actions/checkout both leave that ref unset, so it cannot be the only source:
+# keying on it alone turned every clean checkout red. The offline fallback is a
+# `push:` branch filter out of the fork's OWN workflows.
+#
+# It used to name crossplay-ci.yml alone, which went schedule-only when the
+# per-merge builds were dropped -- taking its `branches:` line and this check's
+# only offline source with it. Nobody saw it for a day, because every local run
+# has origin/HEAD set and never reaches the fallback: green on the Mac, red on
+# every clean checkout, which is the one environment resembling a contributor's
+# clone. Plural now, so one workflow losing its trigger cannot repeat it.
+#
+# ONLY crossplay-*.yml. The inherited ci.yml says `branches: [master]`, a
+# branch this fork does not have, and a scan over every workflow would have
+# sent contributors there while staying green.
 _r = subprocess.run(["git", "-C", root, "symbolic-ref", "--short",
                      "refs/remotes/origin/HEAD"], capture_output=True, text=True)
-default_branch = _r.stdout.strip().split("/")[-1] if _r.returncode == 0 else ""
-if not default_branch:
-    _w = re.search(r"^\s*branches:\s*\[([A-Za-z0-9._/-]+)\]",
-                   read(".github/workflows/crossplay-ci.yml"), re.M)
-    default_branch = _w.group(1) if _w else ""
+origin_head = _r.stdout.strip().split("/")[-1] if _r.returncode == 0 else ""
+workflow_branches = {}
+for _fn in sorted(os.listdir(os.path.join(root, ".github/workflows"))):
+    if not _fn.startswith("crossplay-") or not _fn.endswith(".yml"):
+        continue
+    _on = re.search(r"^on:\n(.*?)^\S", read(f".github/workflows/{_fn}"),
+                    re.M | re.S)
+    _push = re.search(r"^  push:\n(.*?)(?=^  \S|\Z)", _on.group(1) if _on else "",
+                      re.M | re.S)
+    _b = re.search(r"^\s*branches:\s*\[([A-Za-z0-9._/-]+)\]",
+                   _push.group(1) if _push else "", re.M)
+    if _b:
+        workflow_branches[_fn] = _b.group(1)
+default_branch = origin_head or next(iter(workflow_branches.values()), "")
 check(bool(default_branch),
-      "neither origin/HEAD nor crossplay-ci.yml names a default branch, "
-      "so the branch a contributor is sent at is unchecked")
+      "no source names this repository's default branch: origin/HEAD is unset "
+      "and no crossplay-*.yml has a push branch filter, so the branch a "
+      "contributor is sent at is unchecked")
+
+# The fork's workflows must name one branch between them. Inert while only one
+# of them has a push filter, and said so rather than counted as a pass: a check
+# with nothing to compare is not evidence that things agree.
+if len(workflow_branches) >= 2:
+    check(len(set(workflow_branches.values())) <= 1,
+          "the fork's workflows disagree about the default branch",
+          ", ".join(f"{k} says {v}" for k, v in sorted(workflow_branches.items())))
+else:
+    print("SKIP docsclaims  only one crossplay-*.yml has a push branch filter, "
+          "so they were NOT cross-checked against each other")
+
+# And the two SOURCES must agree -- but only where both exist. Comparing the
+# fallback against a default it supplied itself is a tautology, and on a clean
+# checkout, where origin/HEAD is unset, that is exactly what it would be. This
+# is the same defect one level up from the one above, so it is reported as not
+# run rather than allowed to pass.
+if origin_head and workflow_branches:
+    for _fn, _b in sorted(workflow_branches.items()):
+        check(_b == default_branch,
+              f".github/workflows/{_fn} fires on a branch that is not the default",
+              f"says `{_b}`, origin/HEAD says `{default_branch}`")
+elif not origin_head:
+    print("SKIP docsclaims  origin/HEAD is unset, so the workflows' branch "
+          "filters were the only source and were NOT checked against the "
+          "remote's own default")
+
 if default_branch:
     BRANCH_INSTRUCTION = re.compile(
         r"^[-*\d.)\s]*(?:Branch from|Target)\s+`([A-Za-z0-9._/-]+)`", re.M | re.I)
@@ -326,33 +379,6 @@ for label, names in ROWS:
               f"{label}: says {m.group(1)}, {real} app directories read it")
 
 # ---------------------------------------------------------------------------
-# `.github/skills/crosspoint-reader.md` is a SYMLINK to AGENTS.md, and it has to
-# stay one.
-#
-# It reads as a 41KB byte-identical duplicate to anything that resolves it --
-# `md5` agrees, and a link checker walking the tree resolves AGENTS.md's
-# root-relative links from `.github/skills/` and reports about twenty dead
-# links, which is most of the dead links in the repository. Both are artefacts
-# of the symlink, not a second copy: the links are correct at AGENTS.md's own
-# path. Upstream added this link (a77419be) pointing at `.skills/SKILL.md`,
-# then deleted that file and left it dangling; f6d6482d re-pointed it here.
-#
-# The check exists because "de-duplicate this" is the obvious wrong fix, and
-# making it a real file is how the repository would grow a 41KB copy that
-# drifts.
-# ---------------------------------------------------------------------------
-skill_link = os.path.join(root, ".github/skills/crosspoint-reader.md")
-check(os.path.islink(skill_link),
-      ".github/skills/crosspoint-reader.md is no longer a symlink",
-      "it must point at AGENTS.md, never hold a copy of it")
-if os.path.islink(skill_link):
-    check(os.path.basename(os.readlink(skill_link)) == "AGENTS.md",
-          ".github/skills/crosspoint-reader.md points somewhere other than AGENTS.md",
-          os.readlink(skill_link))
-    check(os.path.exists(skill_link),
-          ".github/skills/crosspoint-reader.md dangles, which aborts any tree walk that opens it")
-
-# ---------------------------------------------------------------------------
 # docs/contributing/README.md is the index of its own directory. It went stale
 # by omission: landing-and-integration.md existed and nothing linked it.
 # ---------------------------------------------------------------------------
@@ -394,8 +420,16 @@ if ref is None:
               "docs/README.md's ownership claims were NOT verified "
               "(git fetch crosspoint develop)")
 else:
+    # Upstream as of our last sync, not its tip. "Verbatim" means we have not
+    # touched it since we took it; upstream editing it a week later does not
+    # make our copy edited. 2026-10-10: upstream rewrote touch-and-ui.md after
+    # the 1.14.0 sync and the tip lookup called our untouched copy "edited".
+    base_r = subprocess.run(["git", "-C", root, "merge-base", "HEAD", ref],
+                            capture_output=True, text=True)
+    base = base_r.stdout.strip() if base_r.returncode == 0 and base_r.stdout.strip() else ref
+
     def upstream_blob(path):
-        r = subprocess.run(["git", "-C", root, "rev-parse", f"{ref}:{path}"],
+        r = subprocess.run(["git", "-C", root, "rev-parse", f"{base}:{path}"],
                            capture_output=True, text=True)
         return r.stdout.strip() if r.returncode == 0 else None
 

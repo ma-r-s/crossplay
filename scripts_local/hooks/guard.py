@@ -65,6 +65,8 @@ def tree_names_in(seg):
         if not re.search(r"\s", q[1:-1]):
             names += TREE_NAME.findall(q)
     return names
+
+
 # Verbs that destroy or rewrite another actor's work in a tree; refused against
 # a tree the caller does not hold whatever the holder's liveness (a sweep once
 # committed another worker's in-progress diff with a reassuring message).
@@ -77,6 +79,44 @@ REDIRECT = re.compile(r"(?<![0-9&<])>{1,2}\s*(?!&)(\S+)")
 HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*(?=\n|$)", re.S)
 
 RAW_PIO = re.compile(r"(^|[;&|(]\s*|&&\s*)pio\s+run\b")
+
+# Publishing by hand, in the three spellings that reach users.
+#
+# Since the GitHub builds were removed, scripts_local/ship.sh is the only path
+# from a green gate to a release, and it is the only thing that gets the order
+# right: platformio.ini compiles the version into both release envs and
+# OtaUpdater.cpp:119 compares a release's tag against that compiled string, so
+# a tag pushed over images built before the bump leaves every device offering
+# an update it already installed. It is also the only thing that checks the
+# three magic numbers, and an unmerged image published as a full one bricks
+# the device that installs it.
+#
+# A tag push is included because crossplay-release.yml used to fire on `v*`
+# and the reflex outlived it: pushing the tag now publishes nothing and leaves
+# a version in the history with no release against it.
+#
+# This catches an agent typing the command. It does not catch ship.sh's own
+# calls, which is the point -- the hook sees the Bash tool's command, and
+# ship.sh runs these inside itself.
+MANUAL_RELEASE = re.compile(
+    r"(?:^|[;&|(\n]\s*|&&\s*)(?:"
+    r"gh\s+release\s+(?:create|upload)"
+    # CREATING a version tag. Reading and DELETING one are explicitly not
+    # refused: `git tag -d` and `--list` are how you inspect and how you undo,
+    # and the moment you need them most is right after a publish went wrong.
+    r"|git\s+tag\s+(?!-d\b|--delete\b|-l\b|--list\b|--contains\b|--points-at\b|--merged\b|-n)"
+    r"(?:-[a-zA-Z]+\s+|--[a-z-]+\s+)*['\"]?v[0-9]"
+    r"|git\s+push\s+\S+\s+(?:refs/tags/)?['\"]?v[0-9]"
+    r"|git\s+push\s+(?:\S+\s+)?--tags"
+    r")",
+    re.M,
+)
+
+# An actual invocation of ship.sh, not the string appearing anywhere in the
+# command. `gh release create v1 # ship.sh` disabled the guard above, and the
+# refusal text itself tells you to run ./scripts_local/ship.sh, so the bypass
+# was one copy-paste from the error message.
+SHIP_INVOCATION = re.compile(r"(?:^|[;&|(\n]\s*|&&\s*)(?:\S*/)?ship\.sh(?:\s|$)", re.M)
 
 # `tee out.txt`, `tee -a out.txt`: the other way output reaches a file.
 TEE_TARGET = re.compile(r"(?<![\w-])tee(?:\s+-[\w-]+)*\s+(\S+)")
@@ -218,7 +258,6 @@ def scratch_refusal(board, sid, cwd, path, sroot):
     )
 
 
-
 def find_root():
     env = os.environ.get("BOARD_ROOT")
     if env:
@@ -273,7 +312,10 @@ class Board:
     def claim_ids(claim):
         """Both ids a claim may carry: the hook-visible session id and the desktop
         app's local_... id. A session is addressed by either, so both count."""
-        return {norm_sid(claim.get("session_id")), norm_sid(claim.get("app_session"))} - {""}
+        return {
+            norm_sid(claim.get("session_id")),
+            norm_sid(claim.get("app_session")),
+        } - {""}
 
     def is_orchestrator(self, sid):
         return norm_sid(sid) in self.claim_ids(self.orchestrator())
@@ -301,7 +343,10 @@ class Board:
         except OSError:
             return None
         tag = hashlib.sha1(real.encode()).hexdigest()[:8]
-        lock = pathlib.Path(os.environ.get("TMPDIR") or "/tmp") / f"xteink-check-{tag}.running"
+        lock = (
+            pathlib.Path(os.environ.get("TMPDIR") or "/tmp")
+            / f"xteink-check-{tag}.running"
+        )
         try:
             pid = int((lock.read_text() or "0").split()[0])
         except (OSError, ValueError, IndexError):
@@ -313,7 +358,9 @@ class Board:
         except OSError:
             return None
         try:
-            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+            cmd = subprocess.run(
+                ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True
+            ).stdout
         except OSError:
             return None
         return pid if "check.sh" in cmd else None
@@ -378,7 +425,9 @@ class Board:
         """
         for seg in re.split(r"&&|\|\||;|\|", HEREDOC.sub(" ", cmd)):
             seg = seg.strip()
-            m = re.match(r"(?:\S*python3\s+\S*board\.py|board)\s+bind\s+(\d+)\b(.*)$", seg)
+            m = re.match(
+                r"(?:\S*python3\s+\S*board\.py|board)\s+bind\s+(\d+)\b(.*)$", seg
+            )
             if not m:
                 continue
             t = re.search(r"--tree(?:=|\s+)[\"']?([^\s\"']+)", m.group(2))
@@ -389,8 +438,15 @@ class Board:
             try:
                 d.mkdir(parents=True, exist_ok=True)
                 with open(d / f"{key}.json", "w") as f:
-                    json.dump({"session_id": norm_sid(data.get("session_id")), "agent_id": data.get("agent_id") or "main",
-                               "tool_use_id": data.get("tool_use_id"), "at": time.time()}, f)
+                    json.dump(
+                        {
+                            "session_id": norm_sid(data.get("session_id")),
+                            "agent_id": data.get("agent_id") or "main",
+                            "tool_use_id": data.get("tool_use_id"),
+                            "at": time.time(),
+                        },
+                        f,
+                    )
                 for old in d.glob("*.json"):
                     try:
                         if time.time() - old.stat().st_mtime > self.CLAIMANT_SECONDS:
@@ -469,9 +525,11 @@ class Board:
             elif live:
                 how = f"lease live for another {max(0, self.LEASE_MINUTES - age)} min; --take is refused until it expires"
             else:
-                how = (f"lease expired {age - self.LEASE_MINUTES} min ago; take it over on purpose: "
-                       f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree} --take "
-                       f"(refused while the tree has uncommitted work, unless that session has ended; look first: {board_cmd(self.root)} tree {name})")
+                how = (
+                    f"lease expired {age - self.LEASE_MINUTES} min ago; take it over on purpose: "
+                    f"{board_cmd(self.root)} bind <card> --session <your session id> --tree {tree} --take "
+                    f"(refused while the tree has uncommitted work, unless that session has ended; look first: {board_cmd(self.root)} tree {name})"
+                )
             return (
                 f"Refused: {tree} is held by {rec['actor']} for card #{rec.get('card')}; this command would write into it. "
                 f"Two actors in one tree verify nothing. {how}. A tree of your own: ./scripts/wt.sh new <name>"
@@ -495,7 +553,10 @@ class Board:
 
 def board_cmd(root):
     """The board CLI as an absolute command, from wherever it currently lives."""
-    for rel in ("firmware-next/tools_local/board/board.py", "wt/bugflow/tools_local/board/board.py"):
+    for rel in (
+        "firmware-next/tools_local/board/board.py",
+        "wt/bugflow/tools_local/board/board.py",
+    ):
         p = root / rel
         if p.exists():
             return f"python3 {p}"
@@ -517,7 +578,9 @@ def note_refusal(msg):
     sid, tool = CURRENT.get("sid") or "?", CURRENT.get("tool") or "?"
     try:
         with open(root / ".board" / "refusals.log", "a") as f:
-            f.write(f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sid} {tool} {first}\n")
+            f.write(
+                f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sid} {tool} {first}\n"
+            )
     except Exception:
         pass
     try:
@@ -529,11 +592,25 @@ def note_refusal(msg):
         url, key = env.get("SUPABASE_URL"), env.get("SUPABASE_ANON_KEY")
         if url and key:
             import urllib.request
-            body = json.dumps({"service": "workflow", "event": "refusal",
-                               "props": {"session": sid, "tool": tool, "rule": first}}).encode()
-            req = urllib.request.Request(url.rstrip("/") + "/rest/v1/events", data=body, method="POST",
-                                         headers={"apikey": key, "Authorization": "Bearer " + key,
-                                                  "Content-Type": "application/json", "Prefer": "return=minimal"})
+
+            body = json.dumps(
+                {
+                    "service": "workflow",
+                    "event": "refusal",
+                    "props": {"session": sid, "tool": tool, "rule": first},
+                }
+            ).encode()
+            req = urllib.request.Request(
+                url.rstrip("/") + "/rest/v1/events",
+                data=body,
+                method="POST",
+                headers={
+                    "apikey": key,
+                    "Authorization": "Bearer " + key,
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal",
+                },
+            )
             urllib.request.urlopen(req, timeout=2).read()
     except Exception:
         pass
@@ -572,7 +649,9 @@ def writes_into_tree(cmd):
     string never carries a verb; it may carry the tree's path, which stays.
     """
     body = HEREDOC.sub(" ", cmd)
-    body = QUOTED.sub(lambda m: " firmware-next " if "firmware-next" in m.group(0) else " ", body)
+    body = QUOTED.sub(
+        lambda m: " firmware-next " if "firmware-next" in m.group(0) else " ", body
+    )
     in_tree = False
     for seg in re.split(r"&&|\|\||;|\|", body):
         seg = seg.strip()
@@ -633,6 +712,22 @@ def pretool(board, data):
                 "Refused: a raw `pio run` bypasses the workspace build lock and can corrupt another "
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
+        if MANUAL_RELEASE.search(cmd) and not SHIP_INVOCATION.search(cmd):
+            block(
+                "Refused: releases are cut by ./scripts_local/ship.sh, which is now the only path "
+                "from a green gate to a public release.\n"
+                "Publishing by hand skips three things that have each already shipped a broken "
+                "release: the version bump BEFORE the build (platformio.ini compiles the version "
+                "in and OtaUpdater compares the tag against it, so images built before the bump "
+                "leave every device offering an update it already installed), the three magic "
+                "numbers that tell a merged image from an unmerged one, and the asset named "
+                "exactly firmware.bin, which is the only name the OTA updater matches.\n"
+                "    ./scripts_local/ship.sh --dry-run    # say what would happen\n"
+                "    ./scripts_local/ship.sh              # land this branch and publish\n"
+                "Undoing a bad publish is NOT refused: `gh release delete`, `git tag -d` and "
+                "`git push origin :v<n>` all pass, because the moment you need them most is "
+                "right after something went wrong."
+            )
         board.leave_claimant(data, cmd)
         # A write into a worktree: from the shell's cwd, from a `cd` earlier
         # in the same command, or naming the tree. Names are read off the raw
@@ -641,17 +736,28 @@ def pretool(board, data):
         # searched for verbs like the command itself. Destructive git verbs
         # count whatever else the command says.
         stripped = HEREDOC.sub(" ", cmd)
-        inner = " ".join(m.group(2) for m in re.finditer(r"\b(?:ba|z)?sh\s+-[a-zA-Z]*c\s+(['\"])(.*?)\1", stripped, re.S))
+        inner = " ".join(
+            m.group(2)
+            for m in re.finditer(
+                r"\b(?:ba|z)?sh\s+-[a-zA-Z]*c\s+(['\"])(.*?)\1", stripped, re.S
+            )
+        )
         cur = board.tree_name_of(data.get("cwd") or "")
         cwd_path = pathlib.Path(data.get("cwd") or os.getcwd())
-        for seg in re.split(r"&&|\|\||;|\|", stripped + (" ; " + inner if inner else "")):
+        for seg in re.split(
+            r"&&|\|\||;|\|", stripped + (" ; " + inner if inner else "")
+        ):
             seg = seg.strip()
             if not seg:
                 continue
             m = re.match(r"cd\s+([^\s;&|]+)", seg)
             if m:
                 target = m.group(1).strip("\"'")
-                tpath = pathlib.Path(target) if target.startswith("/") else cwd_path / target
+                tpath = (
+                    pathlib.Path(target)
+                    if target.startswith("/")
+                    else cwd_path / target
+                )
                 cur = board.tree_name_of(str(tpath))
                 cwd_path = tpath
                 continue
@@ -659,7 +765,11 @@ def pretool(board, data):
             # `git -C "wt/x" commit` read as `git -C commit` and the -C swallowed
             # the verb, so a quoted tree path was never a write.
             seg_body = QUOTED.sub(" q ", seg)
-            if not (WRITE_VERB.search(seg_body) or REDIRECT.search(seg_body) or DESTRUCTIVE.search(seg_body)):
+            if not (
+                WRITE_VERB.search(seg_body)
+                or REDIRECT.search(seg_body)
+                or DESTRUCTIVE.search(seg_body)
+            ):
                 continue
             names = [cur] if cur else []
             names += tree_names_in(seg)
@@ -667,15 +777,15 @@ def pretool(board, data):
                 verdict = board.tree_verdict(actor, name)
                 if verdict:
                     block(verdict)
-        if (
-            writes_into_tree(cmd) and not board.is_integrator(sid)
-        ):
+        if writes_into_tree(cmd) and not board.is_integrator(sid):
             block(
                 "Refused: that command writes into firmware-next, the integration tree. Reading it "
                 "is fine; changing it is the integrator's job. Work in wt/<name>/, or if you are "
                 f"integrating, claim the tree first: {board_cmd(root)} integrator --session {norm_sid(sid)}"
             )
-        if re.search(r"board(\.py)?\s+ask\b", HEREDOC.sub(" ", cmd)) and not board.is_orchestrator(sid):
+        if re.search(
+            r"board(\.py)?\s+ask\b", HEREDOC.sub(" ", cmd)
+        ) and not board.is_orchestrator(sid):
             block(
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
                 f"{board_cmd(root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
@@ -809,7 +919,9 @@ def session_start(board, data):
             "[bugflow] You are the ORCHESTRATOR. Runbook: docs/workflow/orchestrator.md in the tree."
         )
     elif board.is_dispatcher(sid):
-        lines.append("[bugflow] You are DISPATCH: Mario talks to you; you file cards and hand them to their owners. Runbook: docs/workflow/dispatch.md.")
+        lines.append(
+            "[bugflow] You are DISPATCH: Mario talks to you; you file cards and hand them to their owners. Runbook: docs/workflow/dispatch.md."
+        )
     else:
         who = orch.get("name") or "not registered yet"
         lines.append(f"[bugflow] You are a WORKER. The orchestrator is: {who}.")
@@ -852,7 +964,11 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         return
-    CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
+    CURRENT.update(
+        root=root,
+        sid=norm_sid(data.get("session_id")),
+        tool=data.get("tool_name") or mode,
+    )
     if mode == "pretool":
         pretool(board, data)
     elif mode == "session-end":
@@ -861,7 +977,6 @@ def main():
         stop(board, data)
     elif mode == "session-start":
         session_start(board, data)
-
 
 
 def guarded_main():
@@ -884,10 +999,14 @@ def guarded_main():
             root = find_root()
             if root is not None:
                 with open(root / ".board" / "hook-errors.log", "a") as f:
-                    f.write(f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sys.argv[1:]} {type(e).__name__}: {e}\n")
+                    f.write(
+                        f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sys.argv[1:]} {type(e).__name__}: {e}\n"
+                    )
         except Exception:
             pass
-        sys.stderr.write(f"[bugflow] the guard could not run ({type(e).__name__}); letting this through and logging it\n")
+        sys.stderr.write(
+            f"[bugflow] the guard could not run ({type(e).__name__}); letting this through and logging it\n"
+        )
         sys.exit(0)
 
 

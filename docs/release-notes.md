@@ -21,6 +21,141 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.14.2
+
+- Sync CrossPoint develop (18 commits)
+
+### 1.14.1
+
+- Study long cards and header, Home row after the shelf, and a simulator that stays out of the way
+
+### 1.14.0
+
+- Sync CrossPoint develop (22 commits)
+
+### 1.13.34
+
+- Study sync: decks failed for a stray font, and the reader never said why
+
+### 1.13.33
+
+- Games and Apps open the right shelf under RoundedRaff
+
+### 1.13.32
+
+- Stop crashing when the player is winning
+
+### 1.13.31
+
+- Offer a 19x19 board
+
+### 1.13.30
+
+- Create /study before saving the pairing
+- Stop web server before radio teardown
+
+### 1.13.29
+
+- Every Home theme fits, keeps its margins and was reviewed blind
+
+### 1.13.28
+
+- Sync CrossPoint develop (50 commits), retire Get Books
+
+### 1.13.27
+
+- Wordle: the daily word, in Connections' shape (#202)
+
+### 1.13.26
+
+- Underhand's menu says TUTORIAL while the tutorial is next, and that it comes back until you win it.
+
+### 1.13.25
+
+- Hex, the connection game: join your two edges before your opponent joins theirs. Against the device at three levels, across the table, or over PLAY NEARBY. On the Games shelf.
+
+### 1.13.24
+
+- Notes: put a note on the sleep screen (#198)
+
+### 1.13.23
+
+- Live: a brief wake re-sleeps with Live's alarm, not with none
+
+### 1.13.22
+
+- Underhand, the 2017 cult card game: summon a god before the cult falls. On the Games shelf, with a nine-page How to Play.
+
+### 1.13.21
+
+- M5Stack PaperMono / Lite support (carries #208)
+
+### 1.13.20
+
+- Notes: the phone page shows long items whole, and keeps a note a note
+- Notes: strike every line of a wrapped item, and never shrink a list
+
+### 1.13.19
+
+- Live: the reader's battery on the website, and thirty days of it behind a tap
+- Install: the route onto a USB-locked X4 Pro, and each SD refusal by its own name
+
+### 1.13.18
+
+- Live: the board fits a phone, the history is shared, and a schedule can be a time of day
+
+### 1.13.17
+
+- Wallpapers: the upload route ends with the picture you sent
+
+### 1.13.16
+
+- Live: a scheduled refresh shows nobody anything
+
+### 1.13.15
+
+- Setting up Live works by scanning the square on the reader. It used to carry a code that was never real, so scanning could not work and you had to type the digits instead. The square and the digits now always match.
+- Live says when the reader will next look, on the website and on the reader, from the moment you connect it. There was no time shown anywhere until it had checked in once, which is when you most want to know it worked.
+- Sending your own picture over Wi-Fi has a way in again: tap Your phone on the Wallpapers screen. It had become unreachable once a reader had wallpapers on it.
+- Scanning a second reader's code while connected to a first now says so, rather than silently keeping the old one and sending your next drawing to the wrong reader.
+- A reader left on its setup screen no longer moves itself onto a new, empty Live and forgets the one you set up, which quietly stopped anything you sent arriving.
+
+### 1.13.14
+
+- nothing you can see on the device. This is the same firmware as 1.13.13, published by the new two-minute release process rather than the old forty-minute one.
+
+### 1.13.13
+
+- Live: the page moves onto the site, the service becomes an API
+
+### 1.13.12
+
+- Notes: adding an item was 5.3s of asking the card how full it was
+
+### 1.13.11
+
+- Live: add and remove phones, and a screen that says one thing
+
+### 1.13.10
+
+- Hearts: the shelf's first trick-taking game
+- Notes: a deck of cards, and a note that can become a list
+- Live: leave a handwritten note on a reader asleep on somebody's fridge
+
+### 1.13.9
+
+- One page snapshot, one holder, and no stale refresh at teardown
+- Notes: lists you tick with one hand
+
+### 1.13.7
+
+- Count the menu's paint, or every tap on it is dropped
+
+### 1.13.6
+
+- The reader's toolbar panel no longer sizes its bottom sheet with a row gap the renderer does not use, which left a six-row panel 30px shorter than its own contents on every touch board.
+- Wikipedia: make the loading cue actually show, and pay for itself
+
 ### 1.13.5
 
 - The app and game shelves are back to their proper row height, and every icon sits on its own row again. 1.13.4 made the rows shorter and walked each icon down into its neighbour until the last one dropped off the list.

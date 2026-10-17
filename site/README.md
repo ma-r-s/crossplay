@@ -441,11 +441,13 @@ that this is what the device shows.
 **The downsample is the step that gets skipped**, because skipping it looks like
 nothing. `index.html` declares the 1x width and height, so a 2x file has the
 right aspect and the card renders perfectly at four times the bytes -- on a page
-that lazy-loads two dozen of them. The `shoot-*.sh` scripts copy the simulator's
-output straight across, and on 2026-09-01 all four shots they produce (trivia,
-wavelength, toybattle, forehead) were 2x. `host-tests/site/page_structure.py`
-now compares every shot against the size the page declares, so the next one
-fails the site suite instead of shipping.
+that lazy-loads two dozen of them. The `shoot-*.sh` scripts copied the
+simulator's output straight across, and on 2026-09-01 all four shots they
+produce (trivia, wavelength, toybattle, forehead) were 2x. Two defences now:
+`host-tests/site/page_structure.py` compares every shot against the size the
+page declares, and every `shoot-*.sh` ends in `write_site_shot` from
+`scripts_local/lib-sim.sh`, which downsamples rather than copying. A shot
+captured by hand still has to go through that function.
 
 `assets/fonts/` is Jersey 25 and Instrument Serif, the two faces the device
 itself draws, converted to woff2. Both are SIL OFL and their licences ship
@@ -517,6 +519,14 @@ the reason it asks from the visitor's browser rather than from `/api/firmware`.
 .crossplayLatestRelease()`, memoised, never rejecting. Load it **before** the
 scripts that call it. The suite checks that neither caller has gone back to
 fetching for itself, and that every page carrying one loads the helper first.
+
+When the browser's own request fails (its IP spent the 60, or it cannot reach
+api.github.com) it asks `/api/latest` once, the site's proxy of the same answer,
+which serves its last good copy stale when GitHub refuses it. Second, never
+first: the proxy spends Vercel's shared egress budget, the one the browser
+request exists to avoid. An install used to end on "Could not reach GitHub"
+(card #585) while the site held a good answer. `host-tests/site/release_fn.js`
+runs the page's own file against a stubbed fetch.
 
 ## The study wizard is one step at a time, not one screen
 

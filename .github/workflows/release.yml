@@ -63,6 +63,17 @@ jobs:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-${{ runner.os }}-
+      - name: Pin pioarduino core inside the platform penv
+        env:
+          PIO_ENV: ${{ matrix.pio_env }}
+        run: |
+          set -euo pipefail
+          # Envs with custom_sdkconfig run a nested `pio run` from
+          # ~/.platformio/penv. Keep that core on the same version as the outer core.
+          # See https://github.com/pioarduino/platform-espressif32/issues/529
+          pio pkg install -e "$PIO_ENV"
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+          ~/.platformio/penv/bin/pio --version
 
       - name: Build CrossPoint
         run: pio run -e ${{ matrix.pio_env }} -j1

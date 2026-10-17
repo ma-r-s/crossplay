@@ -425,8 +425,19 @@ ships  "scripts_local/ (a pre: extra_script)" no
 reset_tree; echo edit >> nix/flake.nix; q git add -A; q git commit -m nx2
 needed "nix/" yes
 ships  "nix/" no
+# CARD #190, AT ITS NEW ADDRESS. scripts_local/ship.sh replaced
+# crossplay-release.yml as the thing that merges, names and uploads what a
+# person downloads. It sits under scripts_local/, whose generic row is
+# "yes no" -- asserted six lines above -- so without a row of its own a fix
+# to the publisher classifies as reaching nobody and CANNOT CUT THE RELEASE
+# THAT CARRIES IT. That is card #190 word for word, at a different path.
+reset_tree; echo edit >> scripts_local/ship.sh; q git add -A; q git commit -m ship
+ships  "scripts_local/ship.sh (the publisher, card #190's new address)" quiet
+
 # And the direction that is card #190: no local device build can see this file,
-# and it decides what a person downloads.
+# and it decides what a person downloads. Kept after the file was deleted: an
+# old branch or a revert must classify the same way, and a path that was quiet
+# does not become no by ceasing to exist.
 reset_tree; echo edit >> .github/workflows/crossplay-release.yml; q git add -A; q git commit -m rel
 needed "crossplay-release.yml (CI's build, not the local four)" no
 # QUIET, not yes, and the difference is the second half of card #190's fix. It

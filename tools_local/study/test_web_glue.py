@@ -153,6 +153,54 @@ def main():
         updated = web_glue.sync_file()
         ok(len(updated) > 10000, "sync_file returned something too small")
 
+    # --- "fonts" names the template's faces, not every font file. A package
+    # that carried an unrelated _inter-regular.ttf was sent to the media face
+    # build, which only knows five names, failed "no faces built" and held the
+    # write -- where a package with no fonts at all got the bundled Noto.
+    faces = web_glue.template_faces()
+    ok("_simsun.ttf" in faces and len(faces) == 5, f"template faces should be make_fonts' five: {faces}")
+    from anki.collection import Collection
+
+    import make_fixture_apkg
+
+    for media_names, want in (
+        (["_inter-regular.ttf"], []),
+        (["_inter-regular.ttf", "_simsun.ttf"], ["_simsun.ttf"]),
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            col = Collection(str(tmp / "c.anki2"))
+            did = col.decks.id("Hanzi")
+            # Referenced from the note type's CSS, the way a real template
+            # carries its faces: a deck-limited export ships only media
+            # something refers to, and an unreferenced stub silently left the
+            # package -- which made the first version of this check pass with
+            # no font in it at all.
+            basic = col.models.by_name("Basic")
+            basic["css"] += "".join(
+                f'@font-face{{font-family:f{i};src:url("{n}")}}' for i, n in enumerate(media_names)
+            )
+            col.models.update_dict(basic)
+            note = col.new_note(col.models.by_name("Basic"))
+            note.fields[0], note.fields[1] = "你好", "hello"
+            col.add_note(note, did)
+            for name in media_names:
+                stub = tmp / name
+                stub.write_bytes(b"a stub; deciding must not need to parse it")
+                col.media.add_file(str(stub))
+            make_fixture_apkg.export(col, did, tmp / "deck.apkg", legacy=False)
+            col.close()
+            work = tmp / "work"
+            work.mkdir()
+            web_glue.WORK = work
+            shutil.copy2(tmp / "deck.apkg", work / "deck.apkg")
+            opened = json.loads(web_glue.open_apkg())
+            ok("error" not in opened, f"open_apkg: {opened.get('error')}")
+            carried = {q.name for q in (work / "unpacked").rglob("*") if q.suffix == ".ttf"}
+            ok(carried == set(media_names), f"the package must carry {media_names}, it carried {sorted(carried)}")
+            ok(opened["fonts"] == want, f"media {media_names}: fonts should be {want}, got {opened['fonts']}")
+            ok(opened["images"] == 0, f"media {media_names}: a font is never counted as an image")
+
     print(f"PASS ({CHECKS} checks)")
     return 0
 

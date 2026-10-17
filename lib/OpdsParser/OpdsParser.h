@@ -22,14 +22,6 @@ struct OpdsEntry {
   std::string author;  // Only for books
   std::string href;    // Navigation URL or epub download URL
   std::string id;
-  // Primary subtag of dc:language / dcterms:language, lowercased ("en" from
-  // "en-US"). Empty when the feed does not say, which must always read as
-  // "keep" -- a filter that hides untagged books hides most of a catalog.
-  std::string language;
-  // Thumbnail preferred over the full-size image: the detail screen draws into
-  // a small box and a 2000px cover costs seconds to fetch and decode.
-  std::string coverHref;
-  std::string summary;
 };
 
 // Legacy alias for backward compatibility
@@ -58,13 +50,6 @@ class OpdsParser final : public Print {
 
   // Disable copy
   const std::string& getSearchTemplate() const { return searchTemplate; }
-  // The feed's own <subtitle>. A catalog with nothing to list uses it to say
-  // why -- "No EPUBs found for dune" -- which is the only thing worth drawing
-  // on an otherwise empty screen.
-  const std::string& getSubtitle() const { return subtitle; }
-  // Set only when the feed's search link points at an OpenSearch description
-  // document instead of inlining {searchTerms}. Resolve it with OpenSearchParser.
-  const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
   const std::string& getNextPageUrl() const { return nextPageUrl; }
   const std::string& getPrevPageUrl() const { return prevPageUrl; }
   OpdsParser(const OpdsParser&) = delete;
@@ -105,8 +90,6 @@ class OpdsParser final : public Print {
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
 
   std::string searchTemplate;
-  std::string subtitle;
-  std::string searchDescriptionUrl;
   std::string nextPageUrl;
   std::string prevPageUrl;
   // Helper to find attribute value
@@ -125,10 +108,6 @@ class OpdsParser final : public Print {
   bool inAuthor = false;
   bool inAuthorName = false;
   bool inId = false;
-  bool inLanguage = false;
-  bool inSummary = false;
-  bool inSubtitle = false;
-  bool coverIsThumbnail = false;
   bool collectCurrentEntry = false;
 
   bool errorOccured = false;

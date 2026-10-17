@@ -152,6 +152,9 @@ class GoActivity final : public linkplay::LinkActivity {
   // while this app is open. Null when the task could not be started, which
   // falls back to searching on the loop task.
   void* searchTask = nullptr;
+  // Whether the search task's stack came from PSRAM (internal RAM had no
+  // contiguous 32KB). Decides how onExit deletes it.
+  bool searchStackExternal = false;
   void* searchWaiter = nullptr;
   go::Game searchBoard{};
   go::Level searchLevel = go::Level::Medium;
