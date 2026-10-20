@@ -47,6 +47,9 @@ SRC=../../src/apps_local/study
 # into a missing folder the way SdFat does and the simulator does not.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Istubs -I"$SRC" \
   "$SRC/StudyBridgeFile.cpp" test_bridge_file.cpp -o "$BUILD_DIR/test_bridge_file"
+# Old converters' glyph lists, removed from a deck folder when it opens.
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Istubs -I"$SRC" \
+  "$SRC/StudyLegacyFiles.cpp" test_legacy_files.cpp -o "$BUILD_DIR/test_legacy_files"
 
 # The deck under test. An argument wins; otherwise build one. A failure here
 # is a failure of the suite: the tests below now REFUSE a missing deck rather
@@ -63,6 +66,7 @@ fi
 # broken makes every card unreadable whatever the deck says.
 "$BUILD_DIR/test_text"
 "$BUILD_DIR/test_bridge_file"
+"$BUILD_DIR/test_legacy_files"
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_verdict"
 "$BUILD_DIR/test_deck" "$DECK"

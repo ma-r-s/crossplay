@@ -1,5 +1,6 @@
 #include "StudyActivity.h"
 
+#include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -22,6 +23,7 @@
 #include "../ui/ToyboxFormat.h"
 #include "../ui/ToyboxMetrics.h"
 #include "../ui/ToyboxTheme.h"
+#include "StudyLegacyFiles.h"
 #include "StudyStats.h"
 #include "StudyText.h"
 #include "StudyVerdict.h"
@@ -417,6 +419,8 @@ bool StudyActivity::openDeckAt(const int index) {
   if (index < 0 || index >= deckCount_) return false;
   deckIndex_ = index;
   std::snprintf(deckDir_, sizeof(deckDir_), "%s/%s", kStudyRoot, deckNames_[index]);
+  // The Library's saved index still lists the removed files until it rebuilds.
+  if (study::removeLegacyGlyphLists(deckDir_) > 0) library::markLibraryIndexDirty();
 
   char lastPath[64];
   std::snprintf(lastPath, sizeof(lastPath), "%s/.last", kStudyRoot);

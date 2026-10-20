@@ -143,7 +143,7 @@ not by position or by content.**
 | --- | --- | --- |
 | `deck.dat` | Yes | No |
 | `meta.dat` | Yes | No |
-| `glyphs-*.txt`, `fonts/` | Yes | No |
+| `glyphs-*.lst`, `fonts/` | Yes | No |
 | `cards.dat` | No | **Yes**: each record holds its Anki card id |
 | `revlog.dat` | Never (append-only) | **Yes**: keyed by card id and the millisecond answered |
 

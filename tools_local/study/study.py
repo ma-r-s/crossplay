@@ -224,11 +224,9 @@ def deck_has_cjk(deck_dir):
     exactly the characters the device will be asked to draw -- not from the
     deck name or a language guess.
     """
-    text = ""
-    for stem in ("glyphs-headword", "glyphs-sentence"):
-        f = deck_dir / f"{stem}.txt"
-        if f.is_file():
-            text += f.read_text(encoding="utf-8")
+    import scripts
+
+    text = "".join(scripts.read_glyph_list(deck_dir, name) or "" for name in ("headword", "sentence"))
     return any(a <= ord(c) <= b for c in text for a, b in [r for r in CJK_RANGES])
 
 

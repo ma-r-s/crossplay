@@ -27,7 +27,7 @@ puts the tests straight back to skipping.
 
     host-tests/study/make_fixture.py --out DIR
 
-Writes DIR/deck.dat, meta.dat, cards.dat, revlog.dat, glyphs-*.txt and
+Writes DIR/deck.dat, meta.dat, cards.dat, revlog.dat, glyphs-*.lst and
 images.dat.
 """
 

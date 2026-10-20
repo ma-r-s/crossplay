@@ -106,6 +106,16 @@ def main():
             "study/sat-vocabulary/deck.dat" in names,
             f"zip lays out wrong: {names[:4]}",
         )
+        # The Library lists every .txt on the card, so a .txt glyph list shows
+        # up as a book. They are .lst, and only .lst.
+        ok(
+            "study/sat-vocabulary/glyphs-latin.lst" in names,
+            f"glyph lists missing from the zip: {names}",
+        )
+        ok(
+            not [n for n in names if n.endswith(".txt")],
+            f"a .txt in the deck becomes a book on the shelf: {[n for n in names if n.endswith('.txt')]}",
+        )
 
         # A review the device would have written: first card, GOOD, now.
         cards = (work / "deck" / "cards.dat").read_bytes()

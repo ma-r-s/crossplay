@@ -13,10 +13,16 @@ total. This is not a close call.
         cards.dat       scheduling state, rewritten by the device
         revlog.dat      append-only review history, read back by the sync script
         meta.dat        FSRS parameters, learning steps, limits, identity
-        glyphs-*.txt    the codepoints the deck uses, split by the size they
+        glyphs-*.lst    the codepoints the deck uses, split by the size they
                         are rendered at, for the font pipeline: headword,
                         sentence, latin, and ruby (the furigana readings,
                         empty for a deck that has none)
+
+The glyph lists are `.lst` and not `.txt` because the reader's Library lists
+every `.txt` on the card as a book, which put four of them on the shelf for each
+deck. Older converters wrote `.txt`. The tools still read those. The device
+removes a deck's old `.txt` lists the first time that deck is opened
+(`StudyLegacyFiles.cpp`), and the Library then rebuilds its index without them.
 
 ## The one design rule
 
@@ -105,7 +111,7 @@ of its base alone: getting that wrong slides every span after it along by the
 length of a reading.
 
 The readings are drawn in a third cut of the deck's face at
-`kRubyPointSize`, built from `glyphs-ruby.txt` -- the readings alone, which is
+`kRubyPointSize`, built from `glyphs-ruby.lst` -- the readings alone, which is
 about a hundred kana rather than the deck's whole character set at a third
 size. The cut is optional: a deck with no furigana has none built, and a deck
 whose fonts predate it draws the base and loses the reading.
