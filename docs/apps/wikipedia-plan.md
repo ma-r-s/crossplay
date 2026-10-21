@@ -288,7 +288,9 @@ measured at 300 to 500 MB a month) is the v2 of this screen.
   row does not carry leaves a one-line note. A section with nothing left
   under it (its only content was an image or a navbox) has no heading.
 - No settings inside the app beyond the pack row. Font, size, margins are the
-  reader's settings, so Wikipedia changes when the reader does.
+  reader's settings, so Wikipedia changes when the reader does. The install
+  screen is the exception: it stays up while the card is on USB, so it uses a
+  face compiled into the firmware.
 - No account, no server of ours in the reading path. The pack is files on a
   card; the on-demand fetch talks to Wikipedia's own API with a proper
   User-Agent.

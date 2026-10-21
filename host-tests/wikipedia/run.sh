@@ -83,3 +83,6 @@ fi
 # An activity that hands the card to a USB host must own its loop (see the
 # docstring); a grep rule, because the ui suite cannot see ActivityManager.
 python3 test_usb_exclusive.py
+# The install screen redraws after the card goes to USB, so its body face must
+# be compiled into the firmware, not an SD-card font.
+python3 test_install_face.py
