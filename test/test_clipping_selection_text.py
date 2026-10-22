@@ -111,7 +111,7 @@ struct Renderer {
 };
 struct Theme {
   void drawSelectionHandle(const Renderer&, Rect, bool) const {}
-  void drawSelectionActions(const Renderer&, Rect) const {}
+  void drawSelectionActions(const Renderer&, Rect, const char* const*, int) const {}
 } GUI;
 struct Input { bool hasTouch() const { return false; } };
 using GfxRenderer = Renderer;
@@ -149,6 +149,8 @@ bool selectionLowMemory(const int first, const int last) {
 struct ClipSelectionActivity {
 """ + word_box + r"""
   std::unique_ptr<WordBox[]> words = makeUniqueNoThrow<WordBox[]>(240);
+  const char* barLabels[4] = {};
+  int barCount = 4;
   static constexpr size_t MAX_SELECTABLE_WORDS = 240;
   Renderer renderer;
   Input mappedInput;

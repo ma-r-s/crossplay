@@ -114,6 +114,10 @@ struct NoticeModel {
   const char* body = "";
   const char* actionLabel = nullptr;
   fui::ActionId action = 0;
+  // An outlined button above the filled one, for a notice that offers two ways
+  // on (Wiki from the reader with no pack: GET WIKIPEDIA, or BACK to the book).
+  const char* secondaryLabel = nullptr;
+  fui::ActionId secondaryAction = 0;
 };
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model);

@@ -1,5 +1,6 @@
 #include "WikipediaScreens.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
@@ -537,14 +538,30 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   chrome(screen, "WIKIPEDIA");
   const fui::Rect body = screen.body();
   const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
-  const int16_t top = static_cast<int16_t>(body.y + 96);
+  // The sentence ends above the buttons. Opened from a book, the notice can be
+  // landscape, where a body about 400 px tall put "There is no article called
+  // ... on this card" under BACK. The headline moves up when three lines of
+  // the sentence would not fit below it; portrait keeps its 96 px.
+  int16_t buttonsTop = body.bottom();
+  if (model.actionLabel) buttonsTop = static_cast<int16_t>(body.bottom() - 80);
+  if (model.secondaryLabel) buttonsTop = static_cast<int16_t>(body.bottom() - 148);
+  const int16_t proseEnd = static_cast<int16_t>(buttonsTop - 8);
+  const int16_t wanted = static_cast<int16_t>(88 + screen.target().lineHeight(toybox::kBodyFont) * 3);
+  int16_t top = static_cast<int16_t>(body.y + 96);
+  if (top + wanted > proseEnd) top = static_cast<int16_t>(std::max<int>(body.y + 8, proseEnd - wanted));
   drawLabel(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), top, inner, 64}, model.headline,
             toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut);
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(top + 88), inner, 200},
-            model.body, fui::TextAlign::Center);
+  const int16_t proseTop = static_cast<int16_t>(top + 88);
+  const int16_t proseHeight = static_cast<int16_t>(std::min<int>(200, std::max<int>(0, proseEnd - proseTop)));
+  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), proseTop, inner, proseHeight}, model.body,
+            fui::TextAlign::Center);
   if (model.actionLabel) {
     const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 80), inner, 56};
     drawAction(screen, box, model.actionLabel, model.action, true);
+  }
+  if (model.secondaryLabel) {
+    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 148), inner, 56};
+    drawAction(screen, box, model.secondaryLabel, model.secondaryAction, false);
   }
 }
 

@@ -14125,6 +14125,41 @@ void testWikipediaInstallSaysTheAddressFirst() {
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
 }
 
+// Opened from a book, a notice can be landscape: on the panel the sentence ran
+// under BACK. The sentence's box ends above every button, in both orientations
+// and with one button or two.
+void testWikipediaNoticeSentenceClearsTheButtons() {
+  const char* sentence = "There is no article called \"Kissinger's\" on this card.";
+  for (const bool landscape : {false, true}) {
+    for (const bool two : {false, true}) {
+      wikiui::NoticeModel model;
+      model.headline = "NOT FOUND";
+      model.body = sentence;
+      model.actionLabel = two ? "GET WIKIPEDIA" : "BACK";
+      model.action = wikiui::ActionBack;
+      if (two) {
+        model.secondaryLabel = "BACK";
+        model.secondaryAction = wikiui::ActionBack;
+      }
+      Rendered out;
+      const fui::DeviceContext ctx = landscape ? landscapeDevice() : device();
+      const fui::InputSnapshot noInput{};
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      wikiui::buildNotice(screen, model);
+      const FakeTarget::TextRun* body = out.target.find(sentence);
+      const FakeTarget::TextRun* head = out.target.find("NOT FOUND");
+      const FakeTarget::TextRun* top = out.target.find("BACK");
+      CHECK(body != nullptr && head != nullptr && top != nullptr);
+      if (body == nullptr || head == nullptr || top == nullptr) continue;
+      // The highest button is the secondary one when there are two.
+      CHECK(body->rect.y + body->rect.height <= top->rect.y);
+      CHECK(body->rect.height >= out.target.lineHeight(toybox::kBodyFont) * 2);
+      CHECK(head->rect.y + head->rect.height <= body->rect.y);
+    }
+  }
+}
+
 // --- Notes: every line of a long item is drawn, fits, and is struck --------
 //
 // Mario, 2026-09-28: "a done task that takes two lines doesnt cross both lines,
@@ -14845,6 +14880,7 @@ int main() {
   testWikipediaArticleChromeLeavesThePageItsRoom();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
+  testWikipediaNoticeSentenceClearsTheButtons();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();

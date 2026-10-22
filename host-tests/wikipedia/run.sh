@@ -83,3 +83,4 @@ fi
 # An activity that hands the card to a USB host must own its loop (see the
 # docstring); a grep rule, because the ui suite cannot see ActivityManager.
 python3 test_usb_exclusive.py
+python3 test_lookup_entry.py

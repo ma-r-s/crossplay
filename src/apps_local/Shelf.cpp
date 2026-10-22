@@ -457,6 +457,19 @@ void rememberForWake(const char* currentActivityName) {
   }
 }
 
+bool reopenAfterRestart(std::unique_ptr<Activity> (*create)(GfxRenderer&, MappedInputManager&)) {
+  if (create == nullptr) return false;
+  for (int f = 0; f < kFolderCount; ++f) {
+    for (int i = 0; i < kFolders[f].count; ++i) {
+      if (kFolders[f].items[i].create == create) {
+        setOpenTitle(kFolders[f].items[i].title);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 bool resumeFromWake(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   ensureLoaded();
   if (state.openTitle[0] == '\0') return false;
