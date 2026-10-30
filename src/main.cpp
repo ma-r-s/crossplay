@@ -23,10 +23,10 @@
 #include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <driver/gpio.h>
-#include <esp_sntp.h>
-#include <soc/soc_caps.h>
 #include <esp_heap_caps.h>
+#include <esp_sntp.h>
 #include <esp_wifi.h>
+#include <soc/soc_caps.h>
 #include <time.h>
 
 #include <atomic>

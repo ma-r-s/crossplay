@@ -1,7 +1,7 @@
 #include "CrossPointSettings.h"
 
-#include <BoardConfig.h>
 #include <BlePageTurnerJson.h>
+#include <BoardConfig.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>

@@ -91,9 +91,9 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
   // the failure test below.
   char rubyPath[128];
   std::snprintf(rubyPath, sizeof(rubyPath), "%s/%s/%s_%u.cpfont", root_, family, family, kRubyPointSize);
-  const int ruby = Storage.exists(rubyPath)
-                       ? manager_.loadFamilyExtraSize(describe(root_, family, kRubyPointSize), renderer, kRubyPointSize, 0)
-                       : 0;
+  const int ruby = Storage.exists(rubyPath) ? manager_.loadFamilyExtraSize(describe(root_, family, kRubyPointSize),
+                                                                           renderer, kRubyPointSize, 0)
+                                            : 0;
   if (headword == 0 || sentence == 0) {
     // Debug, not error: an absent family is now a normal answer, because
     // loadPreferred walks past it to one that is there. Only having none of

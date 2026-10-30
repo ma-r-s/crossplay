@@ -49,10 +49,10 @@
 // src/components/UIScale.h binds UI_12/UI_10 to the Ubuntu faces, and
 // CrossPointSettings::getReaderFontId() picks a Noto for the page. They are
 // here to be MEASURED, because this change's scope rests on what they carry.
-#include "builtinFonts/ubuntu_8_regular.h"
 #include "builtinFonts/notosans_16_regular.h"
 #include "builtinFonts/ubuntu_10_regular.h"
 #include "builtinFonts/ubuntu_12_regular.h"
+#include "builtinFonts/ubuntu_8_regular.h"
 
 static int checks = 0;
 static int failed = 0;
@@ -503,10 +503,10 @@ int main() {
       const EpdFontData* data;
     };
     const SystemCut kSystem[] = {
-        {"ubuntu_10_regular", &ubuntu_10_regular},        // UI_10: list subtitles, OPDS authors
-        {"ubuntu_12_regular", &ubuntu_12_regular},        // UI_12: list titles, OPDS titles, SSIDs
-        {"ubuntu_8_regular", &ubuntu_8_regular},          // SMALL
-        {"notosans_16_regular", &notosans_16_regular},    // the built-in reader body face
+        {"ubuntu_10_regular", &ubuntu_10_regular},      // UI_10: list subtitles, OPDS authors
+        {"ubuntu_12_regular", &ubuntu_12_regular},      // UI_12: list titles, OPDS titles, SSIDs
+        {"ubuntu_8_regular", &ubuntu_8_regular},        // SMALL
+        {"notosans_16_regular", &notosans_16_regular},  // the built-in reader body face
     };
 
     // The common set: what a feed, an SSID or a book title actually carries, and
