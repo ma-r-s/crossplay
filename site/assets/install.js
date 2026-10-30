@@ -65,6 +65,7 @@
   // writing one over a working bootloader.
   var OFF_PARTITIONS = 0x8000;
   var OFF_APP = 0x10000;
+  var PARTITION_TABLE_SIZE = 0xc00;
 
   var els = {};
   var state = { tag: null, device: "x4pro", busy: false };
@@ -269,6 +270,19 @@
     ];
   }
 
+  // True when a partition table read off the device names the vendor's
+  // `safeboot` recovery partition (a BOOX Picco's stock layout).
+  function hasVendorRecovery(table) {
+    var label = "safeboot";
+    outer: for (var i = 0; i + label.length <= table.length; i++) {
+      for (var j = 0; j < label.length; j++) {
+        if (table[i + j] !== label.charCodeAt(j)) continue outer;
+      }
+      return true;
+    }
+    return false;
+  }
+
   /* --- the flash --------------------------------------------------------- */
 
   // EVERY FAILURE THE FLASHER CAN HAND BACK, ONCE. Two functions used to read
@@ -297,6 +311,9 @@
     { name: "NotAllowedError", msg: null, mine: true,
       say: "The browser was not allowed to use the device. Press Install again and allow it when Chrome asks." },
     { name: "SecurityError", msg: null, mine: true, say: null },
+    // The Picco refusal in flash(): the right device for CrossPlay, the wrong
+    // installer for it. Its own message says what to do.
+    { name: null, msg: /maker's partition table/, mine: true, say: null },
     { name: "AbortError", msg: null, mine: true, say: null },
     // Chrome's own "Failed to open serial port." AND the shorter "Failed to
     // open port" some builds send; the old pattern wanted "serial" and missed
@@ -397,28 +414,49 @@
               );
             });
         }
-        say("Writing firmware -- do not unplug", "busy");
-        progress(0);
-        var parts = partsToWrite(bytes);
-        if (parts.length === 2) {
-          note("Keeping the NVS partition: your settings, Wi-Fi and the device's id survive this install.");
-        }
-        return loader.writeFlash({
-          fileArray: parts.map(function (p) {
-            return { data: loader.ui8ToBstr(p.data), address: p.address };
-          }),
-          // The image was merged with -fm/-fs/-ff keep, so the header already
-          // carries the mode, size and frequency this build was configured
-          // with. Passing anything else here would rewrite them with a second
-          // opinion.
-          flashSize: "keep",
-          flashMode: "keep",
-          flashFreq: "keep",
-          eraseAll: false,
-          compress: true,
-          reportProgress: function (_index, written, total) {
-            if (total) progress(written / total);
-          },
+        // A BOOX Picco keeps its maker's partition table, with a `safeboot`
+        // recovery partition that this image (its own table, its own app at
+        // 0x10000) would write straight over. Read the table on the device and
+        // leave a Picco exactly as it was found, like a wrong chip above.
+        return loader.readFlash(OFF_PARTITIONS, PARTITION_TABLE_SIZE).then(function (table) {
+          if (hasVendorRecovery(table)) {
+            return loader
+              .after("no_reset_stub")
+              .catch(function () {})
+              .then(function () {
+                return loader.transport.disconnect().catch(function () {});
+              })
+              .then(function () {
+                throw new Error(
+                  "This device keeps its maker's partition table, as the BOOX Picco does. " +
+                    "This installer would write over its recovery partition, so nothing was written. " +
+                    "A Picco is installed into its app slot only; see the CrossPlay README.",
+                );
+              });
+          }
+          say("Writing firmware -- do not unplug", "busy");
+          progress(0);
+          var parts = partsToWrite(bytes);
+          if (parts.length === 2) {
+            note("Keeping the NVS partition: your settings, Wi-Fi and the device's id survive this install.");
+          }
+          return loader.writeFlash({
+            fileArray: parts.map(function (p) {
+              return { data: loader.ui8ToBstr(p.data), address: p.address };
+            }),
+            // The image was merged with -fm/-fs/-ff keep, so the header already
+            // carries the mode, size and frequency this build was configured
+            // with. Passing anything else here would rewrite them with a second
+            // opinion.
+            flashSize: "keep",
+            flashMode: "keep",
+            flashFreq: "keep",
+            eraseAll: false,
+            compress: true,
+            reportProgress: function (_index, written, total) {
+              if (total) progress(written / total);
+            },
+          });
         });
       })
       .then(function () {

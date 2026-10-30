@@ -48,6 +48,7 @@
 #include "ProtectedPaths.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
+#include "UpdateSlot.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
 #include "WifiPowerSaveGuard.h"
@@ -3898,7 +3899,7 @@ void CrossPointWebServer::handleDevFlash() {
   // upload-then-flash with no path bookkeeping in the caller.
   const String path = server->hasArg("path") ? server->arg("path") : String(kDevUploadPath);
 
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  const esp_partition_t* dest = updateSlot();
   if (!dest) {
     LOG_ERR("DEVFLASH", "no OTA partition");
     server->send(500, "text/plain", "no OTA partition\n");
