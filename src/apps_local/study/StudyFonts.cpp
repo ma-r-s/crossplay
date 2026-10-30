@@ -26,12 +26,14 @@ constexpr const char* kLegacyFontRoot = "/study/fonts";
 // SdCardFontRegistry. The registry only scans /.fonts and /fonts, and putting
 // these there would list them as reading fonts -- see the header for why that
 // is a trap. SdCardFontFamilyInfo is a plain struct, so this costs nothing.
+// The file is <root>/<family>/<family>_<size>.cpfont, the canonical name, so
+// the entry carries no filename and filePath() rebuilds it from root and name.
+// `root` points at StudyFonts::root_ or a literal, both outliving the load.
 SdCardFontFamilyInfo describe(const char* root, const char* family, const uint8_t pointSize) {
   SdCardFontFamilyInfo info;
   info.name = family;
-  char path[128];
-  std::snprintf(path, sizeof(path), "%s/%s/%s_%u.cpfont", root, family, family, pointSize);
-  info.files.push_back(SdCardFontFileInfo{path, pointSize, 0});
+  info.root = root;
+  info.files.push_back(SdCardFontFileInfo{nullptr, pointSize, 0});
   return info;
 }
 
@@ -81,16 +83,16 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
   // loadFamilyExtraSize is the additive one: two calls leave both sizes
   // resident. loadFamily would unload the first when loading the second.
   const int headword =
-      manager_.loadFamilyExtraSize(describe(root_, family, kHeadwordPointSize), renderer, kHeadwordPointSize);
+      manager_.loadFamilyExtraSize(describe(root_, family, kHeadwordPointSize), renderer, kHeadwordPointSize, 0);
   const int sentence =
-      manager_.loadFamilyExtraSize(describe(root_, family, kSentencePointSize), renderer, kSentencePointSize);
+      manager_.loadFamilyExtraSize(describe(root_, family, kSentencePointSize), renderer, kSentencePointSize, 0);
   // Optional: only a deck with furigana has one built. A zero here is the
   // ordinary answer for every deck that is not Japanese, so it is not part of
   // the failure test below.
   char rubyPath[128];
   std::snprintf(rubyPath, sizeof(rubyPath), "%s/%s/%s_%u.cpfont", root_, family, family, kRubyPointSize);
   const int ruby = Storage.exists(rubyPath)
-                       ? manager_.loadFamilyExtraSize(describe(root_, family, kRubyPointSize), renderer, kRubyPointSize)
+                       ? manager_.loadFamilyExtraSize(describe(root_, family, kRubyPointSize), renderer, kRubyPointSize, 0)
                        : 0;
   if (headword == 0 || sentence == 0) {
     // Debug, not error: an absent family is now a normal answer, because

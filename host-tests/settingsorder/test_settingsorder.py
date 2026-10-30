@@ -16,7 +16,7 @@ def check(ok, msg):
         print(f"FAIL settingsorder  {msg}")
 
 
-LIST = "src/SettingsList.h"
+LIST = "src/SettingsList.cpp"
 ACT = "src/activities/settings/SettingsActivity.cpp"
 list_src = open(LIST).read()
 act_src = open(ACT).read()
@@ -71,38 +71,65 @@ def body_of(func):
     raise SystemExit(f"FAIL settingsorder  cannot find the body of {func}")
 
 
-rebuild = body_of("void SettingsActivity::rebuildSettingsLists()")
+rebuild = body_of("void SettingsActivity::rebuildSettings()")
+section_for = body_of("SettingsSection sectionFor(const SettingInfo& setting) {")
+fork_rows = body_of("bool isForkGeneralSetting(const SettingInfo& setting)")
 
-# --- what the screen actually shows, in order ------------------------------
+# --- what the General screen actually shows, in order -----------------------
 #
-# Declaration order first (the loop walks getSettingsList and pushes as it
-# goes), minus anything the loop holds back, then whatever the function
-# appends afterwards, in the order it appends it.
-held = set(re.findall(r"forkSystemSettings\.push_back", rebuild))  # presence only
-holdback_ids = re.findall(r"setting\.valuePtr == &CrossPointSettings::(\w+)[^;]*?"
-                          r"forkSystemSettings", rebuild, re.S)
-holdback = set(re.findall(r"&CrossPointSettings::(\w+)",
-                          rebuild.split("forkSystemSettings.push_back")[0].split(
-                              "STR_CAT_SYSTEM")[-1] if "forkSystemSettings" in rebuild else ""))
+# rebuildSettings() builds one section at a time. General is the device-wide
+# one, where CrossPlay's own rows live. Its order is: the General actions added
+# before the loop, then the shared list's System rows in declaration order
+# (minus the ones the loop holds back), then the General actions added after
+# the loop, then whatever the second walk over the list appends.
+holdback = set(re.findall(r"&CrossPointSettings::(\w+)", fork_rows))
+# sectionFor() routes these System rows to another section (Library, Display).
+elsewhere = set(re.findall(r"&CrossPointSettings::(\w+)", section_for))
 
 declared = []
-for m in re.finditer(r"SettingInfo::(?:Toggle|Enum|Value|String|DynamicString)\((.*?)\),\n(?=\s*(?://|Setting|\}|#|$))",
-                     list_src, re.S):
+for m in re.finditer(r"emit\(SettingInfo::(?:Toggle|Enum|Value|String|DynamicString)\((.*?)\)\);", list_src, re.S):
     b = m.group(1)
     if "STR_CAT_SYSTEM" not in b:
         continue
     key = re.findall(r'"([^"]+)"', b)
     ids = re.findall(r"StrId::(STR_\w+)", b)
     val = re.findall(r"&CrossPointSettings::(\w+)", b)
-    declared.append({"id": ids[0], "key": key[-1] if key else "", "val": val[0] if val else ""})
+    row = {"id": ids[0], "key": key[-1] if key else "", "val": val[0] if val else ""}
+    if row["val"] not in elsewhere:
+        declared.append(row)
 
-rendered = [d for d in declared if d["val"] not in holdback]
-for m in re.finditer(r"systemSettings\.push_back\(SettingInfo::Action\(StrId::(STR_\w+), SettingAction::(\w+)",
-                     rebuild):
-    rendered.append({"id": m.group(1), "key": m.group(2), "val": ""})
-rendered += [d for d in declared if d["val"] in holdback]
+def loop_body(at):
+    """The brace-balanced body of the for-loop starting at offset `at`."""
+    j = rebuild.index("{", at)
+    depth, k = 0, j
+    while k < len(rebuild):
+        depth += {"{": 1, "}": -1}.get(rebuild[k], 0)
+        if depth == 0:
+            return rebuild[j:k]
+        k += 1
+    return ""
 
-check(len(rendered) >= 8, f"only modelled {len(rendered)} System rows; the parser has drifted")
+
+rendered = []
+walks = 0
+for m in re.finditer(r"addAction\(SettingsSection::General, StrId::(STR_\w+), SettingAction::(\w+)\)"
+                     r"|for \(auto& setting : all\)", rebuild):
+    if m.group(1):
+        rendered.append({"id": m.group(1), "key": m.group(2), "val": ""})
+        continue
+    walks += 1
+    # Read what each walk DOES, not what the helper says: a first walk that
+    # stopped skipping the fork rows would render them in declaration order.
+    body = loop_body(m.end())
+    if walks == 1:
+        held = holdback if re.search(r"isForkGeneralSetting\(setting\)\)\s*continue", body) else set()
+        rendered += [d for d in declared if d["val"] not in held]
+    elif walks == 2 and "isForkGeneralSetting(setting)" in body:
+        rendered += [d for d in declared if d["val"] in holdback]
+
+check(walks == 2, f"expected two walks over the shared list in rebuildSettings(), found {walks}; "
+      "the parser has drifted")
+check(len(rendered) >= 8, f"only modelled {len(rendered)} General rows; the parser has drifted")
 
 
 _UP_SEEN = {}
@@ -155,8 +182,8 @@ def is_ours(row):
 ours = [i for i, r in enumerate(rendered) if is_ours(r)]
 theirs = [i for i, r in enumerate(rendered) if not is_ours(r)]
 
-check(bool(ours), "found no CrossPlay System rows at all; this suite just checked nothing")
-check(bool(theirs), "found no CrossPoint System rows at all; the upstream comparison is broken")
+check(bool(ours), "found no CrossPlay General rows at all; this suite just checked nothing")
+check(bool(theirs), "found no CrossPoint General rows at all; the upstream comparison is broken")
 
 if ours and theirs:
     for i in ours:

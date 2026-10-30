@@ -4,6 +4,7 @@
 
 #include "util/ButtonReleaseGate.h"
 #include "util/HomeButtonInput.h"
+#include "util/RemoteButtonInput.h"
 
 class GfxRenderer;
 namespace freeink {
@@ -79,6 +80,8 @@ class MappedInputManager {
   // expires. The main loop supplies that one-frame event here.
   void setPowerConfirmClickFrame(const bool clicked) { powerConfirmClickFrame = clicked; }
 #endif
+  bool injectRemoteClick(RemoteButton button);
+  bool hasRemoteClick() const { return remoteInput.button != RemoteButton::None; }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   // One-shot threshold event while the button is down; consumes its release.
@@ -138,7 +141,6 @@ class MappedInputManager {
   // (which wasScreenTapped never reports). InputSnapshot builders forward it
   // off-target so FreeInkUI routing clears its pressed-element state.
   bool wasScreenTouchReleased() const;
-  bool wasTapInRect(int x, int y, int width, int height) const;
 
   // Combined touch interaction for a band of equal rows with caller-supplied
   // geometry — the shared hit-test for lists the theme helpers above do not
@@ -152,7 +154,7 @@ class MappedInputManager {
   // Horizontal variant for side-by-side button pairs (confirmation prompts).
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
-  SwipeDir wasSwipe() const;
+  SwipeDir wasSwipe(int* startX = nullptr, int* startY = nullptr) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
   // page turns (reader) can exclude it from a plain SwipeDir::Right.
   bool wasBackGesture() const;
@@ -172,8 +174,8 @@ class MappedInputManager {
   // key and the bottom edge is free; elsewhere the same swipe is the Home
   // gesture and this returns false.
   bool wasReaderMenuSwipeUp() const;
-  // Top-edge down-swipe opens the light panel when the active board actually
-  // has a frontlight. ActivityManager consumes it before activity input.
+  // Top-edge down-swipe opens the control center on touch boards.
+  // ActivityManager consumes it before activity input.
   bool wasLightPanelGesture() const;
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
@@ -227,6 +229,7 @@ class MappedInputManager {
   // accessor on this class is const and the bookkeeping rides along with them.
   mutable ButtonReleaseGate releaseGate;
 
+  mutable RemoteButtonInput remoteInput;
   mutable HomeButtonInput homeButtonInput;
   mutable HomeButtonAction homeAction = HomeButtonAction::Ignore;
   mutable HomeButtonAction deferredHomeAction = HomeButtonAction::Ignore;

@@ -97,7 +97,8 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
   });
 }
 
-bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std::string&, const std::string&) {
+bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std::string&, const std::string&,
+                              const std::vector<Header>&) {
   return readCanned(url, [&stream](const uint8_t* data, const size_t len) {
     stream.write(data, len);
     return true;
@@ -105,7 +106,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std:
 }
 
 bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData, const std::string&,
-                              const std::string&) {
+                              const std::string&, const std::vector<Header>&) {
   return readCanned(url, onData);
 }
 

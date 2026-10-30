@@ -42,14 +42,27 @@ class HalPowerManager {
   // Should be called inside main loop() to handle the currentLockMode
   // `timerWakeMicros` arms an RTC timer beside the power button, so the device
   // ends its own sleep. 0 keeps the old behaviour: only the button wakes it.
-  // Ends in freeink::PowerManager::deepSleepUntilPowerButtonOrTimer, which is
-  // itself [[noreturn]]. Declared so here too, because main.cpp's boot path
-  // relies on it: a boot that decides to sleep again must be unable to reach
-  // the frontlight and the sleep-screen repaint that follow the wake switch,
-  // and without the attribute that is a comment rather than a fact the
-  // compiler checks. The simulator links its OWN HalPowerManager, whose deep
-  // sleep returns when the window closes, so the attribute is device-only.
-  [[noreturn]] void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMicros = 0) const;
+  // wakeOnHeldButton: arm the wake without waiting for the power button's
+  // release, so a press that is still down wakes the device straight back up
+  // through the normal power-button wake path.
+  // Ends in freeink::PowerManager's deep sleep, which is itself [[noreturn]].
+  // Declared so here too, because main.cpp's boot path relies on it: a boot
+  // that decides to sleep again must be unable to reach the frontlight and the
+  // sleep-screen repaint that follow the wake switch, and without the attribute
+  // that is a comment rather than a fact the compiler checks. The simulator
+  // links its OWN HalPowerManager, whose deep sleep returns when the window
+  // closes, so the attribute is device-only.
+  [[noreturn]] void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMicros = 0, bool wakeOnHeldButton = false) const;
+  // Upstream's (gpio, bool) form would otherwise convert to a 1 us timer wake.
+  void startDeepSleep(HalGPIO& gpio, bool wakeOnHeldButton) const = delete;
+
+#if FREEINK_DEVICE_PICCO
+  // While USB powers the device, light-sleep instead of deep sleep (deep sleep
+  // cannot observe the charger), calling onStatus whenever the charging state
+  // or percentage changes. Returns true when the power button ended the hold,
+  // false when USB went away or was never present.
+  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(bool charging, uint16_t percent)) const;
+#endif
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

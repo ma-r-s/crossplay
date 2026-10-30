@@ -55,17 +55,17 @@ constexpr int kPillPadding = 18;
 // screen.
 constexpr int kPhotoTapHalfWidth = 90;
 
-// Latin type. The built-in serif covers U+0100-U+017F and U+01C4-U+021F, so
-// every tone-marked pinyin vowel in the deck draws -- checked against the
-// deck's own 131-codepoint Latin set before relying on it.
-constexpr int kReadingFontId = NOTOSERIF_18_FONT_ID;
-constexpr int kMeaningFontId = NOTOSERIF_16_FONT_ID;
-constexpr int kSmallFontId = NOTOSERIF_12_FONT_ID;
+// Latin type. The built-in sans covers U+0100-U+017F and U+01C4-U+021F, so
+// every tone-marked pinyin vowel in the deck draws -- the same ranges the
+// built-in serif had before upstream moved it to the SD card.
+constexpr int kReadingFontId = NOTOSANS_18_FONT_ID;
+constexpr int kMeaningFontId = NOTOSANS_16_FONT_ID;
+constexpr int kSmallFontId = NOTOSANS_12_FONT_ID;
 
-// The built-in serif sizes, largest first: the steps a card takes down when
-// it does not fit its body. 12pt is the floor; below it the panel's dither
-// eats the strokes.
-constexpr int kSerifLadder[] = {NOTOSERIF_18_FONT_ID, NOTOSERIF_16_FONT_ID, NOTOSERIF_14_FONT_ID, NOTOSERIF_12_FONT_ID};
+// The built-in sizes, largest first: the steps a card takes down when it does
+// not fit its body. 12pt is the floor; below it the panel's dither eats the
+// strokes.
+constexpr int kSerifLadder[] = {NOTOSANS_18_FONT_ID, NOTOSANS_16_FONT_ID, NOTOSANS_14_FONT_ID, NOTOSANS_12_FONT_ID};
 constexpr int kSerifSteps = static_cast<int>(sizeof(kSerifLadder) / sizeof(kSerifLadder[0]));
 constexpr int kMaxFontStep = kSerifSteps - 1;
 

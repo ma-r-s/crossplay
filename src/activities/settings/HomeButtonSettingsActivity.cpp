@@ -33,13 +33,6 @@ void HomeButtonSettingsActivity::render(RenderLock&& lock) {
 
 void HomeButtonSettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // FORK: the plain margin, folded by setContentMarginFromScreen() rather than
-  // by hand. This fork's getScreenSafeArea() already starts from the bezel's
-  // viewable insets (docs/bezel-insets.md), so a margin built from it and then
-  // handed to plain setContentMargin() counts the glass twice. Upstream's two
-  // other new screens here, AboutActivity and ClockSettingsActivity, are
-  // already written this way; host-tests/marginguard/ is what catches the one
-  // that is not, on every sync.
   screen.setContentMarginFromScreen(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
                                                 static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));

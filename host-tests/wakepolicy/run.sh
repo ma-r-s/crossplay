@@ -121,11 +121,13 @@ check(len(enter_sleep) == 1, "the unattended boot leaves through enterDeepSleep(
       % len(enter_sleep))
 
 # 7. savedLight is built from the real settings, not from constants. A literal
-#    here would make the policy correct and the inputs a lie.
+#    here would make the policy correct and the inputs a lie. The setting may
+#    sit inside a larger expression: on a board whose slide switch owns the
+#    light (the Picco), the switch decides instead.
 for field, source in (("lightOn", "SETTINGS.frontlightOn"),
                       ("restoreOnWake", "SETTINGS.frontlightRestoreOnWake"),
                       ("silentRebootLightOn", "silentRebootLightOn")):
-    check(re.search(r"\.%s\s*=\s*%s\b" % (field, re.escape(source)), src) is not None,
+    check(re.search(r"\.%s\s*=\s*[^,\n]*\b%s\b" % (field, re.escape(source)), src) is not None,
           "savedLight.%s comes from %s" % (field, source))
 
 # 8. startDeepSleepArmed is [[noreturn]], which is what makes "a boot that

@@ -912,11 +912,14 @@ void WifiSelectionActivity::render(RenderLock&&) {
   // so 32 truncated it. See ClockSyncActivity for the same class of bug.
   char countStr[64];
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
-  // fork-local seam: the header and the sub-band below it span the panel, as
-  // every other screen's do; clipped to the bezel's safe area their rules
-  // stopped 3px short of both edges.
-  GUI.drawHeader(renderer, Rect{0, screen.y + metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
+  // drawHeader self-insets by the board's viewable margins, so it takes the
+  // full-width rect at metrics.topPadding that every other caller uses; the
+  // safe-area `screen` would inset it twice.
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
                  tr(STR_WIFI_NETWORKS), countStr);
+  // fork-local seam: the sub-band below the header spans the panel, as every
+  // other screen's does; clipped to the bezel's safe area its rule stopped 3px
+  // short of both edges.
   // Why the remembered network failed, on the screen the user is actually
   // handed. Auto-connect returns to the list rather than to CONNECTION_FAILED,
   // so this line is the only place the reason is ever visible -- the log line
@@ -924,11 +927,10 @@ void WifiSelectionActivity::render(RenderLock&&) {
   // The MAC keeps its slot (the right-hand label): it is what a user needs
   // when the router filters by address, which is one of the ways this fails.
   const bool showingAutoConnectError = state == WifiSelectionState::NETWORK_LIST && !autoConnectError.empty();
-  GUI.drawSubHeader(
-      renderer,
-      Rect{0, screen.y + metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(), metrics.tabBarHeight},
-      showingAutoConnectError ? autoConnectError.c_str() : cachedMacAddress.c_str(),
-      showingAutoConnectError ? cachedMacAddress.c_str() : nullptr);
+  GUI.drawSubHeader(renderer,
+                    Rect{0, metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(), metrics.tabBarHeight},
+                    showingAutoConnectError ? autoConnectError.c_str() : cachedMacAddress.c_str(),
+                    showingAutoConnectError ? cachedMacAddress.c_str() : nullptr);
 
   switch (state) {
     case WifiSelectionState::AUTO_CONNECTING:
@@ -1125,10 +1127,8 @@ void WifiSelectionActivity::renderConnecting(const Rect* screen, const ThemeMetr
     UITheme::drawCenteredWrappedText(renderer, statusBounds, UI_12_FONT_ID, statusText, MAX_STATUS_LINES, true,
                                      EpdFontFamily::BOLD, UITheme::TextVerticalAlignment::BOTTOM);
 
-    std::string ssidInfo = std::string(tr(STR_TO_PREFIX)) + selectedSSID;
-    if (ssidInfo.length() > 25) {
-      ssidInfo.replace(22, ssidInfo.length() - 22, "...");
-    }
+    const std::string ssidInfo =
+        renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_TO_PREFIX)) + selectedSSID).c_str(), statusWidth);
     UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top, ssidInfo.c_str());
     if (autoConnecting) {
       const auto labels = mappedInput.mapLabels(tr(STR_CANCEL), tr(STR_SHOW_NETWORKS), "", "");
@@ -1143,10 +1143,9 @@ void WifiSelectionActivity::renderConnected(const Rect* screen, const ThemeMetri
 
   UITheme::drawCenteredText(renderer, *screen, UI_12_FONT_ID, top - 30, tr(STR_CONNECTED), true, EpdFontFamily::BOLD);
 
-  std::string ssidInfo = std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID;
-  if (ssidInfo.length() > 28) {
-    ssidInfo.replace(25, ssidInfo.length() - 25, "...");
-  }
+  const std::string ssidInfo =
+      renderer.truncatedText(UI_10_FONT_ID, (std::string(tr(STR_NETWORK_PREFIX)) + selectedSSID).c_str(),
+                             screen->width - metrics->contentSidePadding * 2);
   UITheme::drawCenteredText(renderer, *screen, UI_10_FONT_ID, top + 10, ssidInfo.c_str());
 
   const std::string ipInfo = std::string(tr(STR_IP_ADDRESS_PREFIX)) + connectedIP;

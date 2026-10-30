@@ -189,13 +189,14 @@ std::string deleteConsequence(bool builtIn, bool isActive);
 //
 //   1. quick resume wins outright, either because the mode IS Quick Resume or
 //      because this is a timeout sleep and the timeout flag is on;
-//   2. TRANSPARENT_CUSTOM draws /sleep-overlay.*, never /sleep.bmp;
+//   2. TRANSPARENT_CUSTOM and COVER_TRANSPARENT draw /sleep-overlay.* (over
+//      the cover, for the second), never /sleep.bmp;
 //   3. CUSTOM draws /sleep.bmp;
 //   4. COVER_CUSTOM draws /sleep.bmp only when the sleep did not come from the
 //      reader (inside a book the cover wins);
 //   5. DARK, LIGHT, COVER and BLANK never look at it.
 //
-// The nine modes, mirrored from CrossPointSettings::SLEEP_SCREEN_MODE. That
+// The ten modes, mirrored from CrossPointSettings::SLEEP_SCREEN_MODE. That
 // header pulls in ArduinoJson and the whole persistence layer, so it cannot be
 // included on a host; WallpapersActivity.cpp static_asserts every value below
 // against the real enum, which is what stops the two from drifting.
@@ -209,7 +210,8 @@ enum SleepScreenMode : uint8_t {
   kSleepQuickResume = 6,
   kSleepTransparentCustom = 7,
   kSleepNote = 8,
-  kSleepModeCount = 9,
+  kSleepCoverTransparent = 9,
+  kSleepModeCount = 10,
 };
 
 // True when SleepActivity would draw /sleep.bmp for this combination.

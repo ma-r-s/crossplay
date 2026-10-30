@@ -202,6 +202,9 @@ ALLOWED = {
     "CrossPoint-compatible": "servers speaking upstream's sync protocol",
     "CrossPoint-specific": "the same protocol's extra position data, by name",
     "**CrossPoint**": "the sync server type named CrossPoint",
+    # The URL upstream's pages link for the logo. The file served under it is
+    # CrossPlay's own icon (a copy of site/assets/favicon.svg).
+    "crosspoint-icon.svg": "the logo's asset path; the file behind it is CrossPlay's icon",
 }
 
 # Literals that are protocol or persisted keys rather than labels. Allowed only
@@ -209,6 +212,8 @@ ALLOWED = {
 ALLOWED_EXACT = {
     ("src/network/CrossPointWebServer.cpp", '"crosspoint"'):
         "the hostname fallback inside the discovery reply on the next line",
+    ("src/util/FirmwareIdentity.h", '"crosspoint"'):
+        "the plugin-system family catalogs match firmware against; a protocol value, never shown",
 }
 
 # Translation keys naming something upstream publishes, so the words stay
