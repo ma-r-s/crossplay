@@ -5,7 +5,7 @@ everybody wants. This file is the rest: installing by hand, updating a device
 you already flashed, and reflashing with no cable at all.
 
 Everything here is for the **Xteink X4 Pro**, **Seeed reTerminal Sticky**,
-and **M5Stack PaperMono / PaperMono-Lite**. All are ESP32-S3. The plain X4 and the X3 are
+**M5Stack PaperMono / PaperMono-Lite**, and **Onyx BOOX Picco**. All are ESP32-S3. The plain X4 and the X3 are
 ESP32-C3, these binaries are not for them, and flashing one there is a
 cross-chip flash. Install [CrossPoint](https://crosspointreader.com/) on those
 instead: it is excellent, and it is what this is built on.
@@ -48,6 +48,20 @@ the red LED flashes, then release it. If it does not restart after flashing, dou
 it off, then press it once to start. PaperMono and Lite use the same image; the Lite omits NFC and LoRa,
 which CrossPlay does not use. See [PaperMono support](papermono.md) for build and
 hardware verification details.
+
+### BOOX Picco (Single App Slot at 0xE0000)
+
+The **BOOX Picco** preserves its vendor bootloader, partition table, and `safeboot` recovery partition. It is **never** flashed at `0x0`. Instead, flash only the single application image (`firmware.bin` or `crossplay-boox-picco-firmware.bin`) to **`0xE0000`**:
+
+```bash
+esptool.py --chip esp32s3 --baud 921600 write_flash 0xE0000 crossplay-boox-picco-firmware.bin
+```
+
+Or from source with PlatformIO:
+```bash
+pio run -e gh_release_picco -t upload
+```
+The custom PlatformIO uploader verifies and enforces that only the `0xE0000` offset is written, completely protecting recovery.
 
 If a flash goes wrong, [fix-bricked-xteink.md](fix-bricked-xteink.md) is the
 way back.
