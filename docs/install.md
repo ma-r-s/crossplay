@@ -51,6 +51,9 @@ hardware verification details.
 
 ### BOOX Picco (Single App Slot at 0xE0000)
 
+> [!WARNING]
+> **Experimental / Use at Your Own Risk**: Support for the BOOX Picco is **for experimental purposes only**, was developed with AI assistance / generation, and has undergone **limited production testing**. Always take a full backup of your flash (`esptool.py read_flash`) before writing, and proceed at your own risk.
+
 The **BOOX Picco** preserves its vendor bootloader, partition table, and `safeboot` recovery partition. It is **never** flashed at `0x0`. Instead, flash only the single application image (`firmware.bin` or `crossplay-boox-picco-firmware.bin`) to **`0xE0000`**:
 
 ```bash

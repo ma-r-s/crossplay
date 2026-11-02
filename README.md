@@ -157,6 +157,9 @@ Confirm exists only on the Sticky, which
 
 ### BOOX Picco
 
+> [!WARNING]
+> **Experimental / Use at Your Own Risk**: Support for the BOOX Picco in CrossPlay is **for experimental purposes only**. It was developed with AI assistance / generation and has received **limited production testing**. While tested and confirmed working on physical hardware, flash at your own risk and always keep a full flash backup.
+
 The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 e-reader featuring a 480×800 portrait e-ink panel, capacitive touch, physical Up/Down side buttons, and a hardware toggle switch. Unlike other devices, the Picco retains its factory partition table, which includes a vendor `safeboot` recovery partition. CrossPlay completely respects that layout and installs **strictly into the single application partition at `0xE0000`**, never touching the vendor bootloader (`0x0`), NVS (`0x9000`), or `safeboot` recovery (`0x20000`).
 
 #### Installing Pre-Built Firmware
@@ -205,7 +208,7 @@ esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin
 ```
 Because CrossPlay never overwrites `0x20000` (`safeboot`), the hardware recovery partition is always preserved. Installing BOOX's official firmware or CrossPoint via their web flasher restores the stock state at any time.
 
-Every release is flashed to real hardware (X4 Pro, Sticky, and BOOX Picco) before it ships. If you install it, please [say what happened](https://github.com/glintux/crossplay/issues), either way.
+Every release is flashed to real hardware (X4 Pro, Sticky, and BOOX Picco) before it ships. BOOX Picco support remains experimental with limited production testing, so if you install it, please [say what happened](https://github.com/glintux/crossplay/issues), either way.
 
 ## What it does over the network
 
