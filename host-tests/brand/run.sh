@@ -205,6 +205,8 @@ ALLOWED = {
     # The URL upstream's pages link for the logo. The file served under it is
     # CrossPlay's own icon (a copy of site/assets/favicon.svg).
     "crosspoint-icon.svg": "the logo's asset path; the file behind it is CrossPlay's icon",
+    # Upstream 2.0.0 JS plugin bridge exposed on window.CrossPoint:
+    "CrossPoint.": "the plugin bridge global on window; protocol API, never shown",
 }
 
 # Literals that are protocol or persisted keys rather than labels. Allowed only

@@ -188,7 +188,7 @@ EXEMPT = {
 # `.agents` is upstream's agent rulebook (#3890), written for upstream's C3
 # default and linked from nowhere in this fork's AGENTS.md; a raw build is
 # refused by the guard hook here whatever it says.
-SKIP_DIRS = {".git", ".pio", "freeink-sdk", "node_modules", "fs_agent",
+SKIP_DIRS = {".git", ".pio", ".platformio", "freeink-sdk", "node_modules", "fs_agent",
              "fs_mario", "qa-artifacts", "emulator", ".cache", "archive", ".agents"}
 # Deliberately NOT fence-aware. Fence tracking was a toggle that a nested or
 # `~~~` block desynced silently, and it made a four-space indented code block
