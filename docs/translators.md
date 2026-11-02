@@ -66,6 +66,9 @@ If you'd like to add your name to this list, please open a PR adding yourself an
 ## Danish
 - [hajisan](https://github.com/hajisan)
 
+## Polish
+- [marczykm](https://github.com/marczykm)
+
 ## Some strings cannot wrap, and have a hard pixel budget
 
 A number of screens draw a string through `renderer.drawCenteredText`, which
