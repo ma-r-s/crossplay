@@ -303,10 +303,10 @@ void CrossPointWebServer::begin() {
     server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
     server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
 
-<<<<<<< HEAD
     // Browser-side plugins (JS on the SD card) + their generic capabilities.
     server->on("/api/plugins", HTTP_GET, [this] { handlePluginList(); });
     server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
+    server->on("/plugins", HTTP_GET, [this] { handlePluginsPage(); });
     server->on("/plugins-run", HTTP_GET, [this] { handlePluginRunnerPage(); });
     server->on("/api/plugin-jobs", HTTP_POST, [this] { handlePluginJobSubmit(); });
     server->on("/api/plugin-jobs/claim", HTTP_GET, [this] { handlePluginJobClaim(); });
@@ -317,22 +317,6 @@ void CrossPointWebServer::begin() {
     server->on("/api/fetch", HTTP_POST, [this] { handleFetch(); });
     server->on("/api/book-key", HTTP_POST, [this] { handleBookKey(); });
     server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsUpload(); });
-=======
-  // Browser-side plugins (JS on the SD card) + their generic capabilities.
-  server->on("/api/plugins", HTTP_GET, [this] { handlePluginList(); });
-  server->on("/plugin", HTTP_GET, [this] { handlePluginFile(); });
-  server->on("/plugins", HTTP_GET, [this] { handlePluginsPage(); });
-  server->on("/plugins-run", HTTP_GET, [this] { handlePluginRunnerPage(); });
-  server->on("/api/plugin-jobs", HTTP_POST, [this] { handlePluginJobSubmit(); });
-  server->on("/api/plugin-jobs/claim", HTTP_GET, [this] { handlePluginJobClaim(); });
-  server->on("/api/plugin-jobs/complete", HTTP_POST, [this] { handlePluginJobComplete(); });
-  server->on("/api/plugin-jobs/status", HTTP_GET, [this] { handlePluginJobStatus(); });
-  server->on("/api/relay", HTTP_POST, [this] { handleRelay(); });
-  server->on("/api/crypto", HTTP_POST, [this] { handleCrypto(); });
-  server->on("/api/fetch", HTTP_POST, [this] { handleFetch(); });
-  server->on("/api/book-key", HTTP_POST, [this] { handleBookKey(); });
-  server->on("/api/plugin-fs", HTTP_POST, [this] { handlePluginFs(); }, [this] { handlePluginFsUpload(); });
->>>>>>> 2.0.0
 
     // Wi-Fi credential endpoints
     server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
