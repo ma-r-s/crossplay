@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.14.3
+
+- Solitaire: in a long column, the top open card always shows its rank and suit.
+
 ### 1.14.2
 
 - Sync CrossPoint develop (18 commits)
