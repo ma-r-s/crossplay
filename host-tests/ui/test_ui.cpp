@@ -8768,6 +8768,33 @@ bool contains(const std::vector<int>& actions, const int action) {
   return false;
 }
 
+// Report box #695: "make the lines on the top grid darker, so that it is
+// easier to differentiate each sub grid." The four rules between boxes were
+// 3px, a third of the 9px frame around them, and read as cell lines. They
+// are drawn at kBoxRule now: measured off the rendered board, not the constant.
+void testSudokuBoxRulesStandOutFromCellLines() {
+  sudokuui::BoardModel model;
+  model.game = aSudokuGame(sudoku::Level::Easy);
+  Rendered board;
+  buildSudokuBoard(board, model);
+  const int side = sudokuui::kGridSide;
+  int boxRules = 0;
+  int cellLines = 0;
+  for (size_t i = 0; i < board.target.fills.size(); ++i) {
+    const fui::Rect& r = board.target.fills[i];
+    const bool across = r.width == side && r.height < side;
+    const bool down = r.height == side && r.width < side;
+    if (!across && !down) continue;
+    const int weight = across ? r.height : r.width;
+    if (weight == sudokuui::kBoxRule) boxRules++;
+    if (weight == toybox::kHairline) cellLines++;
+  }
+  CHECK(boxRules == 4);
+  CHECK(cellLines == 12);
+  CHECK(sudokuui::kBoxRule > toybox::kRule);
+  CHECK(sudokuui::kBoxRule < toybox::kBoardFrame);
+}
+
 // The pair has to be an exact inverse, not merely agree at the centres. Both
 // halves matter: a rect the hit test does not cover is a dead region, and a
 // point the hit test claims for a cell outside that cell's rect is a tap that
@@ -14928,6 +14955,7 @@ int main() {
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testTheSudokuGridAndItsHitTestAreExactInverses();
+  testSudokuBoxRulesStandOutFromCellLines();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
