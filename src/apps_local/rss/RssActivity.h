@@ -120,6 +120,9 @@ class RssActivity final : public Activity {
   std::string siteForSaved(const std::string& url) const;
 
   // --- Reading ---------------------------------------------------------
+  // The row a tap named, as an index into posts_ or the saved shelf; -1 when it
+  // names nothing.
+  int viewAt(int viewIndex);
   void openPost(int viewIndex);
   bool fetchArticle();
   void showDocument(const rss::Post& post, const std::string& words, const char* note);

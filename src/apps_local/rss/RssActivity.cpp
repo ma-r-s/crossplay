@@ -705,9 +705,16 @@ void RssActivity::pageList(const int delta) {
 
 // --- Reading -------------------------------------------------------------
 
+int RssActivity::viewAt(const int viewIndex) {
+  // render() rebuilds view_ when it is stale, on the render task, so it is read
+  // here under the same lock rather than mid-rebuild.
+  RenderLock lock(*this);
+  if (viewIndex < 0 || viewIndex >= static_cast<int>(view_.size())) return -1;
+  return view_[static_cast<size_t>(viewIndex)];
+}
+
 void RssActivity::openPost(const int viewIndex) {
-  if (viewIndex < 0 || viewIndex >= static_cast<int>(view_.size())) return;
-  const int index = view_[static_cast<size_t>(viewIndex)];
+  const int index = viewAt(viewIndex);
   if (index < 0 || index >= static_cast<int>(posts_.size())) return;
   const rss::Post& post = posts_[static_cast<size_t>(index)];
   selected_ = viewIndex;
@@ -833,9 +840,8 @@ void RssActivity::showDocument(const rss::Post& post, const std::string& words, 
 }
 
 void RssActivity::openSaved(const int viewIndex) {
-  if (viewIndex < 0 || viewIndex >= static_cast<int>(view_.size())) return;
   const auto& saved = library_.articles();
-  const int index = view_[static_cast<size_t>(viewIndex)];
+  const int index = viewAt(viewIndex);
   if (index < 0 || index >= static_cast<int>(saved.size())) return;
   const hn::SavedArticle& article = saved[static_cast<size_t>(index)];
   std::string text;
