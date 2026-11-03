@@ -163,6 +163,9 @@ Confirm exists only on the Sticky, which
 > [!WARNING]
 > **Experimental / Use at Your Own Risk**: Support for the BOOX Picco in CrossPlay is **for experimental purposes only**. It was developed with AI assistance / generation and has received **limited production testing**. While tested and confirmed working on physical hardware, flash at your own risk and always keep a full flash backup.
 
+> [!NOTE]
+> **PSRAM Display Buffers**: Display framebuffers are allocated in external PSRAM (`FREEINK_FB_PSRAM=1`). This keeps internal DRAM free for Wi-Fi MAC DMA packet buffers during TLS downloads (Wordle, XKCD, Hacker News).
+
 The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 e-reader featuring a 480×800 portrait e-ink panel, capacitive touch, physical Up/Down side buttons, and a hardware toggle switch. Unlike other devices, the Picco retains its factory partition table, which includes a vendor `safeboot` recovery partition. CrossPlay completely respects that layout and installs **strictly into the single application partition at `0xE0000`**, never touching the vendor bootloader (`0x0`), NVS (`0x9000`), or `safeboot` recovery (`0x20000`).
 
 #### Installing Pre-Built Firmware
