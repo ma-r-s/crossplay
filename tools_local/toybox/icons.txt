@@ -465,3 +465,8 @@ wordle        = spell-check
 # The keyboard's delete key: Lucide's `delete` is a backspace key, which is the
 # thing on every phone keyboard, where an arrow alone read as "go back".
 wordle_delete = delete
+# RSS is the feed mark itself, a dot and two arcs: what the word means to anyone
+# who has seen it on a website, and a silhouette nothing else on the shelf has.
+# `newspaper` was the literal choice and Hacker News already wears it. Spliced
+# in by hand (see the warning at the top of this file).
+rss           = rss
