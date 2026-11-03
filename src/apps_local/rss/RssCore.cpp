@@ -3,8 +3,8 @@
 #include <Utf8.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
@@ -132,8 +132,7 @@ uint32_t toUnix(const int year, const int month, const int day, const int hour, 
     return 0;
   }
   const int64_t days = daysFromCivil(year, static_cast<unsigned>(month), static_cast<unsigned>(day));
-  const int64_t seconds =
-      days * 86400 + hour * 3600 + minute * 60 + second - static_cast<int64_t>(offsetMinutes) * 60;
+  const int64_t seconds = days * 86400 + hour * 3600 + minute * 60 + second - static_cast<int64_t>(offsetMinutes) * 60;
   if (seconds <= 0 || seconds > 0xFFFFFFFFll) return 0;
   return static_cast<uint32_t>(seconds);
 }
@@ -223,9 +222,8 @@ bool zoneOffset(const std::string_view zone, int& minutes) {
     const char* name;
     int hours;
   };
-  static constexpr Zone kZones[] = {{"GMT", 0},  {"UTC", 0},  {"UT", 0},   {"Z", 0},   {"EST", -5},
-                                    {"EDT", -4}, {"CST", -6}, {"CDT", -5}, {"MST", -7}, {"MDT", -6},
-                                    {"PST", -8}, {"PDT", -7}};
+  static constexpr Zone kZones[] = {{"GMT", 0},  {"UTC", 0},  {"UT", 0},   {"Z", 0},    {"EST", -5}, {"EDT", -4},
+                                    {"CST", -6}, {"CDT", -5}, {"MST", -7}, {"MDT", -6}, {"PST", -8}, {"PDT", -7}};
   for (const Zone& z : kZones) {
     if (equalsFold(zone, z.name)) {
       minutes = z.hours * 60;
@@ -317,7 +315,7 @@ constexpr Named kNamed[] = {
     {"hyphen", 0x2010}, {"ndash", 0x2013},  {"mdash", 0x2014},  {"lsquo", 0x2018},  {"rsquo", 0x2019},
     {"sbquo", 0x201A},  {"ldquo", 0x201C},  {"rdquo", 0x201D},  {"bdquo", 0x201E},  {"dagger", 0x2020},
     {"Dagger", 0x2021}, {"bull", 0x2022},   {"hellip", 0x2026}, {"permil", 0x2030}, {"prime", 0x2032},
-    {"Prime", 0x2033},  {"lsaquo", 0x2039}, {"rsaquo", 0x203A}, {"euro", 0x20AC},  {"trade", 0x2122},
+    {"Prime", 0x2033},  {"lsaquo", 0x2039}, {"rsaquo", 0x203A}, {"euro", 0x20AC},   {"trade", 0x2122},
     {"larr", 0x2190},   {"uarr", 0x2191},   {"rarr", 0x2192},   {"darr", 0x2193},   {"harr", 0x2194},
     {"minus", 0x2212},  {"le", 0x2264},     {"ge", 0x2265},     {"ne", 0x2260},
 };
@@ -349,16 +347,15 @@ bool tagIs(const std::string_view name, std::initializer_list<const char*> names
 }
 
 bool isBlockTag(const std::string_view name) {
-  return tagIs(name, {"p",          "div",     "br",     "hr",     "h1",      "h2",     "h3",     "h4",   "h5",
-                      "h6",         "li",      "ul",     "ol",     "dl",      "dt",     "dd",     "pre",  "table",
-                      "tr",         "section", "article", "header", "footer", "aside",  "nav",    "main", "figure",
+  return tagIs(name, {"p",          "div",     "br",      "hr",      "h1",     "h2",         "h3",    "h4",   "h5",
+                      "h6",         "li",      "ul",      "ol",      "dl",     "dt",         "dd",    "pre",  "table",
+                      "tr",         "section", "article", "header",  "footer", "aside",      "nav",   "main", "figure",
                       "figcaption", "address", "details", "summary", "center", "blockquote", "tbody", "thead"});
 }
 
 // Elements whose contents are never words for a reader.
 bool isSkippedTag(const std::string_view name) {
-  return tagIs(name,
-               {"script", "style", "noscript", "template", "svg", "math", "iframe", "object", "head", "select"});
+  return tagIs(name, {"script", "style", "noscript", "template", "svg", "math", "iframe", "object", "head", "select"});
 }
 
 // Finds "</name" (any case) at or after `from`, and returns the index just past
@@ -397,8 +394,41 @@ size_t tagEnd(const std::string_view html, const size_t lt) {
   return std::string_view::npos;
 }
 
+// Pictographs: arrows and signs the fold did not turn into ASCII, geometric
+// shapes, dingbats, emoji and their variation selectors, private use. (The
+// zero-width joiner between emoji is the fold's already.) No cut
+// on this device draws any of them, and a glyph a cut lacks draws as NOTHING
+// -- so a headline marked with a star kept a hole where the star was. Dropping
+// them loses decoration. Letters of every script are left alone, because a
+// wrong letter is worse than a missing one (lib/Utf8/Utf8.h says why).
+bool isPictograph(const uint32_t cp) {
+  return (cp >= 0x2190 && cp <= 0x2BFF) || (cp >= 0x1F000 && cp <= 0x1FAFF) || (cp >= 0xFE00 && cp <= 0xFE0F) ||
+         (cp >= 0xE000 && cp <= 0xF8FF) || cp == 0xFFFD;
+}
+
+std::string withoutPictographs(const std::string& text) {
+  bool any = false;
+  for (const char c : text) {
+    if (static_cast<unsigned char>(c) >= 0xE2) {
+      any = true;
+      break;
+    }
+  }
+  if (!any) return text;
+  std::string out;
+  out.reserve(text.size());
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(text.c_str());
+  while (*p != 0) {
+    const unsigned char* start = p;
+    const uint32_t cp = utf8NextCodepoint(&p);
+    if (p == start) break;
+    if (!isPictograph(cp)) out.append(reinterpret_cast<const char*>(start), static_cast<size_t>(p - start));
+  }
+  return out;
+}
+
 std::string finishParagraph(const std::string& raw) {
-  return utf8CollapseWhitespace(utf8FoldTypography(decodeEntities(raw)));
+  return utf8CollapseWhitespace(withoutPictographs(utf8FoldTypography(decodeEntities(raw))));
 }
 
 }  // namespace
@@ -457,7 +487,8 @@ std::string resolveUrl(const std::string_view base, const std::string_view rawHr
     out.append(parts.query);
     return out + std::string(href);
   }
-  if (href[0] == '?') return origin + (parts.path.empty() ? std::string("/") : std::string(parts.path)) + std::string(href);
+  if (href[0] == '?')
+    return origin + (parts.path.empty() ? std::string("/") : std::string(parts.path)) + std::string(href);
 
   // Split the reference's own query and fragment off before resolving its path.
   const size_t tail = href.find_first_of("?#");
@@ -487,6 +518,18 @@ std::string hostOf(const std::string_view url) {
   for (char& c : out) c = lower(c);
   if (out.rfind("www.", 0) == 0) out.erase(0, 4);
   return out;
+}
+
+std::string shortName(const std::string_view title) {
+  static constexpr std::string_view kSeparators[] = {
+      ": ", " - ", " -- ", " | ", " \xE2\x80\x94 ", " \xE2\x80\x93 ", " \xC2\xBB ", " :: "};
+  size_t cut = std::string_view::npos;
+  for (const std::string_view sep : kSeparators) {
+    const size_t at = title.find(sep);
+    if (at != std::string_view::npos && at < cut) cut = at;
+  }
+  if (cut == std::string_view::npos || cut < 3) return std::string(trim(title));
+  return std::string(trim(title.substr(0, cut)));
 }
 
 // --- Dates ---------------------------------------------------------------
@@ -736,18 +779,26 @@ void sortNewestFirst(std::vector<Post>& posts) {
 }
 
 std::vector<Post> combine(const std::vector<Feed>& feeds, const std::vector<Post>& previous,
-                          const std::vector<Post>& fresh, const std::vector<std::string>& answered) {
+                          const std::vector<Post>& fresh) {
   std::vector<Post> out;
-  out.reserve(fresh.size() + previous.size());
+  out.reserve(std::min(fresh.size() + previous.size(), feeds.size() * static_cast<size_t>(kPostsPerFeed)));
+  std::vector<Post> mine;
   for (const Feed& feed : feeds) {
     const std::string key = keyFor(feed.url);
-    // Asked rather than inferred from whether fresh posts exist: a feed that
-    // answered with an empty channel has none, and must not keep its old ones.
-    const bool didAnswer = std::find(answered.begin(), answered.end(), key) != answered.end();
-    const std::vector<Post>& source = didAnswer ? fresh : previous;
-    for (const Post& post : source) {
-      if (post.feed == key) out.push_back(post);
+    mine.clear();
+    for (const Post& post : fresh) {
+      if (post.feed == key) mine.push_back(post);
     }
+    const size_t freshCount = mine.size();
+    for (const Post& post : previous) {
+      if (post.feed != key) continue;
+      bool seen = false;
+      for (size_t i = 0; i < freshCount && !seen; ++i) seen = mine[i].id == post.id;
+      if (!seen) mine.push_back(post);
+    }
+    sortNewestFirst(mine);
+    if (mine.size() > static_cast<size_t>(kPostsPerFeed)) mine.resize(kPostsPerFeed);
+    for (Post& post : mine) out.push_back(std::move(post));
   }
   sortNewestFirst(out);
   return out;
@@ -809,7 +860,8 @@ bool body(const std::string_view text, const char* magic, std::string_view& rows
   const size_t magicLen = std::strlen(magic);
   if (text.size() < magicLen + 2 || text.compare(0, magicLen, magic) != 0 || text[magicLen] != ' ') return false;
   const size_t nl = text.find('\n');
-  const std::string version(text.substr(magicLen + 1, (nl == std::string_view::npos ? text.size() : nl) - magicLen - 1));
+  const std::string version(
+      text.substr(magicLen + 1, (nl == std::string_view::npos ? text.size() : nl) - magicLen - 1));
   const long v = std::strtol(version.c_str(), nullptr, 10);
   if (v < 1 || v > kVersion) return false;
   rows = nl == std::string_view::npos ? std::string_view{} : text.substr(nl + 1);

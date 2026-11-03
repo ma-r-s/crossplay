@@ -9,9 +9,9 @@ namespace {
 constexpr int kBodyTop = toybox::kBodyTop;
 constexpr int kFooterHeight = toybox::kPillHeight;
 
-// The site's name at the right of a post row: a footnote, in the dense cut,
-// cut short when it is long. Room for "Daring Fireball" and its like.
-constexpr int16_t kSiteWidth = 104;
+// The most a site's name may take at the right of a post row: a footnote, in
+// the dense cut, cut short past this. Room for "Daring Fireball" and its like.
+constexpr int16_t kSiteWidth = 132;
 
 // A 12px dot, and the same square left empty. Mask1: a set bit is paper.
 constexpr uint8_t kDotBits[] = {0xFF, 0xFF, 0xE0, 0x7F, 0xC0, 0x3F, 0x80, 0x1F, 0x80, 0x1F, 0x80, 0x1F,
@@ -21,6 +21,10 @@ constexpr uint8_t kBlankBits[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 constexpr int16_t kMarkSize = 12;
 // What the list puts between the mark and the headline.
 constexpr int16_t kMarkGap = 8;
+// The scroll track the list draws beside its rows once they page, which takes
+// its width out of every row. Reserved whether or not it is drawn: a headline
+// fitted a few pixels too wide is cut mid-word by the component instead.
+constexpr int16_t kScrollRoom = 8;
 
 void chrome(toybox::Screen& screen, const char* title) {
   fui::HeaderProps header;
@@ -42,9 +46,8 @@ void segments(toybox::Screen& screen, const Tab tab, const bool narrowed) {
     fui::ActionId action;
     Tab tab;
   };
-  const Segment all[] = {{"ALL", ActionShowAll, Tab::All},
-                         {"FEEDS", ActionShowFeeds, Tab::Feeds},
-                         {"SAVED", ActionShowSaved, Tab::Saved}};
+  const Segment all[] = {
+      {"ALL", ActionShowAll, Tab::All}, {"FEEDS", ActionShowFeeds, Tab::Feeds}, {"SAVED", ActionShowSaved, Tab::Saved}};
   int16_t x = strip.x;
   for (int i = 0; i < 3; ++i) {
     const bool here = all[i].tab == tab;
@@ -94,9 +97,7 @@ void list(toybox::Screen& screen, const ListModel& model, const fui::ActionId ac
 
 // --- Geometry ------------------------------------------------------------
 
-fui::Rect postsBand(const fui::DeviceContext& device) {
-  return bandAbove(device, kFooterHeight + toybox::kGutter);
-}
+fui::Rect postsBand(const fui::DeviceContext& device) { return bandAbove(device, kFooterHeight + toybox::kGutter); }
 
 fui::Rect feedsBand(const fui::DeviceContext& device) {
   // The way to the phone sits between the rows and the segments.
@@ -123,18 +124,17 @@ fui::TextStyle footnoteStyle(const fui::ThemeTokens& tokens) {
 
 int16_t postSiteWidth() { return kSiteWidth; }
 
-int16_t postTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                       const fui::ThemeTokens& tokens) {
-  (void)target;
-  return static_cast<int16_t>(postsBand(device).width - 2 * tokens.listSidePadding - kMarkSize - kMarkGap -
-                              kSiteWidth - kMarkGap);
+int16_t postTitleWidth(const fui::DeviceContext& device, const fui::ThemeTokens& tokens, const int16_t siteWidth) {
+  return static_cast<int16_t>(postsBand(device).width - kScrollRoom - 2 * tokens.listSidePadding - kMarkSize -
+                              kMarkGap - (siteWidth > 0 ? siteWidth + kMarkGap : 0));
 }
 
 int16_t feedTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
                        const fui::ThemeTokens& tokens) {
   const fui::TextStyle count = footnoteStyle(tokens);
   const int16_t countWidth = target.measureText(count.font, "FAILED", count).width;
-  return static_cast<int16_t>(feedsBand(device).width - 2 * tokens.listSidePadding - countWidth - toybox::kGutter);
+  return static_cast<int16_t>(feedsBand(device).width - kScrollRoom - 2 * tokens.listSidePadding - countWidth -
+                              toybox::kGutter);
 }
 
 fui::BitmapRef unreadMark() { return fui::BitmapRef{kDotBits, kMarkSize, kMarkSize, fui::BitmapFormat::Mask1}; }
@@ -217,35 +217,34 @@ fui::Rect buildPhone(toybox::Screen& screen, const PhoneModel& model) {
   line.maxLines = 1;
   const int16_t lineHeight = screen.target().lineHeight(line.font);
 
-  const auto fitted = [&screen, &line, width](const int16_t y, const char* text) {
-    const std::string fit = toybox::fitLines(screen.target(), text, width, 1, line);
-    screen.target().text(fui::makeRect(toybox::kMargin, y, width, line.maxLines * screen.target().lineHeight(line.font)),
-                         fit.c_str(), line);
+  const auto fitted = [&screen, &line, width](const int16_t y, const char* text, const int lines) {
+    fui::TextStyle style = line;
+    style.maxLines = static_cast<uint8_t>(lines);
+    const std::string fit = toybox::fitLines(screen.target(), text, width, lines, style);
+    screen.target().text(fui::makeRect(toybox::kMargin, y, width, lines * screen.target().lineHeight(style.font)),
+                         fit.c_str(), style);
   };
 
   int16_t y = static_cast<int16_t>(kBodyTop + toybox::kGutter);
-  fitted(y, "Scan this with your phone.");
+  fitted(y, "Scan this with your phone.", 1);
   y = static_cast<int16_t>(y + lineHeight + toybox::kGutter * 2);
 
   // The code takes about half the panel, so the address under it -- the one
   // string somebody may have to type -- is not pushed into a corner.
-  const int16_t room = static_cast<int16_t>(footerY - toybox::kGutter * 2 - y - lineHeight * 4);
+  const int16_t room = static_cast<int16_t>(footerY - toybox::kGutter * 3 - y - lineHeight * 5);
   int16_t side = room < width ? room : width;
   if (side > 300) side = 300;
   if (side < 120) side = 120;
   const fui::Rect qr = fui::makeRect(static_cast<int16_t>((device.width - side) / 2), y, side, side);
 
   y = static_cast<int16_t>(qr.y + qr.height + toybox::kGutter);
-  fitted(y, model.readable);
+  fitted(y, model.readable, 1);
   y = static_cast<int16_t>(y + lineHeight + toybox::kGutter);
   // The state says whether anything has happened. A screen whose whole promise
-  // is "add it over there and it appears here" has to answer "did it".
-  fui::TextStyle state = footnoteStyle(screen.theme());
-  state.align = fui::TextAlign::Center;
-  state.maxLines = 1;
-  const std::string status = toybox::fitLines(screen.target(), model.status, width, 1, state);
-  screen.target().text(fui::makeRect(toybox::kMargin, y, width, screen.target().lineHeight(state.font)),
-                       status.c_str(), state);
+  // is "add it over there and it appears here" has to answer "did it", in the
+  // same face as the address rather than a footnote under it. Two lines,
+  // because it carries a feed's own name and some names are long.
+  fitted(y, model.status, 2);
   return qr;
 }
 

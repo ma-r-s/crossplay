@@ -52,6 +52,12 @@ constexpr size_t kMaxBodyBytes = 256u * 1024u;
 // What a refused feed says, on the device and on the phone alike.
 constexpr const char* kNoFeedThere = "No feed at that address.";
 
+// The line under a post shown from its feed's summary, because a summary that
+// stops mid-thought otherwise reads as a page that failed to load.
+constexpr const char* kNoteOffline = "That is all the feed carries. The rest of the post needs a connection.";
+constexpr const char* kNoteNotText = "That is all the feed carries. The page itself would not come through as text.";
+constexpr const char* kNoteNotAPage = "That is all the feed carries, and its link is not a page this reader can open.";
+
 bool readText(const char* path, const size_t cap, std::string& out) {
   out.clear();
   if (!Storage.exists(path)) return false;
@@ -145,7 +151,7 @@ void RssActivity::loadAll() {
   if (readText(kReadPath, kMaxIndexBytes, text)) rss::parseRead(text, read_);
   // Posts of a feed that is no longer here are not shown, whatever the file
   // says: a feed removed while the card was elsewhere must not linger.
-  posts_ = rss::combine(feeds_, posts_, {}, {});
+  posts_ = rss::combine(feeds_, posts_, {});
 }
 
 bool RssActivity::saveFeeds() {
@@ -212,8 +218,11 @@ void RssActivity::ensureConnected(const Pending what) {
                            afterConnect_ = Pending::None;
                            if (result.isCancelled) {
                              // Declining is not wanting out. The list is still
-                             // the one read last time, and it still reads.
+                             // the one read last time, and it still reads -- and
+                             // a post whose feed carried a summary still has
+                             // that much to show.
                              LOG_INF("RSS", "no Wi-Fi; showing what is on the card");
+                             if (what == Pending::Article) showSummaryOffline();
                              requestUpdate();
                              return;
                            }
@@ -348,10 +357,10 @@ RssActivity::FetchResult RssActivity::fetchFeed(const std::string& url, const bo
   return result;
 }
 
-void RssActivity::adopt(const std::vector<rss::Post>& fresh, const std::vector<std::string>& answered) {
+void RssActivity::adopt(const std::vector<rss::Post>& fresh) {
   {
     RenderLock lock(*this);
-    posts_ = rss::combine(feeds_, posts_, fresh, answered);
+    posts_ = rss::combine(feeds_, posts_, fresh);
     read_.retainOnly(posts_);
     viewStale_ = true;
   }
@@ -366,7 +375,7 @@ void RssActivity::refreshAll() {
   const uint32_t now = nowOrZero();
   std::vector<rss::Post> fresh;
   fresh.reserve(feeds_.size() * rss::kPostsPerFeed);
-  std::vector<std::string> answered;
+  int answered = 0;
   const int count = static_cast<int>(feeds_.size());
   int failed = 0;
   for (int i = 0; i < count && !stopRefresh_; ++i) {
@@ -399,13 +408,12 @@ void RssActivity::refreshAll() {
     // name it gives itself.
     if (!result.title.empty() && feed.title == rss::hostOf(feed.url)) feed.title = result.title;
     rss::settleDates(result.posts, posts_, now);
-    answered.push_back(rss::keyFor(feed.url));
+    ++answered;
     for (rss::Post& post : result.posts) fresh.push_back(std::move(post));
   }
   busyStoppable_ = false;
-  LOG_INF("RSS", "refresh: %d of %d feeds read, %d failed%s", static_cast<int>(answered.size()), count, failed,
-          stopRefresh_ ? ", stopped" : "");
-  adopt(fresh, answered);
+  LOG_INF("RSS", "refresh: %d of %d feeds read, %d failed%s", answered, count, failed, stopRefresh_ ? ", stopped" : "");
+  adopt(fresh);
   stopRefresh_ = false;
   {
     RenderLock lock(*this);
@@ -595,7 +603,7 @@ std::string RssActivity::siteForSaved(const std::string& url) const {
   for (const rss::Post& post : posts_) {
     if (post.link != url) continue;
     const int feed = feedIndexForKey(post.feed);
-    if (feed >= 0) return feeds_[static_cast<size_t>(feed)].title;
+    if (feed >= 0) return rss::shortName(feeds_[static_cast<size_t>(feed)].title);
   }
   return url.rfind("rss:", 0) == 0 ? std::string() : rss::hostOf(url);
 }
@@ -659,7 +667,7 @@ void RssActivity::openPost(const int viewIndex) {
   if (post.link.empty() || !hn::urlCanBeArticle(post.link)) {
     std::string summary;
     if (post.body == rss::Body::Summary && readText(bodyPath(post.id, post.body).c_str(), kMaxBodyBytes, summary)) {
-      showDocument(post, summary, "That is all the feed carries, and its link is not a page this reader can open.");
+      showDocument(post, summary, kNoteNotAPage);
       return;
     }
     showNotice("NOT READABLE HERE", "That post is a link to something only a browser can open.", true);
@@ -689,7 +697,7 @@ bool RssActivity::fetchArticle() {
   if (!ok && !overLimit) {
     LOG_ERR("RSS", "article fetch failed for %s", post.link.c_str());
     if (haveSummary) {
-      showDocument(post, summary, "That is all the feed carries. The rest of the post needs a connection.");
+      showDocument(post, summary, kNoteOffline);
       return true;
     }
     return false;
@@ -700,7 +708,7 @@ bool RssActivity::fetchArticle() {
   if (!hn::readsAsProse(extracted.body)) {
     LOG_INF("RSS", "gate rejected %s (%d prose chars)", post.link.c_str(), hn::proseChars(extracted.body));
     if (haveSummary) {
-      showDocument(post, summary, "That is all the feed carries. The page itself would not come through as text.");
+      showDocument(post, summary, kNoteNotText);
       return true;
     }
     showNotice("NOT READABLE HERE",
@@ -716,31 +724,46 @@ bool RssActivity::fetchArticle() {
   return true;
 }
 
+void RssActivity::showSummaryOffline() {
+  if (openPostIndex_ < 0 || openPostIndex_ >= static_cast<int>(posts_.size())) return;
+  const rss::Post post = posts_[static_cast<size_t>(openPostIndex_)];
+  std::string summary;
+  if (post.body != rss::Body::Summary || !readText(bodyPath(post.id, post.body).c_str(), kMaxBodyBytes, summary)) {
+    return;
+  }
+  showDocument(post, summary, kNoteOffline);
+}
+
 void RssActivity::showDocument(const rss::Post& post, const std::string& words, const char* note) {
-  RenderLock lock(*this);
-  // The headline again, because the band cuts a long one; then whose it is and
-  // when, which nothing else on the reader says.
-  document_ = post.title;
-  document_ += "\n\n";
-  const int feed = feedIndexForKey(post.feed);
-  std::string byline = feed >= 0 ? feeds_[static_cast<size_t>(feed)].title : rss::hostOf(post.link);
-  const std::string date = rss::formatDate(post.date);
-  if (!date.empty()) byline += byline.empty() ? date : ", " + date;
-  if (!byline.empty()) {
-    document_ += byline;
+  {
+    RenderLock lock(*this);
+    // The headline again, because the band cuts a long one; then whose it is and
+    // when, which nothing else on the reader says.
+    document_ = post.title;
     document_ += "\n\n";
+    const int feed = feedIndexForKey(post.feed);
+    std::string byline = feed >= 0 ? feeds_[static_cast<size_t>(feed)].title : rss::hostOf(post.link);
+    const std::string date = rss::formatDate(post.date);
+    if (!date.empty()) byline += byline.empty() ? date : ", " + date;
+    if (!byline.empty()) {
+      document_ += byline;
+      document_ += "\n\n";
+    }
+    document_ += words;
+    if (note != nullptr) {
+      document_ += "\n\n";
+      document_ += note;
+    }
+    readerTitle_ = post.title;
+    topLine_ = 0;
+    lineCount_ = 0;
+    visibleLines_ = 0;
+    saveFailedNotice_ = false;
+    phase_ = Phase::Reading;
   }
-  document_ += words;
-  if (note != nullptr) {
-    document_ += "\n\n";
-    document_ += note;
-  }
-  readerTitle_ = post.title;
-  topLine_ = 0;
-  lineCount_ = 0;
-  visibleLines_ = 0;
-  saveFailedNotice_ = false;
-  phase_ = Phase::Reading;
+  // Every way into the reader paints from here; a path that set the phase
+  // and asked for nothing left the list on the panel, taking the next tap.
+  requestUpdate();
 }
 
 void RssActivity::openSaved(const int viewIndex) {
@@ -754,19 +777,22 @@ void RssActivity::openSaved(const int viewIndex) {
     showNotice("NOT THERE", "That post is in the list but its words are missing from the card.", false);
     return;
   }
-  RenderLock lock(*this);
-  selected_ = viewIndex;
-  // Saved exactly as it was shown -- headline, byline and all -- so it is
-  // shown again as it is.
-  document_ = utf8FoldTypography(text);
-  readerTitle_ = article.title;
-  readerKey_ = article.url;
-  readingSaved_ = true;
-  topLine_ = 0;
-  lineCount_ = 0;
-  visibleLines_ = 0;
-  saveFailedNotice_ = false;
-  phase_ = Phase::Reading;
+  {
+    RenderLock lock(*this);
+    selected_ = viewIndex;
+    // Saved exactly as it was shown -- headline, byline and all -- so it is
+    // shown again as it is.
+    document_ = utf8FoldTypography(text);
+    readerTitle_ = article.title;
+    readerKey_ = article.url;
+    readingSaved_ = true;
+    topLine_ = 0;
+    lineCount_ = 0;
+    visibleLines_ = 0;
+    saveFailedNotice_ = false;
+    phase_ = Phase::Reading;
+  }
+  requestUpdate();
 }
 
 void RssActivity::saveCurrent() {
@@ -837,6 +863,13 @@ void RssActivity::showNotice(const char* headline, const char* message, const bo
 
 void RssActivity::publishToDesk() { desk_.publish(feeds_, posts_); }
 
+std::string RssActivity::feedCountLine() const {
+  if (feeds_.empty()) return "No feeds yet.";
+  char line[24];
+  std::snprintf(line, sizeof(line), feeds_.size() == 1 ? "%d feed." : "%d feeds.", static_cast<int>(feeds_.size()));
+  return line;
+}
+
 void RssActivity::startPhone() {
   // Developer Mode holds port 80 for as long as its toggle is on. Two binds on
   // one port fail in a way that reads as a broken screen, so it yields while
@@ -865,9 +898,7 @@ void RssActivity::startPhone() {
   // that can fail to start. See NotesActivity::startPhone.
   phoneUrl_ = "http://" + dotted + "/r";
   phoneReadable_ = mdnsUp ? std::string("http://") + devicehost::mdnsName() + ".local/r" : phoneUrl_;
-  char status[32];
-  std::snprintf(status, sizeof(status), feeds_.size() == 1 ? "%d FEED" : "%d FEEDS", static_cast<int>(feeds_.size()));
-  phoneStatus_ = status;
+  phoneStatus_ = feedCountLine();
   RenderLock lock(*this);
   phase_ = Phase::Phone;
   interactionsReady_ = false;
@@ -904,7 +935,7 @@ void RssActivity::servePhone() {
   {
     RenderLock lock(*this);
     const std::string host = rss::hostOf(rss::normalizeAddress(next.text));
-    phoneStatus_ = "ADDING " + (host.empty() ? next.text : host);
+    phoneStatus_ = "Adding " + (host.empty() ? next.text : host) + "...";
   }
   pending_ = Pending::AddFeed;
   requestUpdate();
@@ -923,10 +954,10 @@ void RssActivity::removeFeed(const rss::Request& request) {
     feeds_.erase(at);
     feedFilter_ = -1;
     if (tab_ == rssui::Tab::Feeds) topIndex_ = 0;
-    phoneStatus_ = "REMOVED " + title;
+    phoneStatus_ = "Removed " + title + ".";
   }
   // Its posts go with it; adopt() drops the posts of a feed no longer here.
-  adopt({}, {});
+  adopt({});
   publishToDesk();
   desk_.finish(request.job, true, "Removed " + title + ".");
   LOG_INF("RSS", "removed %s", request.text.c_str());
@@ -935,22 +966,24 @@ void RssActivity::removeFeed(const rss::Request& request) {
 
 void RssActivity::addFeed() {
   const rss::Request job = addRequest_;
-  const auto refuse = [this, &job](const std::string& message, const char* status) {
+  // The phone is told why in a sentence; the panel says the same sentence,
+  // because the person may be looking at either.
+  const auto refuse = [this, &job](const std::string& message) {
     desk_.finish(job.job, false, message);
     RenderLock lock(*this);
-    phoneStatus_ = status;
+    phoneStatus_ = message;
     phase_ = Phase::Phone;
   };
 
   const std::string address = rss::normalizeAddress(job.text);
-  if (address.empty()) return refuse("That is not a web address.", "NOT AN ADDRESS");
+  if (address.empty()) return refuse("That is not a web address.");
   if (static_cast<int>(feeds_.size()) >= rss::kMaxFeeds) {
-    return refuse("That is thirty feeds already. Remove one first.", "THIRTY ALREADY");
+    return refuse("That is thirty feeds already. Remove one first.");
   }
   const auto known = [this](const std::string& url) {
     return std::any_of(feeds_.begin(), feeds_.end(), [&url](const rss::Feed& feed) { return feed.url == url; });
   };
-  if (known(address)) return refuse("That feed is already on the reader.", "ALREADY THERE");
+  if (known(address)) return refuse("That feed is already here.");
 
   // One request for either kind of address: a feed is read on the spot, a page
   // is read as far as the feed it names.
@@ -959,12 +992,12 @@ void RssActivity::addFeed() {
   FetchResult result = fetchFeed(address, true, &discovered);
   if (!result.ok && !discovered.empty()) {
     feedUrl = discovered.front();
-    if (known(feedUrl)) return refuse("That site's feed is already on the reader.", "ALREADY THERE");
+    if (known(feedUrl)) return refuse("That site's feed is already here.");
     result = fetchFeed(feedUrl, false, nullptr);
   }
   if (!result.ok) {
     const bool answered = HttpDownloader::lastStatus() >= 200 && HttpDownloader::lastStatus() < 300;
-    return refuse(answered ? kNoFeedThere : "The site did not answer.", answered ? "NO FEED THERE" : "NO ANSWER");
+    return refuse(answered ? kNoFeedThere : "The site did not answer.");
   }
 
   rss::Feed feed;
@@ -975,13 +1008,13 @@ void RssActivity::addFeed() {
     feeds_.push_back(feed);
   }
   rss::settleDates(result.posts, posts_, nowOrZero());
-  adopt(result.posts, {rss::keyFor(feedUrl)});
+  adopt(result.posts);
   publishToDesk();
   desk_.finish(job.job, true, "Added " + feed.title + ".");
   LOG_INF("RSS", "added %s as %s with %d posts", job.text.c_str(), feedUrl.c_str(),
           static_cast<int>(result.posts.size()));
   RenderLock lock(*this);
-  phoneStatus_ = "ADDED " + feed.title;
+  phoneStatus_ = "Added " + feed.title + ".";
   phase_ = Phase::Phone;
 }
 
@@ -1021,8 +1054,7 @@ void RssActivity::render(RenderLock&&) {
       if (viewStale_) rebuildView();
       const bool feedsList = tab_ == rssui::Tab::Feeds && feedFilter_ < 0;
       const bool saved = tab_ == rssui::Tab::Saved;
-      const int16_t rowHeight =
-          feedsList ? rssui::feedRowHeight(target, tokens) : rssui::postRowHeight(target, tokens);
+      const int16_t rowHeight = feedsList ? rssui::feedRowHeight(target, tokens) : rssui::postRowHeight(target, tokens);
       const fui::Rect band = feedsList ? rssui::feedsBand(device) : rssui::postsBand(device);
       visibleRows_ = fui::listVisibleRows(band, rowHeight, tokens.listRowGap);
       const int count = static_cast<int>(view_.size());
@@ -1044,8 +1076,16 @@ void RssActivity::render(RenderLock&&) {
       fui::TextStyle titleStyle = tokens.bodyText;
       titleStyle.maxLines = feedsList ? 1 : 2;
       const fui::TextStyle footnote = rssui::footnoteStyle(tokens);
-      const int16_t titleWidth =
-          feedsList ? rssui::feedTitleWidth(target, device, tokens) : rssui::postTitleWidth(target, device, tokens);
+      const int16_t feedTitleWidth = rssui::feedTitleWidth(target, device, tokens);
+      // A post's headline gets whatever its own site name leaves.
+      const auto fitPost = [&](const char* title, const std::string& site, const size_t slot) {
+        values_[slot] =
+            site.empty() ? std::string() : toybox::fitLines(target, site.c_str(), rssui::postSiteWidth(), 1, footnote);
+        const int16_t siteWidth =
+            values_[slot].empty() ? 0 : target.measureText(footnote.font, values_[slot].c_str(), footnote).width;
+        labels_[slot] =
+            toybox::fitLines(target, title, rssui::postTitleWidth(device, tokens, siteWidth), 2, titleStyle);
+      };
       for (int i = 0; i < window; ++i) {
         const size_t slot = static_cast<size_t>(i);
         const int index = view_[static_cast<size_t>(first + i)];
@@ -1053,7 +1093,7 @@ void RssActivity::render(RenderLock&&) {
         item.actionValue = static_cast<int16_t>(first + i);
         if (feedsList) {
           const rss::Feed& feed = feeds_[static_cast<size_t>(index)];
-          labels_[slot] = toybox::fitLines(target, feed.title.c_str(), titleWidth, 1, titleStyle);
+          labels_[slot] = toybox::fitLines(target, feed.title.c_str(), feedTitleWidth, 1, titleStyle);
           const int unread = rss::unreadCount(posts_, read_, rss::keyFor(feed.url));
           if (feed.failed) {
             values_[slot] = "FAILED";
@@ -1062,16 +1102,15 @@ void RssActivity::render(RenderLock&&) {
           }
         } else if (saved) {
           const hn::SavedArticle& article = library_.articles()[static_cast<size_t>(index)];
-          labels_[slot] = toybox::fitLines(target, article.title.c_str(), titleWidth, 2, titleStyle);
-          values_[slot] = toybox::fitLines(target, siteForSaved(article.url).c_str(), rssui::postSiteWidth(), 1,
-                                           footnote);
+          fitPost(article.title.c_str(), siteForSaved(article.url), slot);
           item.icon = rssui::readMark();
         } else {
           const rss::Post& post = posts_[static_cast<size_t>(index)];
-          labels_[slot] = toybox::fitLines(target, post.title.c_str(), titleWidth, 2, titleStyle);
-          const int feed = feedIndexForKey(post.feed);
-          const std::string site = feed >= 0 ? feeds_[static_cast<size_t>(feed)].title : std::string();
-          values_[slot] = toybox::fitLines(target, site.c_str(), rssui::postSiteWidth(), 1, footnote);
+          // Narrowed to one feed, the band already names the site, so its
+          // rows give that room to the headline.
+          const int feed = feedFilter_ >= 0 ? -1 : feedIndexForKey(post.feed);
+          fitPost(post.title.c_str(),
+                  feed >= 0 ? rss::shortName(feeds_[static_cast<size_t>(feed)].title) : std::string(), slot);
           item.icon = read_.contains(post.id) ? rssui::readMark() : rssui::unreadMark();
         }
       }

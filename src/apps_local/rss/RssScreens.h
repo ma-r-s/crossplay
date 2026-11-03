@@ -92,14 +92,14 @@ int16_t postRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tok
 // A feed row: one line of name.
 int16_t feedRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tokens);
 
-// The width a post's headline is drawn into, after the unread mark and the
-// site's name, so the activity can fit it to the space the component gives it.
-int16_t postTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                       const fui::ThemeTokens& tokens);
-// And the room the site's name gets, at the right of the row.
+// The width a post's headline is drawn into: the row, less the unread mark
+// and THIS row's site name, which the component measures per row. Fitting
+// every headline to the widest name would cut short every post of a feed
+// with a short one.
+int16_t postTitleWidth(const fui::DeviceContext& device, const fui::ThemeTokens& tokens, int16_t siteWidth);
+// The most room a site's name gets at the right of a row.
 int16_t postSiteWidth();
-int16_t feedTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                       const fui::ThemeTokens& tokens);
+int16_t feedTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::ThemeTokens& tokens);
 // The style a post's site and a feed's count are drawn in.
 fui::TextStyle footnoteStyle(const fui::ThemeTokens& tokens);
 
@@ -129,7 +129,7 @@ struct PhoneModel {
   // started, the dotted address when it did not.
   const char* readable = "";
   // One line saying what the phone has done, or what the reader is doing for
-  // it: "3 FEEDS", "ADDING ...", "ADDED ...", "NO FEED THERE".
+  // it: "3 feeds.", "Adding kottke.org...", "Added Kottke.", "No feed there."
   const char* status = "";
 };
 

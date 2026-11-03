@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "../../src/apps_local/rss/RssCore.h"
+#include "../../src/apps_local/rss/RssDesk.h"
 #include "../../src/apps_local/rss/RssFeed.h"
 
 namespace {
@@ -45,7 +46,8 @@ void checkNum(const long long actual, const long long expected, const char* what
 
 #define CHECK(cond) check((cond), #cond, __LINE__)
 #define CHECK_EQ(actual, expected) checkEqual((actual), (expected), #actual, __LINE__)
-#define CHECK_NUM(actual, expected) checkNum(static_cast<long long>(actual), static_cast<long long>(expected), #actual, __LINE__)
+#define CHECK_NUM(actual, expected) \
+  checkNum(static_cast<long long>(actual), static_cast<long long>(expected), #actual, __LINE__)
 
 // Collects every item a parser hands over, already ingested.
 struct Collector : rss::ItemSink {
@@ -225,8 +227,7 @@ void testRss2() {
   CHECK_NUM(first.date, 1792143000);  // 2026-10-16 09:30:00 UTC
   CHECK(first.body == rss::Body::Full);
   // content:encoded wins over the teaser, script vanishes, the list survives.
-  CHECK_EQ(c.texts[0],
-           "First paragraph of the whole post.\n\nSecond paragraph, with a link.\n\n- one\n\n- two");
+  CHECK_EQ(c.texts[0], "First paragraph of the whole post.\n\nSecond paragraph, with a link.\n\n- one\n\n- two");
 
   // A relative link is resolved against the feed's address.
   CHECK_EQ(c.posts[1].link, "https://example.com/2026/10/summary/");
@@ -344,8 +345,7 @@ void testEntityFixerLeavesCdataAlone() {
   // One byte at a time, the worst case for the state it carries.
   for (const char ch : in) fixer.feed(&ch, 1, out);
   fixer.finish(out);
-  CHECK_EQ(out,
-           "<a>&amp;nbsp;&amp;&#38;&#x26;&lt;&amp;bogus</a><![CDATA[&nbsp; ]] ]]><!-- & --><b x=\"1&amp;2\"/>");
+  CHECK_EQ(out, "<a>&amp;nbsp;&amp;&#38;&#x26;&lt;&amp;bogus</a><![CDATA[&nbsp; ]] ]]><!-- & --><b x=\"1&amp;2\"/>");
 }
 
 void testWindows1252() {
@@ -386,8 +386,7 @@ void testGarbageMidFeed() {
 
 void testNotAFeed() {
   Collector c;
-  CHECK(parse("<!DOCTYPE html><html><head><title>x</title></head><body>hi</body></html>", c) ==
-        rss::Kind::NotFeed);
+  CHECK(parse("<!DOCTYPE html><html><head><title>x</title></head><body>hi</body></html>", c) == rss::Kind::NotFeed);
   CHECK(c.posts.empty());
   Collector d;
   // Lowercase doctype is not XML at all: no root is ever seen.
@@ -643,6 +642,18 @@ void testResolveUrl() {
   CHECK_EQ(rss::resolveUrl("https://a.example/", ""), "https://a.example/");
 }
 
+void testShortName() {
+  CHECK_EQ(rss::shortName("Hacker News: Front Page"), "Hacker News");
+  CHECK_EQ(rss::shortName("Ars Technica - All content"), "Ars Technica");
+  CHECK_EQ(rss::shortName("BBC News | Home"), "BBC News");
+  CHECK_EQ(rss::shortName("Daring Fireball"), "Daring Fireball");
+  CHECK_EQ(rss::shortName("Simon Willison's Weblog"), "Simon Willison's Weblog");
+  // A first half too short to be a name keeps the whole.
+  CHECK_EQ(rss::shortName("A: Story"), "A: Story");
+  // The earliest separator wins, and the result is trimmed.
+  CHECK_EQ(rss::shortName("  Kettle - notes: tea  "), "Kettle");
+}
+
 void testHostOf() {
   CHECK_EQ(rss::hostOf("https://www.Kettle.example:443/feed"), "kettle.example");
   CHECK_EQ(rss::hostOf("http://user@notes.example/x"), "notes.example");
@@ -693,9 +704,10 @@ void testParagraphs() {
       "<figcaption>Cap</figcaption></figure><style>p{}</style><p>a &lt; b and 1 < 2</p>"
       "<table><tr><td>x</td><td>y</td></tr></table><pre>line 1\nline 2</pre>"
       "<p>&lt;script&gt;shown&lt;/script&gt;</p><p>   </p><p>\xE2\x80\x9CQ\xE2\x80\x9D \xE2\x80\x94 ok</p></div>");
-  const std::vector<std::string> want = {
-      "Head", "One & two.", "Three", "Cap", "a < b and 1 < 2", "x y", "line 1", "line 2", "<script>shown</script>",
-      "\"Q\" -- ok"};
+  const std::vector<std::string> want = {"Head",       "One & two.",      "Three",
+                                         "Cap",        "a < b and 1 < 2", "x y",
+                                         "line 1",     "line 2",          "<script>shown</script>",
+                                         "\"Q\" -- ok"};
   CHECK_NUM(p.size(), want.size());
   for (size_t i = 0; i < p.size() && i < want.size(); ++i) CHECK_EQ(p[i], want[i]);
 }
@@ -713,6 +725,14 @@ void testPlainLine() {
   CHECK_EQ(rss::plainLine("  A <em>very</em>\n  long &amp;amp; title  "), "A very long &amp; title");
   CHECK_EQ(rss::plainLine("x &lt; y"), "x < y");
   CHECK_EQ(rss::plainLine("Price &euro;5 &#8230;"), "Price EUR5 ...");
+  // Daring Fireball marks its own posts with a star, and no cut here has one:
+  // it would draw as a hole. Emoji and their joiners go the same way; the
+  // arrow the fold knows becomes ASCII first; letters of any script stay.
+  CHECK_EQ(rss::plainLine("\xE2\x98\x85 Apple&#8217;s Q4 \xE2\x98\x85"), "Apple's Q4");
+  CHECK_EQ(rss::plainLine("Ship it \xF0\x9F\x9A\x80\xEF\xB8\x8F now &#x1F469;&#x200D;&#x1F4BB;"), "Ship it now");
+  CHECK_EQ(rss::plainLine("A &rarr; B"), "A -> B");
+  CHECK_EQ(rss::plainLine("\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82 caf\xC3\xA9"),
+           "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82 caf\xC3\xA9");
 }
 
 void testDecodeEntities() {
@@ -758,20 +778,39 @@ void testCombine() {
   const std::string k1 = rss::keyFor(feeds[0].url);
   const std::string k2 = rss::keyFor(feeds[1].url);
   const std::string k3 = rss::keyFor(feeds[2].url);
-  const std::vector<rss::Post> previous = {post("old1", k1.c_str(), 10), post("old2", k2.c_str(), 20),
+  const std::vector<rss::Post> previous = {post("old1", k1.c_str(), 10, "was"), post("old2", k2.c_str(), 20),
                                            post("gone", "removed-feed", 99), post("old3", k3.c_str(), 30)};
-  const std::vector<rss::Post> fresh = {post("new1", k1.c_str(), 15), post("new2", k2.c_str(), 5)};
-  // One answered, two answered with nothing new... and three did not answer.
-  const std::vector<rss::Post> out = rss::combine(feeds, previous, fresh, {k1, k2});
-  CHECK_NUM(out.size(), 3);
-  if (out.size() == 3) {
-    CHECK_EQ(out[0].id, "old3");  // kept: its feed did not answer
-    CHECK_EQ(out[1].id, "new1");
-    CHECK_EQ(out[2].id, "new2");
+  // Feed one sends a new post and its old one again with a new headline; feed
+  // two sends one post; feed three sends nothing.
+  const std::vector<rss::Post> fresh = {post("new1", k1.c_str(), 15), post("old1", k1.c_str(), 10, "now"),
+                                        post("new2", k2.c_str(), 5)};
+  const std::vector<rss::Post> out = rss::combine(feeds, previous, fresh);
+  CHECK_NUM(out.size(), 5);
+  if (out.size() == 5) {
+    CHECK_EQ(out[0].id, "old3");  // kept: its feed sent nothing
+    CHECK_EQ(out[1].id, "old2");  // kept beside the new one
+    CHECK_EQ(out[2].id, "new1");
+    CHECK_EQ(out[3].id, "old1");
+    CHECK_EQ(out[3].title, "now");  // the fresh copy wins
+    CHECK_EQ(out[4].id, "new2");
   }
-  // A feed that answered with an empty channel does not keep its old posts.
-  const std::vector<rss::Post> emptied = rss::combine(feeds, previous, {}, {k1, k2, k3});
-  CHECK(emptied.empty());
+  // The posts of a feed no longer subscribed are dropped.
+  bool sawGone = false;
+  for (const rss::Post& p : out) sawGone = sawGone || p.id == "gone";
+  CHECK(!sawGone);
+
+  // A feed cut short keeps what it had: three fresh posts beside fifteen old
+  // ones is eighteen, not three. And never more than twenty per feed.
+  std::vector<rss::Post> many;
+  for (int i = 0; i < 15; ++i) many.push_back(post(("o" + std::to_string(i)).c_str(), k1.c_str(), 100 + i));
+  std::vector<rss::Post> cut;
+  for (int i = 0; i < 3; ++i) cut.push_back(post(("n" + std::to_string(i)).c_str(), k1.c_str(), 200 + i));
+  CHECK_NUM(rss::combine(feeds, many, cut).size(), 18);
+  for (int i = 3; i < 10; ++i) cut.push_back(post(("n" + std::to_string(i)).c_str(), k1.c_str(), 200 + i));
+  const std::vector<rss::Post> capped = rss::combine(feeds, many, cut);
+  CHECK_NUM(capped.size(), rss::kPostsPerFeed);
+  // The ones that fell off are the oldest.
+  if (!capped.empty()) CHECK_NUM(capped.back().date, 105);
 }
 
 // --- On the card ---------------------------------------------------------
@@ -848,6 +887,64 @@ void testReadState() {
   CHECK(!rss::parseRead("rssread 9\naaa\n", back));
 }
 
+// --- Between the phone page and the app ----------------------------------
+
+void testDeskQueuesAndAnswers() {
+  rss::Desk desk;
+  // Nothing to add is not a request, and neither is a pasted book.
+  CHECK_NUM(desk.requestAdd("   \n"), -1);
+  CHECK_NUM(desk.requestAdd(std::string(rss::Desk::kMaxRequestBytes + 1, 'a')), -1);
+
+  const int a = desk.requestAdd("kettle.example");
+  const int b = desk.requestRemove("https://notes.example/atom.xml");
+  CHECK(a > 0 && b > a);
+  // A page cannot queue more than a handful behind a slow one.
+  for (size_t i = 2; i < rss::Desk::kMaxQueued; ++i) CHECK(desk.requestAdd("x.example") > 0);
+  CHECK_NUM(desk.requestAdd("one.too.many"), -1);
+
+  rss::Request request;
+  CHECK(desk.take(request));
+  CHECK(request.kind == rss::Request::Kind::Add);
+  CHECK_NUM(request.job, a);
+  CHECK_EQ(request.text, "kettle.example");
+  // Taken is working, and the page can see it.
+  CHECK(desk.stateJson().find("\"id\":" + std::to_string(a) + ",\"state\":\"working\"") != std::string::npos);
+  desk.finish(a, false, "No feed at that address.");
+  const std::string json = desk.stateJson();
+  CHECK(json.find("\"id\":" + std::to_string(a) + ",\"state\":\"failed\"") != std::string::npos);
+  CHECK(json.find("No feed at that address.") != std::string::npos);
+
+  CHECK(desk.take(request));
+  CHECK(request.kind == rss::Request::Kind::Remove);
+  CHECK_EQ(request.text, "https://notes.example/atom.xml");
+  desk.finish(request.job, true, "Removed.");
+  CHECK(desk.stateJson().find("\"state\":\"done\"") != std::string::npos);
+
+  // What the page lists, with each feed's post count.
+  std::vector<rss::Feed> feeds(1);
+  feeds[0].url = "https://kettle.example/feed";
+  feeds[0].title = "The \"Quiet\" Kettle";
+  feeds[0].failed = true;
+  rss::Post p;
+  p.id = "1";
+  p.feed = rss::keyFor(feeds[0].url);
+  p.title = "t";
+  desk.publish(feeds, {p, p});
+  const std::string state = desk.stateJson();
+  CHECK(state.rfind("{\"max\":30,\"feeds\":[{\"url\":\"https://kettle.example/feed\"", 0) == 0);
+  CHECK(state.find("\"title\":\"The \\\"Quiet\\\" Kettle\",\"failed\":true,\"posts\":2}") != std::string::npos);
+
+  desk.clear();
+  CHECK_EQ(desk.stateJson(), "{\"max\":30,\"feeds\":[],\"jobs\":[]}");
+}
+
+void testJsonString() {
+  CHECK_EQ(rss::jsonString("plain"), "\"plain\"");
+  CHECK_EQ(rss::jsonString("a\"b\\c\nd\te\x01"), "\"a\\\"b\\\\c\\nd\\te\\u0001\"");
+  // UTF-8 passes through: a feed's name in its own language reaches the page.
+  CHECK_EQ(rss::jsonString("caf\xC3\xA9"), "\"caf\xC3\xA9\"");
+}
+
 }  // namespace
 
 int main() {
@@ -874,6 +971,7 @@ int main() {
   testProbe();
   testNormalizeAddress();
   testResolveUrl();
+  testShortName();
   testHostOf();
   testDates();
   testParagraphs();
@@ -885,6 +983,8 @@ int main() {
   testFeedsRoundTrip();
   testPostsRoundTrip();
   testReadState();
+  testDeskQueuesAndAnswers();
+  testJsonString();
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

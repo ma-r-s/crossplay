@@ -41,6 +41,7 @@
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/rss/RssScreens.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/solitaire/SolitaireScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
@@ -14784,6 +14785,296 @@ void theMenuOffersTodayOnlyWhenThereIsOne() {
 
 }  // namespace wordletest
 
+// --- RSS -------------------------------------------------------------------
+
+void buildRssPosts(Rendered& out, const rssui::ListModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::buildPosts(screen, model);
+}
+
+void buildRssFeeds(Rendered& out, const rssui::ListModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::buildFeeds(screen, model);
+}
+
+// The rows the activity hands over: a window of the page on screen, each row
+// carrying its ABSOLUTE index, with a mark in front and a site at the right.
+struct RssRows {
+  std::vector<std::string> labels;
+  std::vector<std::string> values;
+  std::vector<fui::ListItem> items;
+  RssRows(const int first, const int count, const bool marks) {
+    labels.reserve(static_cast<size_t>(count));
+    values.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+      labels.push_back("Post number " + std::to_string(first + i));
+      values.push_back(i % 2 == 0 ? "Kettle" : "Field Notes");
+    }
+    for (int i = 0; i < count; ++i) {
+      fui::ListItem item;
+      item.label = labels[static_cast<size_t>(i)].c_str();
+      item.value = values[static_cast<size_t>(i)].c_str();
+      item.actionValue = static_cast<int16_t>(first + i);
+      if (marks) item.icon = i % 2 == 0 ? rssui::unreadMark() : rssui::readMark();
+      items.push_back(item);
+    }
+  }
+};
+
+int rssVisibleRows() {
+  FakeTarget target;
+  return fui::listVisibleRows(rssui::postsBand(device()), rssui::postRowHeight(target, toybox::themeTokens()),
+                              toybox::themeTokens().listRowGap);
+}
+
+void testRssPostsRowsOpenTheirOwnPost() {
+  // Page three of a long list: the rows handed over are a window, and a tap must
+  // open the post at the row's ABSOLUTE index, or page three opens page one.
+  const int perPage = rssVisibleRows();
+  CHECK(perPage >= 4);
+  const int first = perPage * 2;
+  RssRows rows(first, perPage, true);
+  rssui::ListModel model;
+  model.items = rows.items.data();
+  model.count = perPage * 5;
+  model.windowFirst = first;
+  model.windowCount = perPage;
+  model.topIndex = first;
+  Rendered out;
+  buildRssPosts(out, model);
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewText(out, rows.labels[0].c_str()));
+  CHECK(drewText(out, "Kettle"));
+
+  std::vector<bool> opened(static_cast<size_t>(perPage), false);
+  const fui::Rect band = rssui::postsBand(device());
+  for (int y = band.y; y < band.y + band.height; ++y) {
+    const fui::ActionEvent event = out.tap(240, y);
+    if (event.action != rssui::ActionOpenPost) continue;
+    CHECK(event.value >= first && event.value < first + perPage);
+    if (event.value >= first && event.value < first + perPage) opened[static_cast<size_t>(event.value - first)] = true;
+  }
+  for (int i = 0; i < perPage; ++i) CHECK(opened[static_cast<size_t>(i)]);
+
+  // The unread mark is drawn, and the read one is the same size: the headline
+  // starts at one x whether or not its post has been opened.
+  CHECK(rssui::unreadMark().width == rssui::readMark().width);
+  CHECK(rssui::unreadMark().height == rssui::readMark().height);
+  bool sawDot = false;
+  for (const auto& blit : out.target.blits) sawDot = sawDot || blit.data == rssui::unreadMark().data;
+  CHECK(sawDot);
+}
+
+void testRssSegments() {
+  RssRows rows(0, 2, true);
+  const fui::DeviceContext ctx = device();
+  const int y = ctx.height - toybox::kMargin - toybox::kPillHeight / 2;
+  const auto routes = [&](const rssui::ListModel& model, const bool feeds, const int x) {
+    Rendered out;
+    if (feeds) {
+      buildRssFeeds(out, model);
+    } else {
+      buildRssPosts(out, model);
+    }
+    return out.tap(x, y).action;
+  };
+  rssui::ListModel all;
+  all.items = rows.items.data();
+  all.count = 2;
+  all.windowCount = 2;
+  // Where you are is filled and inert; the other two are live, edge to edge.
+  CHECK(routes(all, false, toybox::kMargin + 2) == fui::NO_ACTION);
+  CHECK(routes(all, false, ctx.width / 2) == rssui::ActionShowFeeds);
+  CHECK(routes(all, false, ctx.width - toybox::kMargin - 2) == rssui::ActionShowSaved);
+
+  // A list narrowed to one feed keeps FEEDS filled -- and live, because it is
+  // the way back to the list of feeds.
+  rssui::ListModel narrowed = all;
+  narrowed.tab = rssui::Tab::Feeds;
+  narrowed.narrowed = true;
+  narrowed.title = "Field Notes";
+  CHECK(routes(narrowed, false, ctx.width / 2) == rssui::ActionShowFeeds);
+  CHECK(routes(narrowed, false, toybox::kMargin + 2) == rssui::ActionShowAll);
+
+  // On the feeds list itself FEEDS is inert again.
+  rssui::ListModel feeds = all;
+  feeds.tab = rssui::Tab::Feeds;
+  feeds.title = "FEEDS";
+  CHECK(routes(feeds, true, ctx.width / 2) == fui::NO_ACTION);
+}
+
+void testRssFeedsScreen() {
+  // A full page of feeds and the door to the phone, all reachable.
+  FakeTarget measure;
+  const int perPage =
+      fui::listVisibleRows(rssui::feedsBand(device()), rssui::feedRowHeight(measure, toybox::themeTokens()),
+                           toybox::themeTokens().listRowGap);
+  CHECK(perPage >= 4);
+  RssRows rows(0, perPage, false);
+  rssui::ListModel model;
+  model.tab = rssui::Tab::Feeds;
+  model.title = "FEEDS";
+  model.items = rows.items.data();
+  model.count = perPage + 3;
+  model.windowCount = perPage;
+  Rendered out;
+  buildRssFeeds(out, model);
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewLabelWhole(out, "ADD OR REMOVE"));
+  bool door = false;
+  std::vector<bool> opened(static_cast<size_t>(perPage), false);
+  for (int y = 0; y < device().height; ++y) {
+    const fui::ActionEvent event = out.tap(240, y);
+    if (event.action == rssui::ActionAddFeeds) door = true;
+    if (event.action == rssui::ActionOpenFeed && event.value >= 0 && event.value < perPage) {
+      opened[static_cast<size_t>(event.value)] = true;
+    }
+  }
+  CHECK(door);
+  for (int i = 0; i < perPage; ++i) CHECK(opened[static_cast<size_t>(i)]);
+  // The rows stop above the door: no feed row is drawn under the button.
+  const fui::Rect band = rssui::feedsBand(device());
+  CHECK(band.y + band.height <= device().height - toybox::kMargin - 2 * toybox::kPillHeight - toybox::kGutter);
+}
+
+void testRssEmptyStates() {
+  // No feeds at all: the first screen, and it carries the way to add some.
+  const rssui::Empty first = rssui::emptyFor(rssui::Tab::All, false, false);
+  CHECK(first.action == rssui::ActionAddFeeds);
+  rssui::ListModel model;
+  model.emptyHeadline = first.headline;
+  model.emptyMessage = first.message;
+  model.emptyActionLabel = first.actionLabel;
+  model.emptyAction = first.action;
+  Rendered out;
+  buildRssPosts(out, model);
+  CHECK(drewText(out, "NO FEEDS YET"));
+  CHECK(drewLabelWhole(out, "ADD FEEDS"));
+  bool found = false;
+  for (int y = 0; y < device().height && !found; ++y) found = out.tap(240, y).action == rssui::ActionAddFeeds;
+  CHECK(found);
+  const FakeTarget::TextRun* headline = out.target.find("NO FEEDS YET");
+  CHECK(headline != nullptr && headline->color == fui::Color::Black);
+
+  // The saved shelf empty is complete, not a fault: no control.
+  CHECK(rssui::emptyFor(rssui::Tab::Saved, true, false).action == fui::NO_ACTION);
+  CHECK(rssui::emptyFor(rssui::Tab::Saved, false, false).action == fui::NO_ACTION);
+  // Feeds that have no posts yet, and one narrowed feed with none, say so
+  // without offering to add what is already there.
+  CHECK(rssui::emptyFor(rssui::Tab::All, true, false).action == fui::NO_ACTION);
+  CHECK(rssui::emptyFor(rssui::Tab::Feeds, true, true).action == fui::NO_ACTION);
+  CHECK(std::string(rssui::emptyFor(rssui::Tab::Feeds, true, true).headline) !=
+        rssui::emptyFor(rssui::Tab::All, true, false).headline);
+}
+
+void testRssPhoneScreen() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  Rendered out;
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::PhoneModel model;
+  model.url = "http://192.168.68.76/r";
+  model.readable = "http://crossplay-a1b2c3.local/r";
+  model.status = "Added Hacker News: Front Page.";
+  const fui::Rect qr = rssui::buildPhone(screen, model);
+  // A square, on the panel, clear of the band and of DONE.
+  CHECK(qr.width == qr.height);
+  CHECK(qr.width >= 120);
+  CHECK(qr.y >= toybox::kBodyTop);
+  CHECK(qr.x >= 0 && qr.x + qr.width <= ctx.width);
+  const FakeTarget::TextRun* address = out.target.find(model.readable);
+  const FakeTarget::TextRun* status = out.target.find(model.status);
+  CHECK(address != nullptr);
+  CHECK(status != nullptr);
+  if (address != nullptr) CHECK(address->rect.y >= qr.y + qr.height);
+  if (address != nullptr && status != nullptr) CHECK(status->rect.y >= address->rect.y + address->rect.height);
+  bool done = false;
+  int doneTop = ctx.height;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (out.tap(240, y).action == rssui::ActionPhoneDone) {
+      done = true;
+      doneTop = std::min(doneTop, y);
+    }
+  }
+  CHECK(done);
+  // Nothing the phone page says is drawn under DONE.
+  if (status != nullptr) CHECK(status->rect.y + status->rect.height <= doneTop);
+  CHECK(!out.interactions.overflowed());
+}
+
+void testRssReaderHasNoSecondView() {
+  // RSS reads its posts through Hacker News's reader with no second view: no
+  // COMMENTS door that never opens, and two arrows that share the footer.
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.hasSwap = false;
+  model.canPagePrev = true;
+  model.canSave = true;
+  buildHnReader(out, model);
+  CHECK(!drewText(out, "COMMENTS"));
+  CHECK(!out.has(hnui::ActionSwapView));
+  CHECK(out.has(hnui::ActionSave));
+  const int y = device().height - toybox::kMargin - toybox::kPillHeight / 2;
+  // Edge to edge, and nothing dead in the middle.
+  CHECK(out.tap(toybox::kMargin + 2, y).action == hnui::ActionPagePrev);
+  CHECK(out.tap(device().width / 2 - toybox::kGutter / 2 - 2, y).action == hnui::ActionPagePrev);
+  CHECK(out.tap(device().width / 2 + toybox::kGutter / 2 + 2, y).action == hnui::ActionPageNext);
+  CHECK(out.tap(device().width - toybox::kMargin - 2, y).action == hnui::ActionPageNext);
+
+  // Hacker News keeps its three.
+  Rendered hn;
+  hnui::ReaderModel three = articleModel();
+  buildHnReader(hn, three);
+  CHECK(hn.has(hnui::ActionSwapView));
+}
+
+void testRssRefreshCarriesAWayOut() {
+  // A refresh across many feeds is the longest wait in the app, and the
+  // left-edge swipe that is Back is written nowhere: the screen carries STOP,
+  // under the app's own band rather than Hacker News's.
+  Rendered out;
+  hnui::NoticeModel model;
+  model.band = "RSS";
+  model.headline = "REFRESHING";
+  model.message = "Hacker News: Front Page\n4 of 9";
+  model.actionLabel = "STOP";
+  model.action = rssui::ActionStopRefresh;
+  buildHnNotice(out, model);
+  CHECK(drewText(out, "RSS"));
+  CHECK(!drewText(out, "HACKER NEWS"));
+  CHECK(drewLabelWhole(out, "STOP"));
+  bool stop = false;
+  for (int y = 0; y < device().height && !stop; ++y) stop = out.tap(240, y).action == rssui::ActionStopRefresh;
+  CHECK(stop);
+  // And Hacker News's own notices still say Hacker News.
+  Rendered hn;
+  hnui::NoticeModel plain;
+  plain.headline = "NO LUCK";
+  buildHnNotice(hn, plain);
+  CHECK(drewText(hn, "HACKER NEWS"));
+}
+
+void testRssHeadlineRoomFollowsTheSite() {
+  // Each row's headline gets what ITS site name leaves, so a short name gives
+  // the headline more room and no name gives it all.
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+  const int16_t none = rssui::postTitleWidth(ctx, tokens, 0);
+  const int16_t shortName = rssui::postTitleWidth(ctx, tokens, 40);
+  const int16_t longest = rssui::postTitleWidth(ctx, tokens, rssui::postSiteWidth());
+  CHECK(none > shortName);
+  CHECK(shortName > longest);
+  CHECK(longest > rssui::postsBand(ctx).width / 2);
+  CHECK(none < rssui::postsBand(ctx).width);
+}
+
 int main() {
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
@@ -14943,6 +15234,14 @@ int main() {
   testHnReaderTextStaysInItsRect();
   testHnNotice();
   testHnEveryNoticeCarriesAWayOff();
+  testRssPostsRowsOpenTheirOwnPost();
+  testRssSegments();
+  testRssFeedsScreen();
+  testRssEmptyStates();
+  testRssPhoneScreen();
+  testRssReaderHasNoSecondView();
+  testRssRefreshCarriesAWayOut();
+  testRssHeadlineRoomFollowsTheSite();
   testHnList();
   testHnEmptyFrontPageOffersAWayOnward();
   testHnEmptyStateStacksWithoutOverlap();

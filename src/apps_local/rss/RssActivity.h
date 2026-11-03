@@ -95,9 +95,9 @@ class RssActivity final : public Activity {
   // address that may be a page instead, and fills `discovered` with the feeds
   // the page names.
   FetchResult fetchFeed(const std::string& url, bool probe, std::vector<std::string>* discovered);
-  // Re-reads the card for the posts and saves after `fresh` posts arrived for
-  // the feeds in `answered`.
-  void adopt(const std::vector<rss::Post>& fresh, const std::vector<std::string>& answered);
+  // Folds freshly read posts into the list (rss::combine), then writes the
+  // feeds, the posts and the read marks, and drops bodies nothing points at.
+  void adopt(const std::vector<rss::Post>& fresh);
   void pruneBodies();
   // Pumps input while a refresh holds the loop, and answers Back, Home and a
   // tap on STOP. See docs/apps/rss.md for why this one place may do that.
@@ -117,6 +117,9 @@ class RssActivity final : public Activity {
   void openPost(int viewIndex);
   bool fetchArticle();
   void showDocument(const rss::Post& post, const std::string& words, const char* note);
+  // The post being opened, from its feed's summary, when the radio was
+  // declined: what there is, said to be all there is.
+  void showSummaryOffline();
   void openSaved(int viewIndex);
   void saveCurrent();
   void unsaveCurrent();
@@ -132,6 +135,7 @@ class RssActivity final : public Activity {
   void addFeed();
   void removeFeed(const rss::Request& request);
   void publishToDesk();
+  std::string feedCountLine() const;
 
   // --- State -----------------------------------------------------------
   std::vector<rss::Feed> feeds_;

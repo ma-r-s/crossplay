@@ -32,6 +32,7 @@ done
   ../../src/apps_local/hackernews/HackerNewsSaved.cpp \
   ../../src/apps_local/rss/RssCore.cpp \
   ../../src/apps_local/rss/RssFeed.cpp \
+  ../../src/apps_local/rss/RssDesk.cpp \
   "$BUILD_DIR/xmlparse.o" "$BUILD_DIR/xmlrole.o" "$BUILD_DIR/xmltok.o" \
   test_rss.cpp -o "$BUILD_DIR/test_rss"
 "$BUILD_DIR/test_rss"

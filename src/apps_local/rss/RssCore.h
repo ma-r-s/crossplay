@@ -100,6 +100,12 @@ std::string resolveUrl(std::string_view base, std::string_view href);
 // The host, without a leading "www.", for naming a feed that names nothing.
 std::string hostOf(std::string_view url);
 
+// A feed's name as the footnote on each of its posts: the part before a
+// separator, because feeds name themselves "Hacker News: Front Page" and
+// "Ars Technica - All content" and the site is the first half. A name with no
+// separator, or one whose first half is too short to be a name, is kept whole.
+std::string shortName(std::string_view title);
+
 // --- Dates ---------------------------------------------------------------
 
 // RFC 822 (RSS 2.0's pubDate, with or without the weekday, the seconds or a
@@ -123,7 +129,8 @@ constexpr uint32_t kClockFloor = 1700000000u;
 std::string decodeEntities(std::string_view text);
 
 // A headline as one line of plain text: tags stripped, entities decoded,
-// whitespace collapsed, typography folded, bounded by kMaxTitleBytes. Titles
+// whitespace collapsed, typography folded, pictographs (stars, emoji, the
+// shapes no cut here can draw) dropped, bounded by kMaxTitleBytes. Titles
 // arrive with markup and double-escaped entities often enough that every title
 // goes through this.
 std::string plainLine(std::string_view htmlish);
@@ -184,12 +191,15 @@ constexpr int kRefusalsToStop = 5;
 // back to now, so a feed with a wrong clock cannot pin itself to the top.
 void settleDates(std::vector<Post>& fresh, const std::vector<Post>& previous, uint32_t now);
 
-// The new list after a refresh: each feed that answered (its key is in
-// `answered`) contributes its fresh posts, each feed that did not -- it failed,
-// or the refresh was stopped before it -- keeps its previous ones, and posts of
-// feeds no longer subscribed are dropped. Newest first; ties keep feed order.
+// The new list after a refresh. Each feed keeps its newest kPostsPerFeed of
+// what it just sent and what it had before, the fresh copy winning where both
+// have a post; posts of feeds no longer subscribed are dropped. Merging rather
+// than replacing is what lets a feed that arrives cut short -- a server that
+// stops at 16KB, as Slashdot's did while this was written -- add what it did
+// send without taking away the posts it did not. Newest first; ties keep feed
+// order.
 std::vector<Post> combine(const std::vector<Feed>& feeds, const std::vector<Post>& previous,
-                          const std::vector<Post>& fresh, const std::vector<std::string>& answered);
+                          const std::vector<Post>& fresh);
 
 // Newest first, stable.
 void sortNewestFirst(std::vector<Post>& posts);
