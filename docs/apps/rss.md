@@ -48,6 +48,7 @@ tell a reader.
 | `src/apps_local/rss/RssDesk.*`                   | what the phone page asked for and what the app answered, behind one mutex. Freestanding                                              |
 | `src/apps_local/rss/RssScreens.*`                | the lists, the feeds screen and the phone screen. Freestanding                                                                       |
 | `src/apps_local/rss/RssServer.*`, `RssPage.html` | the phone page and its four routes                                                                                                   |
+| `src/apps_local/rss/RssFetch.*` | the feed GET that STOP can interrupt while it connects |
 | `src/apps_local/rss/RssActivity.*`               | the radio, the card and the panel                                                                                                    |
 | `host-tests/rss/`                                | the formats, discovery, limits, broken feeds, dates, read and saved state, the desk                                                  |
 | `host-tests/ui/` (RSS block)                     | every screen's taps, the segments, the reader without a second view, the refresh's STOP                                              |
@@ -100,7 +101,11 @@ worth of RAM.
   expat dead, often in the first title. `EntityFixer` escapes every ampersand
   that does not begin one of XML's own references before expat sees it, and
   `decodeEntities` turns the text back into a space or a dash afterwards. CDATA
-  and comments pass through untouched.
+  and comments pass through untouched. The same filter drops raw control bytes,
+  escapes numeric references to characters XML forbids (`&#0;`, a lone
+  surrogate), and skips whitespace before the `<?xml` declaration, each of
+  which stops expat at the first byte. A document that opens like UTF-16 is
+  left alone.
 - **Windows-1252** is declared by enough feeds that expat is given a table for
   it. ISO-8859-15 is read the same way.
 - **A feed broken halfway down still has a top.** Whatever arrived before the
@@ -130,7 +135,11 @@ that draws it. The page polls `GET /r/state` for its answer.
 **What is behind the QR code** is the list of feed addresses and the two
 requests. No file, no setting, nothing on the card. Anyone on the same network
 can add or remove a feed while that screen is up, which is the same exposure
-Notes' page has. It is its own small server rather than another surface on
+Notes' page has. An address that points back at the reader (localhost, 127.x,
+link-local, its own IP) is refused, because the reader would wait on a server
+its own loop is busy not answering; a feed elsewhere on the house network is
+allowed. While an add is fetching, the page goes on being answered, so it
+shows the reader working. It is its own small server rather than another surface on
 `CrossPointWebServer`, so no upstream file grew. Developer Mode yields port 80
 while it is up.
 
@@ -146,8 +155,13 @@ Under `/.crosspoint/rss/`, plain text, readable in an editor:
 | `posts/<id>.txt`, `posts/<id>.sum` | a post's words, whole or summary; the kind is in the name so a post whose feed starts carrying the whole text is written again |
 | `saved/`                           | Hacker News's shelf format (`hnsaved 2`), one text file per saved post                                                         |
 
-A body file is written once and pruned when no post points at it. A file from a
-newer build is left alone rather than half read.
+A body file is written once and pruned when no post points at it; one written
+by a refresh and pushed out by a newer post in the same feed is removed at
+once. Every list is written beside itself and moved over the old one; if the
+move fails after the old file is gone, the `.tmp` copy is what the next
+opening reads. A list that is on the card and cannot be read (damaged, too
+big, or from a newer build) is left alone: nothing is written over it for as
+long as the app is open, and adding a feed says why it cannot.
 
 ## When a post's words are not there
 
@@ -163,16 +177,38 @@ newer build is left alone rather than half read.
 
 Every feed in one loop pass, painting "REFRESHING", the feed's name and "n of
 m" before each. The pass holds the loop for as long as it runs, so it pumps
-input itself (between feeds and inside each download) and answers Back, the
-Home gesture and a tap on STOP, which ends it after the feed in hand. What was
-read stands and the rest keep their posts. This is the one place the app calls
+input itself, between feeds and every 50ms inside each download, connecting
+and waiting included, and answers Back, the Home gesture and a tap on STOP.
+Stopping abandons the feed in hand, which keeps its old posts and is not marked
+FAILED; the feeds already read stand. The Home gesture only stops the refresh:
+the event is consumed by this pump, so a second one goes home.
+
+Feeds are fetched through `RssFetch`, the same resumable SecureHttpClient GET
+`HttpDownloader` makes, with a 20 second timeout instead of 60 and a poll that
+runs while it waits. `HttpDownloader` only calls back once body bytes arrive,
+so a host that never answered held STOP dead for minutes; it is CrossPoint's
+file, so the variant lives here. This is the one place the app calls
 `mappedInput.update()`, which the input-pump rule allows exactly because
 nothing else is sampling.
 
 **The simulator cannot show this screen.** It presents frames on its main
 thread, which is the thread the refresh holds, so a scripted run never
-photographs REFRESHING: the next frame it shows is the list. The screen is
-covered by `host-tests/ui` instead, and needs eyes on hardware.
+photographs REFRESHING: the next frame it shows is the list. Its network shim
+also ignores the abort poll, so in the simulator STOP takes effect when the
+feed in hand answers rather than at once (the tap is seen; the run logs the
+feed as stopped). The screen is covered by `host-tests/ui` instead, and needs
+eyes and a finger on hardware.
+
+## Known limits
+
+- **Relative links resolve against the address asked for, not the one a
+  redirect landed on.** The fetch follows redirects but does not report where
+  it ended. Absolute links, and links relative to the site's root, are
+  unaffected; a path-relative feed link on a page that redirected to another
+  path is not.
+- **A post is fetched through the extractor with `HttpDownloader`**, as Hacker
+  News fetches articles: one request, its 60 second timeout, and OPENING on the
+  panel until it answers.
 
 ## Not verified
 

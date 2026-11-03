@@ -52,7 +52,7 @@ std::string jsonString(const std::string_view text) {
         break;
       default:
         if (static_cast<unsigned char>(c) < 0x20) {
-          char escaped[8];
+          char escaped[12];
           std::snprintf(escaped, sizeof(escaped), "\\u%04x", static_cast<unsigned>(static_cast<unsigned char>(c)));
           out += escaped;
         } else {

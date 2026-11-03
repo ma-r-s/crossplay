@@ -88,6 +88,7 @@ class RssActivity final : public Activity {
   void refreshAll();
   struct FetchResult {
     bool ok = false;
+    int status = 0;
     std::string title;
     std::vector<rss::Post> posts;
   };
@@ -99,6 +100,11 @@ class RssActivity final : public Activity {
   // feeds, the posts and the read marks, and drops bodies nothing points at.
   void adopt(const std::vector<rss::Post>& fresh);
   void pruneBodies();
+  // While a feed downloads: pumps input for STOP during a refresh, serves the
+  // phone page during an add. True abandons the download.
+  bool pollDuringFetch();
+  // A body this read wrote and a newer post has pushed out again.
+  void dropBodyWrittenNow(const std::string& id, std::vector<std::string>& written);
   // Pumps input while a refresh holds the loop, and answers Back, Home and a
   // tap on STOP. See docs/apps/rss.md for why this one place may do that.
   void pumpRefreshInput();
@@ -135,6 +141,9 @@ class RssActivity final : public Activity {
   void addFeed();
   void removeFeed(const rss::Request& request);
   void publishToDesk();
+  // An address that would have the reader fetch from itself (see
+  // rss::isLocalAddress), or its own address on the network.
+  bool pointsAtThisReader(const std::string& url) const;
   std::string feedCountLine() const;
 
   // --- State -----------------------------------------------------------
@@ -193,6 +202,10 @@ class RssActivity final : public Activity {
   // See HackerNewsActivity: a Back RELEASE only means "go back" when this
   // activity also saw the press, because the picker acts on the press.
   bool backPressSeen_ = false;
+
+  // A list on the card that is there and could not be read. Nothing is written
+  // over it for as long as this app is open.
+  bool cardRefused_ = false;
 
   rss::Desk desk_;
   std::unique_ptr<RssServer> server_;

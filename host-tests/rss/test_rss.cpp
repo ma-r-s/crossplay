@@ -348,6 +348,39 @@ void testEntityFixerLeavesCdataAlone() {
   CHECK_EQ(out, "<a>&amp;nbsp;&amp;&#38;&#x26;&lt;&amp;bogus</a><![CDATA[&nbsp; ]] ]]><!-- & --><b x=\"1&amp;2\"/>");
 }
 
+void testFeedsExpatWouldRefuse() {
+  // Whitespace before the declaration (a WordPress plugin fault), a reference
+  // to a character XML forbids, a lone surrogate, and a raw control byte. Each
+  // stops expat at the first byte; each is absorbed.
+  const std::string doc =
+      "\n\n  <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss><channel><title>Fault&#1;y</title>"
+      "<item><title>One &#0; two &#xD83D; three\x01\x0b</title><link>https://f.example/1</link></item>"
+      "<item><title>Second</title><link>https://f.example/2</link></item></channel></rss>";
+  Collector c;
+  std::string title;
+  bool malformed = true;
+  CHECK(parse(doc, c, 0, &title, nullptr, &malformed) == rss::Kind::Rss);
+  CHECK(!malformed);
+  CHECK_EQ(title, "Faulty");
+  CHECK_NUM(c.posts.size(), 2);
+  if (!c.posts.empty()) CHECK_EQ(c.posts[0].title, "One two three");
+
+  // A byte-order mark is not leading whitespace and stays; space after it goes.
+  Collector bom;
+  bool bomMalformed = true;
+  CHECK(parse("\xEF\xBB\xBF \n<rss><channel><title>B</title></channel></rss>", bom, 1, nullptr, nullptr,
+              &bomMalformed) == rss::Kind::Rss);
+  CHECK(!bomMalformed);
+
+  // UTF-16 is not ASCII-shaped and is handed to expat untouched.
+  rss::EntityFixer fixer;
+  std::string out;
+  const char utf16[] = {'\xFF', '\xFE', '<', '\0', '&', '\0'};
+  fixer.feed(utf16, sizeof(utf16), out);
+  fixer.finish(out);
+  CHECK(out == std::string(utf16, sizeof(utf16)));
+}
+
 void testWindows1252() {
   const std::string doc =
       "<?xml version=\"1.0\" encoding=\"windows-1252\"?><rss><channel><title>W</title>"
@@ -654,6 +687,23 @@ void testShortName() {
   CHECK_EQ(rss::shortName("  Kettle - notes: tea  "), "Kettle");
 }
 
+void testLocalAddresses() {
+  CHECK(rss::isLocalAddress("http://localhost/r"));
+  CHECK(rss::isLocalAddress("http://LOCALHOST:8080/feed"));
+  CHECK(rss::isLocalAddress("http://127.0.0.1/r"));
+  CHECK(rss::isLocalAddress("https://127.12.0.9:443/x"));
+  CHECK(rss::isLocalAddress("http://[::1]/feed"));
+  CHECK(rss::isLocalAddress("http://0.0.0.0/"));
+  CHECK(rss::isLocalAddress("http://169.254.1.1/feed"));
+  CHECK(rss::isLocalAddress("http://reader.localhost/"));
+  CHECK(rss::isLocalAddress("http://user@127.0.0.1/"));
+  // A house's own feeds on its own network are a reader's business.
+  CHECK(!rss::isLocalAddress("http://192.168.1.20/feed.xml"));
+  CHECK(!rss::isLocalAddress("https://kettle.example/feed"));
+  CHECK(!rss::isLocalAddress("https://127example.com/feed"));
+  CHECK(!rss::isLocalAddress("not a url"));
+}
+
 void testHostOf() {
   CHECK_EQ(rss::hostOf("https://www.Kettle.example:443/feed"), "kettle.example");
   CHECK_EQ(rss::hostOf("http://user@notes.example/x"), "notes.example");
@@ -738,6 +788,9 @@ void testPlainLine() {
 void testDecodeEntities() {
   CHECK_EQ(rss::decodeEntities("&eacute;&Eacute;&yuml;&nbsp;&#233;&#xE9;&#146;&unknown;&;& x"),
            "\xC3\xA9\xC3\x89\xC3\xBF\xC2\xA0\xC3\xA9\xC3\xA9\xE2\x80\x99&unknown;&;& x");
+  // A reference to a control character is nothing to see, and goes.
+  CHECK_EQ(rss::decodeEntities("a&#1;b&#x1F;c&#10;d"), "abc\nd");
+  CHECK_EQ(rss::decodeEntities("x&#55357;&#56832;y"), "xy");
 }
 
 // --- Dates across refreshes, and the combined list -----------------------
@@ -954,6 +1007,7 @@ int main() {
   testChunkingChangesNothing();
   testHtmlEntitiesOutsideCdata();
   testEntityFixerLeavesCdataAlone();
+  testFeedsExpatWouldRefuse();
   testWindows1252();
   testTruncatedFeedKeepsItsTop();
   testGarbageMidFeed();
@@ -972,6 +1026,7 @@ int main() {
   testNormalizeAddress();
   testResolveUrl();
   testShortName();
+  testLocalAddresses();
   testHostOf();
   testDates();
   testParagraphs();

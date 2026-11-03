@@ -520,6 +520,28 @@ std::string hostOf(const std::string_view url) {
   return out;
 }
 
+bool isLocalAddress(const std::string_view url) {
+  UrlParts parts;
+  if (!splitUrl(url, parts)) return false;
+  std::string_view host = parts.authority;
+  const size_t at = host.rfind('@');
+  if (at != std::string_view::npos) host.remove_prefix(at + 1);
+  if (!host.empty() && host.front() == '[') {
+    const size_t close = host.find(']');
+    host = host.substr(1, close == std::string_view::npos ? std::string_view::npos : close - 1);
+    return host == "::1" || host == "::";
+  }
+  const size_t colon = host.find(':');
+  if (colon != std::string_view::npos) host = host.substr(0, colon);
+  std::string lowered(host);
+  for (char& c : lowered) c = lower(c);
+  if (!lowered.empty() && lowered.back() == '.') lowered.pop_back();
+  if (lowered == "localhost" || (lowered.size() > 10 && lowered.compare(lowered.size() - 10, 10, ".localhost") == 0)) {
+    return true;
+  }
+  return lowered.rfind("127.", 0) == 0 || lowered == "0.0.0.0" || lowered.rfind("169.254.", 0) == 0;
+}
+
 std::string shortName(const std::string_view title) {
   static constexpr std::string_view kSeparators[] = {
       ": ", " - ", " -- ", " | ", " \xE2\x80\x94 ", " \xE2\x80\x93 ", " \xC2\xBB ", " :: "};
@@ -590,6 +612,15 @@ std::string decodeEntities(const std::string_view text) {
       if (end != nullptr && *end == '\0' && value > 0 && value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)) {
         cp = static_cast<uint32_t>(value);
         if (cp >= 0x80 && cp <= 0x9F) cp = kCp1252High[cp - 0x80];
+      }
+      // A control character is nothing a reader can see, and half a surrogate
+      // pair is half an emoji (the other half arrives as its own reference): both
+      // go, reference and all, rather than standing in the text as "&#1;".
+      const bool control = value < 0x20 && value != 0x9 && value != 0xA && value != 0xD;
+      const bool surrogate = value >= 0xD800 && value <= 0xDFFF;
+      if (end != nullptr && *end == '\0' && !digits.empty() && (control || surrogate)) {
+        i = semi + 1;
+        continue;
       }
     } else {
       cp = namedCodepoint(body);

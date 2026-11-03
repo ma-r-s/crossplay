@@ -70,6 +70,12 @@ class ItemSink {
 // decodeEntities() turns it into a space later, the same as it would for a
 // feed that had escaped it properly. CDATA sections and comments pass through
 // untouched, because nothing in them is a reference.
+//
+// Three more faults it absorbs, each of which stops expat at the first byte:
+// a numeric reference to a character XML forbids (&#0;, a lone surrogate), a
+// raw control byte, and whitespace before the <?xml declaration -- a well-known
+// WordPress plugin fault. A document that opens with 0x00, 0xFE or 0xFF is not
+// ASCII-shaped (UTF-16) and passes through untouched.
 // ---------------------------------------------------------------------------
 class EntityFixer {
  public:
@@ -88,6 +94,11 @@ class EntityFixer {
   // The bytes of "<![CDATA[" or "<!--" matched so far, or of an entity.
   std::string held_;
   int closeMatch_ = 0;  // how much of "]]>" or "-->" has been seen
+  // Before the first byte of markup: a BOM passes, whitespace is dropped.
+  bool leading_ = true;
+  int bomMatched_ = 0;
+  bool started_ = false;
+  bool passthrough_ = false;
 };
 
 enum class Kind : uint8_t {

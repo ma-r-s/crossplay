@@ -100,6 +100,12 @@ std::string resolveUrl(std::string_view base, std::string_view href);
 // The host, without a leading "www.", for naming a feed that names nothing.
 std::string hostOf(std::string_view url);
 
+// An address that points back at the reader itself or at nothing on a network:
+// localhost, 127.x, ::1, 0.0.0.0, link-local 169.254.x. The phone page is open
+// to anyone on the network while it is up, and a feed added at the reader's own
+// address would have it wait on a server its own loop is busy not answering.
+bool isLocalAddress(std::string_view url);
+
 // A feed's name as the footnote on each of its posts: the part before a
 // separator, because feeds name themselves "Hacker News: Front Page" and
 // "Ars Technica - All content" and the site is the first half. A name with no

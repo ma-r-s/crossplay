@@ -153,23 +153,63 @@ namespace {
 constexpr std::string_view kCdataOpen = "<![CDATA[";
 constexpr std::string_view kCommentOpen = "<!--";
 
+// A character XML allows at all. A reference to any other is a fatal error to
+// expat, however well-formed the reference itself.
+bool xmlChar(const unsigned long cp) {
+  return cp == 0x9 || cp == 0xA || cp == 0xD || (cp >= 0x20 && cp <= 0xD7FF) || (cp >= 0xE000 && cp <= 0xFFFD) ||
+         (cp >= 0x10000 && cp <= 0x10FFFF);
+}
+
 bool validReference(const std::string_view name) {
   if (name == "amp" || name == "lt" || name == "gt" || name == "quot" || name == "apos") return true;
   if (name.size() < 2 || name[0] != '#') return false;
   const bool hex = name[1] == 'x' || name[1] == 'X';
   const std::string_view digits = name.substr(hex ? 2 : 1);
-  if (digits.empty()) return false;
+  if (digits.empty() || digits.size() > 8) return false;
+  unsigned long value = 0;
   for (const char c : digits) {
     if (hex ? std::isxdigit(static_cast<unsigned char>(c)) == 0 : std::isdigit(static_cast<unsigned char>(c)) == 0) {
       return false;
     }
+    value =
+        value * (hex ? 16 : 10) +
+        static_cast<unsigned long>(std::isdigit(static_cast<unsigned char>(c)) != 0 ? c - '0' : (lower(c) - 'a' + 10));
   }
-  return true;
+  return xmlChar(value);
+}
+
+// A raw byte XML forbids anywhere: every C0 control but tab and the line ends.
+bool forbiddenByte(const char c) {
+  const unsigned char u = static_cast<unsigned char>(c);
+  return u < 0x20 && u != 0x9 && u != 0xA && u != 0xD;
 }
 }  // namespace
 
 void EntityFixer::feed(const char* data, const size_t length, std::string& out) {
-  for (size_t i = 0; i < length; ++i) text(data[i], out);
+  static constexpr unsigned char kBom[] = {0xEF, 0xBB, 0xBF};
+  for (size_t i = 0; i < length; ++i) {
+    const char c = data[i];
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (!started_) {
+      started_ = true;
+      passthrough_ = u == 0x00 || u == 0xFE || u == 0xFF;
+    }
+    if (passthrough_) {
+      out.push_back(c);
+      continue;
+    }
+    if (leading_) {
+      if (bomMatched_ < 3 && u == kBom[bomMatched_]) {
+        out.push_back(c);
+        ++bomMatched_;
+        continue;
+      }
+      if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+      leading_ = false;
+    }
+    if (forbiddenByte(c)) continue;
+    text(c, out);
+  }
 }
 
 void EntityFixer::endEntity(const char next, const bool terminated, std::string& out) {
@@ -359,7 +399,7 @@ void FeedParser::start(const char* name, const char** attrs) {
       haveAltLink_ = false;
       if (kind_ == Kind::Rdf) {
         const char* about = attr(attrs, "about");
-        if (about != nullptr) item_.guid = about;
+        if (about != nullptr) item_.guid.assign(about, strnlen(about, limits_.linkBytes));
       }
       return;
     }
@@ -380,7 +420,7 @@ void FeedParser::start(const char* name, const char** attrs) {
         const char* href = attr(attrs, "href");
         if (href != nullptr && siteLink_.empty() && (rel == nullptr || streq(rel, "alternate")) &&
             (type == nullptr || containsFold(type, "html"))) {
-          siteLink_ = std::string(href).substr(0, limits_.linkBytes);
+          siteLink_.assign(href, strnlen(href, limits_.linkBytes));
         }
       } else if (siteLink_.empty()) {
         begin(Field::FeedLink, Mode::Plain, limits_.linkBytes);
@@ -402,7 +442,7 @@ void FeedParser::start(const char* name, const char** attrs) {
       const char* rel = attr(attrs, "rel");
       const char* href = attr(attrs, "href");
       if (href != nullptr && !haveAltLink_ && (rel == nullptr || streq(rel, "alternate"))) {
-        item_.link = std::string(href).substr(0, limits_.linkBytes);
+        item_.link.assign(href, strnlen(href, limits_.linkBytes));
         haveAltLink_ = true;
       }
     } else if (streq(local, "id")) {
@@ -481,17 +521,20 @@ void FeedParser::commit() {
       }
       break;
     case Field::Content:
-      if (item_.content.empty()) {
-        item_.content = mode_ == Mode::Text ? paragraphsMarked(buffer_) : buffer_;
+    case Field::Summary: {
+      std::string& target = field_ == Field::Content ? item_.content : item_.summary;
+      if (target.empty()) {
+        // Swapped rather than copied: a post's markup can be 96KB, and the
+        // buffer it leaves behind is reused by the next field.
+        if (mode_ == Mode::Text) {
+          target = paragraphsMarked(buffer_);
+        } else {
+          target.swap(buffer_);
+        }
         item_.clipped = item_.clipped || fieldClipped_;
       }
       break;
-    case Field::Summary:
-      if (item_.summary.empty()) {
-        item_.summary = mode_ == Mode::Text ? paragraphsMarked(buffer_) : buffer_;
-        item_.clipped = item_.clipped || fieldClipped_;
-      }
-      break;
+    }
     case Field::FeedTitle:
       title_ = buffer_;
       break;

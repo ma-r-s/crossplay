@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
+#include <optional>
 
 #include "../../DevMode.h"
 #include "../../SilentRestart.h"
@@ -29,6 +30,7 @@
 #include "../ui/ToyboxText.h"
 #include "../ui/ToyboxTheme.h"
 #include "RssFeed.h"
+#include "RssFetch.h"
 #include "RssServer.h"
 
 namespace fui = freeink::ui;
@@ -46,7 +48,10 @@ constexpr const char* kBodiesDir = "/.crosspoint/rss/posts";
 
 // Ceilings on what is read back off the card. Each is many times what the
 // limits in RssCore.h can produce, so they only ever stop a damaged file.
-constexpr size_t kMaxIndexBytes = 512u * 1024u;
+// The posts file at its fullest is every feed's twenty posts with the longest
+// headline and link each may carry; derived, so raising a limit raises this.
+constexpr size_t kMaxIndexBytes =
+    static_cast<size_t>(rss::kMaxFeeds) * rss::kPostsPerFeed * (rss::kMaxTitleBytes + rss::kMaxLinkBytes + 64) + 4096;
 constexpr size_t kMaxBodyBytes = 256u * 1024u;
 
 // What a refused feed says, on the device and on the phone alike.
@@ -60,9 +65,15 @@ constexpr const char* kNoteNotAPage = "That is all the feed carries, and its lin
 
 bool readText(const char* path, const size_t cap, std::string& out) {
   out.clear();
-  if (!Storage.exists(path)) return false;
-  return Storage.readFileToString("RSS", path, cap, out);
+  if (Storage.exists(path)) return Storage.readFileToString("RSS", path, cap, out);
+  // A write that lost its rename leaves the new copy under .tmp and nothing
+  // under the real name; see writeText.
+  const std::string tmp = std::string(path) + ".tmp";
+  return Storage.exists(tmp.c_str()) && Storage.readFileToString("RSS", tmp, cap, out);
 }
+
+// Whether a file is on the card in either of the places readText looks.
+bool onCard(const char* path) { return Storage.exists(path) || Storage.exists((std::string(path) + ".tmp").c_str()); }
 
 // Beside itself, then moved over the old one: openFileForWrite truncates at
 // open, so writing in place would leave an empty list behind a lost write.
@@ -80,7 +91,9 @@ bool writeText(const char* path, const std::string& text) {
     file.flush();
   }
   if (!Storage.replaceFile(tmp.c_str(), path)) {
-    Storage.remove(tmp.c_str());
+    // replaceFile removes the old file before it renames. If the rename is what
+    // failed, the .tmp is the only copy left, and readText() looks for it.
+    if (Storage.exists(path)) Storage.remove(tmp.c_str());
     return false;
   }
   return true;
@@ -142,11 +155,17 @@ void RssActivity::loadAll() {
   feeds_.clear();
   posts_.clear();
   read_.clear();
-  if (readText(kFeedsPath, kMaxIndexBytes, text) && !rss::parseFeeds(text, feeds_)) {
-    LOG_ERR("RSS", "feeds.tsv is not in our format; leaving it alone");
+  // A file that is there and cannot be read -- too big, damaged, or from a
+  // newer build -- is left exactly as it is: nothing is written over it this
+  // session, so the list it holds is not replaced by an empty one.
+  cardRefused_ = false;
+  if (onCard(kFeedsPath) && (!readText(kFeedsPath, kMaxIndexBytes, text) || !rss::parseFeeds(text, feeds_))) {
+    LOG_ERR("RSS", "feeds.tsv is on the card and could not be read; leaving it alone");
+    cardRefused_ = true;
   }
-  if (readText(kPostsPath, kMaxIndexBytes, text) && !rss::parsePosts(text, posts_)) {
-    LOG_ERR("RSS", "posts.tsv is not in our format; leaving it alone");
+  if (onCard(kPostsPath) && (!readText(kPostsPath, kMaxIndexBytes, text) || !rss::parsePosts(text, posts_))) {
+    LOG_ERR("RSS", "posts.tsv is on the card and could not be read; leaving it alone");
+    cardRefused_ = true;
   }
   if (readText(kReadPath, kMaxIndexBytes, text)) rss::parseRead(text, read_);
   // Posts of a feed that is no longer here are not shown, whatever the file
@@ -155,18 +174,21 @@ void RssActivity::loadAll() {
 }
 
 bool RssActivity::saveFeeds() {
+  if (cardRefused_) return false;
   if (writeText(kFeedsPath, rss::serializeFeeds(feeds_))) return true;
   LOG_ERR("RSS", "could not write the feeds");
   return false;
 }
 
 bool RssActivity::savePosts() {
+  if (cardRefused_) return false;
   if (writeText(kPostsPath, rss::serializePosts(posts_))) return true;
   LOG_ERR("RSS", "could not write the posts");
   return false;
 }
 
 void RssActivity::saveRead() {
+  if (cardRefused_) return;
   if (!writeText(kReadPath, rss::serializeRead(read_))) LOG_ERR("RSS", "could not write the read marks");
 }
 
@@ -177,6 +199,8 @@ std::string RssActivity::bodyPath(const std::string& id, const rss::Body body) c
 }
 
 void RssActivity::pruneBodies() {
+  // With the lists unreadable, nothing can say which bodies are wanted.
+  if (cardRefused_) return;
   // Every body no post points at any more: posts that scrolled out of their
   // feed, feeds that were removed. Listed rather than tracked, so a file left
   // by an interrupted refresh goes too.
@@ -289,6 +313,10 @@ RssActivity::FetchResult RssActivity::fetchFeed(const std::string& url, const bo
     std::string url;
     std::string key;
     rss::Keeper keeper;
+    // Bodies this read wrote, so one pushed out again by a newer post can go at
+    // once. An oldest-first feed keeps every post it reads until the last
+    // twenty, and without this each refresh wrote all of them and pruned them.
+    std::vector<std::string> written;
     bool onItem(rss::Item& item) override {
       rss::Post post;
       std::string text;
@@ -296,9 +324,14 @@ RssActivity::FetchResult RssActivity::fetchFeed(const std::string& url, const bo
       const std::string id = post.id;
       const rss::Body body = post.body;
       std::string evicted;
-      if (keeper.offer(std::move(post), evicted) && !text.empty()) {
+      const bool kept = keeper.offer(std::move(post), evicted);
+      if (!evicted.empty()) self->dropBodyWrittenNow(evicted, written);
+      if (kept && !text.empty()) {
         const std::string path = self->bodyPath(id, body);
-        if (!Storage.exists(path.c_str()) && !writeText(path.c_str(), text)) {
+        if (Storage.exists(path.c_str())) return !keeper.saturated();
+        if (writeText(path.c_str(), text)) {
+          written.push_back(id);
+        } else {
           LOG_ERR("RSS", "could not keep the words of %s", id.c_str());
         }
       }
@@ -313,48 +346,79 @@ RssActivity::FetchResult RssActivity::fetchFeed(const std::string& url, const bo
   sink.key = rss::keyFor(url);
   Storage.ensureDirectoryExists(kBodiesDir);
 
-  rss::Probe prober(&sink);
-  rss::FeedParser parser(&sink);
+  // One reader or the other, never both: each holds an expat parser.
+  std::optional<rss::Probe> prober;
+  std::optional<rss::FeedParser> parser;
+  if (probe) {
+    prober.emplace(&sink);
+  } else {
+    parser.emplace(&sink);
+  }
   size_t total = 0;
   bool overLimit = false;
   const uint32_t started = millis();
-  const bool fetched = HttpDownloader::fetchUrl(url, [&](const uint8_t* data, const size_t length) {
-    total += length;
-    const bool isFeed = probe ? prober.isFeed() : true;
-    if (total > (isFeed ? rss::kMaxFeedBytes : rss::kMaxPageBytes)) {
-      overLimit = true;
-      return false;
-    }
-    if (busyStoppable_) {
-      pumpRefreshInput();
-      if (stopRefresh_) return false;
-    }
-    const char* bytes = reinterpret_cast<const char*>(data);
-    return probe ? prober.feed(bytes, length) : parser.feed(bytes, length);
-  });
+  const rss::FetchOutcome fetched = rss::fetchStreaming(
+      url,
+      [&](const uint8_t* data, const size_t length) {
+        total += length;
+        const bool isFeed = probe ? prober->isFeed() : true;
+        if (total > (isFeed ? rss::kMaxFeedBytes : rss::kMaxPageBytes)) {
+          overLimit = true;
+          return false;
+        }
+        const char* bytes = reinterpret_cast<const char*>(data);
+        return probe ? prober->feed(bytes, length) : parser->feed(bytes, length);
+      },
+      // Runs while the request connects and waits as well as while it reads,
+      // so STOP answers a host that never does.
+      [this] { return pollDuringFetch(); });
   if (probe) {
-    prober.finish();
+    prober->finish();
   } else {
-    parser.finish();
+    parser->finish();
   }
-  const rss::FeedParser& read = probe ? prober.parser() : parser;
+  const rss::FeedParser& read = probe ? prober->parser() : *parser;
 
   // A feed counts as read when it was one and anything usable came of it: the
   // whole of it, the part before the size limit or a broken tag, or the part
   // before the newest twenty were certain. A refresh stopped by hand mid-feed
-  // does not count, so that feed keeps the posts it had.
-  const bool usable = fetched || overLimit || read.stoppedBySink() || read.items() > 0;
-  result.ok = read.isFeed() && usable && !(stopRefresh_ && !fetched && !read.stoppedBySink());
+  // does not count, so that feed keeps the posts it had and is not marked.
+  const bool usable = fetched.complete || overLimit || read.stoppedBySink() || read.items() > 0;
+  result.ok = read.isFeed() && usable && !fetched.aborted;
+  result.status = fetched.status;
   result.title = read.title();
   result.posts = sink.keeper.take();
-  if (probe && discovered != nullptr && !prober.isFeed()) {
-    for (const std::string& href : prober.links().feeds()) discovered->push_back(rss::resolveUrl(url, href));
+  if (probe && discovered != nullptr && !prober->isFeed()) {
+    for (const std::string& href : prober->links().feeds()) discovered->push_back(rss::resolveUrl(url, href));
   }
-  LOG_INF("RSS", "%s: %s, %d items, %d kept, %u bytes, %ums, status %d%s%s", url.c_str(),
+  LOG_INF("RSS", "%s: %s, %d items, %d kept, %u bytes, %ums, status %d%s%s%s", url.c_str(),
           read.isFeed() ? "feed" : (probe ? "page" : "not a feed"), read.items(), static_cast<int>(result.posts.size()),
-          static_cast<unsigned>(total), static_cast<unsigned>(millis() - started), HttpDownloader::lastStatus(),
-          read.malformed() ? ", malformed" : "", overLimit ? ", over the limit" : "");
+          static_cast<unsigned>(total), static_cast<unsigned>(millis() - started), fetched.status,
+          read.malformed() ? ", malformed" : "", overLimit ? ", over the limit" : "",
+          fetched.aborted ? ", stopped" : "");
   return result;
+}
+
+bool RssActivity::pollDuringFetch() {
+  if (busyStoppable_) {
+    pumpRefreshInput();
+    return stopRefresh_;
+  }
+  // Adding from the phone: the page keeps being answered, so it can see the
+  // reader working rather than a request that hangs.
+  if (phase_ == Phase::Phone && server_) server_->handleClient();
+  return false;
+}
+
+void RssActivity::dropBodyWrittenNow(const std::string& id, std::vector<std::string>& written) {
+  const auto at = std::find(written.begin(), written.end(), id);
+  if (at == written.end()) return;
+  written.erase(at);
+  // Written by this read and pointed at by nothing from before it.
+  const bool known = std::any_of(posts_.begin(), posts_.end(), [&id](const rss::Post& post) { return post.id == id; });
+  if (known) return;
+  Storage.remove(bodyPath(id, rss::Body::Full).c_str());
+  Storage.remove(bodyPath(id, rss::Body::Summary).c_str());
 }
 
 void RssActivity::adopt(const std::vector<rss::Post>& fresh) {
@@ -363,6 +427,8 @@ void RssActivity::adopt(const std::vector<rss::Post>& fresh) {
     posts_ = rss::combine(feeds_, posts_, fresh);
     read_.retainOnly(posts_);
     viewStale_ = true;
+    // The row it named has moved.
+    selected_ = -1;
   }
   saveFeeds();
   savePosts();
@@ -383,7 +449,7 @@ void RssActivity::refreshAll() {
       RenderLock lock(*this);
       phase_ = Phase::Busy;
       busyHeadline_ = "REFRESHING";
-      char progress[24];
+      char progress[32];
       std::snprintf(progress, sizeof(progress), "%d of %d", i + 1, count);
       busyMessage_ = feeds_[static_cast<size_t>(i)].title + "\n" + progress;
       busyStoppable_ = true;
@@ -797,7 +863,13 @@ void RssActivity::openSaved(const int viewIndex) {
 
 void RssActivity::saveCurrent() {
   if (readerKey_.empty() || document_.empty()) return;
-  if (!library_.save(readerKey_, readerTitle_, document_)) {
+  bool saved = false;
+  {
+    // render() asks the library whether this post is kept.
+    RenderLock lock(*this);
+    saved = library_.save(readerKey_, readerTitle_, document_);
+  }
+  if (!saved) {
     // Said over the page rather than instead of it; see Hacker News's card #40.
     saveFailedNotice_ = true;
     requestUpdate();
@@ -810,14 +882,17 @@ void RssActivity::saveCurrent() {
 
 void RssActivity::unsaveCurrent() {
   if (readerKey_.empty()) return;
-  saveFailedNotice_ = false;
-  library_.remove(readerKey_);
-  viewStale_ = true;
-  // Removing what you are reading out of the shelf leaves nothing to read.
-  if (readingSaved_) {
-    readingSaved_ = false;
-    phase_ = Phase::List;
-    selected_ = -1;
+  {
+    RenderLock lock(*this);
+    saveFailedNotice_ = false;
+    library_.remove(readerKey_);
+    viewStale_ = true;
+    // Removing what you are reading out of the shelf leaves nothing to read.
+    if (readingSaved_) {
+      readingSaved_ = false;
+      phase_ = Phase::List;
+      selected_ = -1;
+    }
   }
   requestUpdate();
 }
@@ -863,6 +938,19 @@ void RssActivity::showNotice(const char* headline, const char* message, const bo
 
 void RssActivity::publishToDesk() { desk_.publish(feeds_, posts_); }
 
+bool RssActivity::pointsAtThisReader(const std::string& url) const {
+#ifdef SIMULATOR
+  // The simulator's address is the host's loopback, which is also where a test
+  // server for its feeds runs; nothing there can deadlock on itself.
+  (void)url;
+  return false;
+#else
+  if (rss::isLocalAddress(url)) return true;
+  const std::string own = std::string(WiFi.localIP().toString().c_str());
+  return !own.empty() && rss::hostOf(url) == own;
+#endif
+}
+
 std::string RssActivity::feedCountLine() const {
   if (feeds_.empty()) return "No feeds yet.";
   char line[24];
@@ -906,6 +994,12 @@ void RssActivity::startPhone() {
 }
 
 void RssActivity::stopPhone() {
+  // An add taken off the page in the same pass as Back or DONE goes with the
+  // page, rather than fetching for a screen nobody is on any more.
+  if (pending_ == Pending::AddFeed) {
+    pending_ = Pending::None;
+    desk_.finish(addRequest_.job, false, "The reader left this page.");
+  }
   if (server_) {
     server_->stop();
     server_.reset();
@@ -966,17 +1060,19 @@ void RssActivity::removeFeed(const rss::Request& request) {
 
 void RssActivity::addFeed() {
   const rss::Request job = addRequest_;
+  if (!server_) return;
   // The phone is told why in a sentence; the panel says the same sentence,
   // because the person may be looking at either.
   const auto refuse = [this, &job](const std::string& message) {
     desk_.finish(job.job, false, message);
     RenderLock lock(*this);
     phoneStatus_ = message;
-    phase_ = Phase::Phone;
   };
 
   const std::string address = rss::normalizeAddress(job.text);
   if (address.empty()) return refuse("That is not a web address.");
+  if (pointsAtThisReader(address)) return refuse("That address is this reader, not a site.");
+  if (cardRefused_) return refuse("The feed list on the card could not be read, so nothing was changed.");
   if (static_cast<int>(feeds_.size()) >= rss::kMaxFeeds) {
     return refuse("That is thirty feeds already. Remove one first.");
   }
@@ -996,7 +1092,7 @@ void RssActivity::addFeed() {
     result = fetchFeed(feedUrl, false, nullptr);
   }
   if (!result.ok) {
-    const bool answered = HttpDownloader::lastStatus() >= 200 && HttpDownloader::lastStatus() < 300;
+    const bool answered = result.status >= 200 && result.status < 300;
     return refuse(answered ? kNoFeedThere : "The site did not answer.");
   }
 
@@ -1015,7 +1111,6 @@ void RssActivity::addFeed() {
           static_cast<int>(result.posts.size()));
   RenderLock lock(*this);
   phoneStatus_ = "Added " + feed.title + ".";
-  phase_ = Phase::Phone;
 }
 
 // --- Drawing -------------------------------------------------------------
