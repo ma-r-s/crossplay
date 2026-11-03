@@ -486,7 +486,7 @@ def main(env):
         "bool HalStorage::begin() {",
         "bool HalStorage::freeBytes(uint64_t &out) {\n"
         "  struct statvfs st {};\n"
-        "  if (statvfs(configuredStorageRoot().c_str(), &st) != 0) return false;\n"
+        "  if (statvfs(crosspoint_simulator::storageRoot().c_str(), &st) != 0) return false;\n"
         "  out = static_cast<uint64_t>(st.f_bavail) *\n"
         "        static_cast<uint64_t>(st.f_frsize);\n"
         "  return true;\n"
@@ -621,7 +621,7 @@ def main(env):
         "  const char *begin() const { return s.c_str(); }\n"
         "  const char *end() const { return s.c_str() + s.length(); }",
         "String::begin/end (range-for)",
-        marker="const char *begin() const",
+        marker="begin()",
     )
     # Upstream's per-book content keys (lib/DeviceSecret, lib/Epub/BookKey,
     # 2026-10) keep a device secret in NVS. The simulator's nvs.h and

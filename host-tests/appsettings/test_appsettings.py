@@ -55,18 +55,21 @@ def check(ok, msg):
         print(f"FAIL appsettings  {msg}")
 
 
-LIST = "src/SettingsList.h"
+# The declaration lives in two files: the constructor calls in the .cpp, the
+# runtime-built rows (font family, size, dictionary) in the header. Read as one.
+LISTS = ["src/SettingsList.h", "src/SettingsList.cpp"]
+LIST = " + ".join(LISTS)
 # Files that MUST mention every setting: the declaration, the struct that holds
 # it, and the activity that sorts the fork's rows. A reader here says nothing
 # about who owns the value.
 PLUMBING = {
-    LIST,
+    *LISTS,
     "src/CrossPointSettings.h",
     "src/CrossPointSettings.cpp",
     "src/activities/settings/SettingsActivity.cpp",
 }
 
-list_src = open(LIST).read()
+list_src = "\n".join(open(p).read() for p in LISTS)
 
 
 def calls(src):

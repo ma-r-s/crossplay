@@ -23,4 +23,10 @@ Import("env")  # noqa: F821  (SCons injects this)
 
 if sys.platform.startswith("linux"):
     env.Append(LIBS=["crypto"])  # noqa: F821
+    # AnimatedGIF checks uppercase __LINUX__ (GCC defines lowercase __linux__).
+    env.Append(CPPDEFINES=["__LINUX__"])  # noqa: F821
     print("[sim-host-libs] linking libcrypto for the simulator's MD5Builder")
+
+# GCC 15+ defaults to C23 where bool/true/false are keywords, breaking older
+# C libraries like QRCode that typedef bool. Force C17 for C source files.
+env.Append(CFLAGS=["-std=gnu17"])

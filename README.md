@@ -21,8 +21,8 @@
 
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
-The **Xteink X4 Pro**, **Seeed reTerminal Sticky**, and **M5Stack PaperMono / Lite** are e-ink
-devices with an 800x480 panel, capacitive touch and two physical buttons
+The **Xteink X4 Pro**, **Seeed reTerminal Sticky**, **M5Stack PaperMono / Lite**, and **Onyx BOOX Picco** are e-ink
+devices with an 800x480 panel (480x800 portrait on Picco), capacitive touch and physical buttons
 (three on the Sticky; the design uses the two shared buttons), and
 [CrossPoint](https://crosspointreader.com/) already makes them good at reading.
 CrossPlay is firmware that keeps all of that and adds the other things a screen
@@ -158,9 +158,65 @@ X4, which had a front button row the X4 Pro dropped. Back here is a swipe and
 Confirm exists only on the Sticky, which
 [docs/buttons.md](docs/buttons.md) explains.
 
-Every release is flashed to a real X4 Pro and a real Sticky before it ships.
-That is still a small field record, so if you install it, please
-[say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
+### BOOX Picco
+
+> [!WARNING]
+> **Experimental / Use at Your Own Risk**: Support for the BOOX Picco in CrossPlay is **for experimental purposes only**. It was developed with AI assistance / generation and has received **limited production testing**. While tested and confirmed working on physical hardware, flash at your own risk and always keep a full flash backup.
+
+> [!NOTE]
+> **PSRAM Display Buffers**: Display framebuffers are allocated in external PSRAM (`FREEINK_FB_PSRAM=1`). This keeps internal DRAM free for Wi-Fi MAC DMA packet buffers during TLS downloads (Wordle, XKCD, Hacker News).
+
+The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 e-reader featuring a 480×800 portrait e-ink panel, capacitive touch, physical Up/Down side buttons, and a hardware toggle switch. Unlike other devices, the Picco retains its factory partition table, which includes a vendor `safeboot` recovery partition. CrossPlay completely respects that layout and installs **strictly into the single application partition at `0xE0000`**, never touching the vendor bootloader (`0x0`), NVS (`0x9000`), or `safeboot` recovery (`0x20000`).
+
+#### Installing Pre-Built Firmware
+
+1. Download **`crossplay-boox-picco-firmware.bin`** from the [Releases](https://github.com/glintux/crossplay/releases) page.
+2. Put the BOOX Picco into ROM bootloader mode:
+   - Power off the device completely.
+   - Press and hold **both the Power button and Volume Up (+)** side button simultaneously while connecting the USB-C cable (hold for ~5–8 seconds, then release).
+3. Flash the single application slot using `esptool`:
+   ```bash
+   esptool --chip esp32s3 -p /dev/ttyACM0 -b 921600 write-flash 0xE0000 crossplay-boox-picco-firmware.bin
+   ```
+   *(On Windows, replace `/dev/ttyACM0` with your COM port, e.g., `COM3`. On older esptool installations, `esptool.py` and `write_flash` syntax also work).*
+
+#### Building and Flashing from Source
+
+```bash
+# Build the release image
+pio run -e gh_release_picco
+
+# Flash safely to hardware (the custom uploader guarantees only offset 0xE0000 is written)
+pio run -e gh_release_picco -t upload
+```
+
+#### Running the Desktop Simulator
+
+You can test the full Picco experience (native 480×800 portrait layout, apps, and hardware toggle switch) on your computer without a device:
+
+```bash
+pio run -e simulator_picco -t run
+```
+
+#### Controls on the BOOX Picco
+
+- **Side Buttons**: Physical Up / Down keys navigate pages in the EPUB reader and scroll lists.
+- **Toggle Switch**: Physical switch toggles sleep mode.
+- **Touch Screen**:
+  - Tap left or right third of the screen to turn pages forward/backward.
+  - Tap top third of the screen to reveal the toolbar, library menu, frontlight sliders, and reader settings.
+  - Swipe from the left edge inwards to go **Back** to the previous screen.
+  - Tap games and apps on the Home shelf to launch them.
+
+#### Restoring Stock / Safe Recovery
+
+Before your first flash, it is recommended to back up your full flash:
+```bash
+esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin
+```
+Because CrossPlay never overwrites `0x20000` (`safeboot`), the hardware recovery partition is always preserved. Installing BOOX's official firmware or CrossPoint via their web flasher restores the stock state at any time.
+
+Every release is flashed to real hardware (X4 Pro, Sticky, and BOOX Picco) before it ships. BOOX Picco support remains experimental with limited production testing, so if you install it, please [say what happened](https://github.com/glintux/crossplay/issues), either way.
 
 ## What it does over the network
 
@@ -190,9 +246,11 @@ Most of the shelf never touches the network. Of the parts that do:
 
 ```bash
 git submodule update --init --recursive   # freeink-sdk, and nothing builds without it
-pio run -e x4pro                          # the firmware
-pio run -e simulator_x4_pro               # a desktop simulator, SDL2 + a FreeRTOS shim
-./scripts_local/check.sh                  # host tests and both builds
+pio run -e x4pro                          # X4 Pro firmware
+pio run -e gh_release_picco               # BOOX Picco firmware
+pio run -e simulator_x4_pro               # X4 Pro simulator (SDL2 + FreeRTOS shim)
+pio run -e simulator_picco                # BOOX Picco simulator (480x800 portrait)
+./scripts_local/check.sh                  # host tests and builds
 ```
 
 Always name an environment. A bare `pio run` builds `[env:default]`, which is

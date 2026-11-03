@@ -22,12 +22,12 @@ EpdFont mid44(&calc_jersey_44);
 EpdFont tiny34(&calc_jersey_34);
 EpdFont finest26(&calc_jersey_26);
 
-EpdFontFamily labelFamily(&label28);
-EpdFontFamily smallFamily(&small20);
-EpdFontFamily numberFamily(&number56);
-EpdFontFamily midFamily(&mid44);
-EpdFontFamily tinyFamily(&tiny34);
-EpdFontFamily finestFamily(&finest26);
+EpdFontFamily labelFamily(28, &label28);
+EpdFontFamily smallFamily(20, &small20);
+EpdFontFamily numberFamily(56, &number56);
+EpdFontFamily midFamily(44, &mid44);
+EpdFontFamily tinyFamily(34, &tiny34);
+EpdFontFamily finestFamily(26, &finest26);
 
 bool registered = false;
 

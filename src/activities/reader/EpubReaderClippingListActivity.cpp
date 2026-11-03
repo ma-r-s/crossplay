@@ -158,16 +158,16 @@ bool EpubReaderClippingListActivity::handleCustomInput() {
 }
 
 bool EpubReaderClippingListActivity::handleButtons() {
+  if (mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, ENTER_DELETE_MODE_MS)) {
+    showDeleteConfirmation();
+    return true;
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     finish();
     return true;
   }
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    if (mappedInput.getHeldTime() > ENTER_DELETE_MODE_MS) {
-      showDeleteConfirmation();
-    } else {
-      openSelected();
-    }
+    openSelected();
     return true;
   }
   return false;
@@ -176,9 +176,6 @@ bool EpubReaderClippingListActivity::handleButtons() {
 void EpubReaderClippingListActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  // fork-local seam: these margins are already measured from the panel edge
-  // with the bezel folded in, so they go through the idempotent call; plain
-  // setContentMargin() applies the safe area a second time on the X4 Pro.
   screen.setContentMarginFromScreen(fui::Insets{
       static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
       static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
@@ -209,11 +206,11 @@ void EpubReaderClippingListActivity::buildScreen(UiScreen& screen) {
 }
 
 void EpubReaderClippingListActivity::render(RenderLock&& lock) {
+  if (confirmPopup.processRender(renderer, mappedInput)) return;
   if (initialListRender && listCount() > 0) {
     renderer.clearScreen();
     GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   }
   initialListRender = false;
   UiListActivity::render(std::move(lock));
-  if (confirmPopup.processRender(renderer, mappedInput)) return;
 }

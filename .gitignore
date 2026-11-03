@@ -105,3 +105,4 @@ site/wikipedia/mock/shards/
 # make the NEXT ship.sh die at its own preflight until somebody cleared it.
 dist/
 .pio/
+/.platformio

@@ -328,8 +328,7 @@ void WikipediaActivity::paintOpeningCue(const std::string& title) {
   if (!renderer.supportsAsyncRefresh()) return;
   renderer.clearScreen();
   const int readerFont = SETTINGS.getReaderFontId();
-  const int readerSmall =
-      SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? NOTOSANS_12_FONT_ID : NOTOSERIF_12_FONT_ID;
+  const int readerSmall = NOTOSANS_12_FONT_ID;  // the one built-in family; an SD family has no guaranteed 12pt cut
   fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::Faces{readerSmall, readerFont, readerFont});
   const fui::InputSnapshot noInput{};
   // Its own interactions: the cue is not touchable, and the render that
@@ -1060,8 +1059,7 @@ void WikipediaActivity::render(RenderLock&&) {
   // rest: Jersey for the app's own captions and buttons, the reader's face
   // for the field, the matches and the trail.
   const int readerFont = SETTINGS.getReaderFontId();
-  const int readerSmall =
-      SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? NOTOSANS_12_FONT_ID : NOTOSERIF_12_FONT_ID;
+  const int readerSmall = NOTOSANS_12_FONT_ID;  // the one built-in family; an SD family has no guaranteed 12pt cut
   const bool prose = view_ == View::Article || view_ == View::Contents;
   const toybox::Faces faces = prose ? toybox::Faces{readerSmall, readerFont, readerFont}
                                     : toybox::Faces{toybox::kButtonFontId, readerFont, toybox::kDisplayFontId};
