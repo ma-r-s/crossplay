@@ -55,7 +55,9 @@
     },
     sticky: {
       name: "Seeed reTerminal Sticky",
-      restart: "Unplug the USB cable and plug it back in.",
+      restart:
+        "Unplug the USB cable and plug it back in, then hold the power button " +
+        "until the screen changes.",
     },
   };
 

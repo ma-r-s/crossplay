@@ -1002,5 +1002,30 @@ else
 fi
 
 
+# -- the last step names the power button, on every device ----------------------
+#
+# GitHub #314: a Sticky flashed from the site ended on "Unplug the USB cable and
+# plug it back in" and sat there looking frozen. HalGPIO::coldBootImpliesPowerButton()
+# is true for the Xteinks, PaperMono and Sticky: a power-on from the cable is a
+# charge, not a boot, so the step that starts the firmware is the power button.
+if restart_bad="$(python3 - "$INSTALL" <<'PY' 2>&1
+import re, sys
+src = open(sys.argv[1]).read()
+block = src[src.index("var DEVICES = {"):]
+block = block[:block.index("\n  };")]
+for dev, body in re.findall(r"\n    ([a-z0-9]+): \{(.*?)\n    \}", block, re.S):
+    m = re.search(r"restart:\s*((?:\"[^\"]*\"\s*\+?\s*)+)", body)
+    text = "".join(re.findall(r'"([^"]*)"', m.group(1))) if m else ""
+    if "power button" not in text:
+        print(f"{dev}: {text!r}")
+PY
+)"; then
+  if [ -z "$restart_bad" ]; then ok; else
+    while IFS= read -r line; do bad "install.js restart text never mentions the power button -- $line"; done <<< "$restart_bad"
+  fi
+else
+  bad "could not read install.js DEVICES: $restart_bad"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
