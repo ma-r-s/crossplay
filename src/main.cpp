@@ -820,9 +820,7 @@ void setup() {
 
   // Disable WiFi modem sleep when connected to avoid multi-second stalls and packet
   // drops during TLS handshakes.
-  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) {
-    WiFi.setSleep(false);
-  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { WiFi.setSleep(false); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
   const auto wakeupReason = gpio.getWakeupReason();
   // Sample the wake hold now — a click wake is released within milliseconds of
