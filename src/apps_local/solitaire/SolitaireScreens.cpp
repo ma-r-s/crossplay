@@ -104,22 +104,21 @@ fui::StyleSet outlinedOnBlackStyles() {
   return styles;
 }
 
-// How far apart the cards in a column sit. Compressed only as far as the pile
-// forces, and never past the point where a rank is still readable in the strip.
+// How far apart the cards in a column sit: one step for face-down cards, one
+// for the top open card, one for the open cards under it.
 struct Fan {
   int down = 14;
-  int up = 30;
+  int firstUp = kOpenCardStrip;
+  int up = kOpenCardStrip;
 };
 
-// The fan has to fit. Always.
+// The fan has to fit. Always, and the top card is always whole.
 //
-// The first version compressed only as far as a floor of 14/7 and then gave up,
-// so a column holding six face-down cards under a long run ran straight off the
-// bottom of the screen. A deep column is exactly when you most need to see what
-// is in it, so the last step here distributes whatever room is left evenly
-// rather than letting the pile overflow: cards overlap harder, the index in
-// each card's top-left corner is the thing that survives, and the top card is
-// always whole.
+// A column's open cards are one alternating run, so its top open card and its
+// bottom card name every card between them. Report box #703: a deep column
+// used to share its room evenly, which in landscape cut every rank but the
+// bottom one. So the top open card keeps its full strip, the face-down cards,
+// which only say how many there are, give way first, then the rest of the run.
 Fan fanFor(const Pile& pile, const int available) {
   Fan fan;
   if (pile.count <= 1) return fan;
@@ -128,18 +127,29 @@ Fan fanFor(const Pile& pile, const int available) {
   for (int c = 0; c + 1 < pile.count; ++c) {
     if (!isFaceUp(pile.cards[c])) down++;
   }
-  const int up = (pile.count - 1) - down;
+  const int open = (pile.count - 1) - down;  // open cards that are covered
+  const int first = open > 0 ? 1 : 0;
+  const int rest = open - first;
+  const auto height = [&] { return down * fan.down + first * fan.firstUp + rest * fan.up; };
 
-  while (down * fan.down + up * fan.up > available && (fan.up > 16 || fan.down > 8)) {
-    if (fan.up > 16) fan.up--;
-    if (fan.down > 8) fan.down--;
+  while (height() > available && fan.down > 6) fan.down--;
+  while (height() > available && fan.up > 16) fan.up--;
+  if (height() <= available) return fan;
+
+  // Still too tall: everything but the top open card shares what is left.
+  const int sharers = down + rest;
+  if (sharers > 0) {
+    const int each = (available - first * fan.firstUp) / sharers;
+    fan.down = each < 3 ? 3 : each;
+    fan.up = fan.down;
   }
-  if (down * fan.down + up * fan.up <= available) return fan;
+  if (height() <= available) return fan;
 
-  // Still too tall even fully compressed. Share what there is.
+  // No room even for that: an even share for every card.
   const int each = available / (pile.count - 1);
   fan.down = each < 3 ? 3 : each;
   fan.up = fan.down;
+  fan.firstUp = fan.down;
   return fan;
 }
 
@@ -306,9 +316,14 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
 
     const Fan fan = fanFor(pile, fanRoom);
     int offset = 0;
+    bool seenOpen = false;
     for (int c = 0; c < pile.count; ++c) {
       layout.cardOffset[column][c] = static_cast<int16_t>(offset);
-      const int step = isFaceUp(pile.cards[c]) ? fan.up : fan.down;
+      int step = fan.down;
+      if (isFaceUp(pile.cards[c])) {
+        step = seenOpen ? fan.up : fan.firstUp;
+        seenOpen = true;
+      }
       if (c + 1 < pile.count) offset += step;
     }
 
