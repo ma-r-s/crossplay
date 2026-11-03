@@ -415,6 +415,12 @@
       <h3>Notes</h3>
       <p>Two kinds, and you pick which: a list counts down as you tick it off, a note is just words you want to keep. Both are plain Markdown files on the card, so one written on a computer opens here with nothing to import.</p>
     </article>
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/rss.png" width="480" height="800" loading="lazy" decoding="async" alt="The RSS list on the device: every feed's posts newest first, each headline in a reading serif with its site's name at the right -- Why a kiln needs a whole day to cool down from Kettle &amp; Kiln, Reading on paper made me a slower, happier reader from The Paper Desk, The case for a website with no images at all from Slow Web Weekly, Notes from a week without a smartphone from Field Notes, Jupiter and the Moon from Night Sky Log -- with a dot in front of the ones not yet opened, and ALL, FEEDS and SAVED along the bottom."></div>
+      <span class="tag">App &middot; the sites you read</span>
+      <h3>RSS</h3>
+      <p>Every post from every feed you follow, newest first, read as text. You add a site from your phone by scanning the code on the screen; the reader finds its feed and fetches it straight from the site, when the app opens and never in the background. Save a post and it stays on the card.</p>
+    </article>
 
   </div>
 
@@ -646,7 +652,7 @@
       <div class="foot-fine-cols">
         <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and fetches the archive, when you ask it to, from the community mirror at <a href="https://github.com/Eyefyre/NYT-Connections-Answers">Eyefyre/NYT-Connections-Answers</a>.</p>
         <p>Wordle&rsquo;s answers and accepted guesses are the New York Times&rsquo; too; CrossPlay ships none of them and fetches them, when you ask, from <a href="https://github.com/mfilej/wrdl">mfilej/wrdl</a> and, for the newest days, from the Times&rsquo; own daily answer.</p>
-        <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
+        <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading. RSS fetches each feed from its own site; a post whose feed carries only a summary is opened through the same service, with the same consequence.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
         <p>CrossPlay's own services are told an anonymous device id, the version and board it is running, and any crash it just recovered from. Nothing else calls home, and <strong>Settings &rarr; System</strong> turns it off.</p>
         <p>Where a game on the shelf carries the name of a published game, that name is its owner's trademark and is used to say what the thing is; game mechanics are not copyrightable. D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams, and Trivia is built from a community transcription of aired Jeopardy! clues. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of their owners. Every notice is in <a href="https://github.com/ma-r-s/crossplay/blob/xteink/THIRD-PARTY-NOTICES.md">THIRD-PARTY-NOTICES.md</a>.</p>

@@ -8,13 +8,9 @@
 namespace hn {
 namespace {
 
-// Plain files in a folder of their own: an index anyone can read in a text
-// editor, and one article per file. Chosen so that the day this app is deleted,
-// every article is still there and still readable.
-constexpr const char* kDir = "/.crosspoint/hn";
-constexpr const char* kIndex = "/.crosspoint/hn/saved.tsv";
-
-std::string articlePath(const std::string& id) { return std::string(kDir) + "/" + id + ".txt"; }
+// Plain files in a folder of their own (dir_): an index anyone can read in a
+// text editor, and one article per file. Chosen so that the day this app is
+// deleted, every article is still there and still readable.
 
 bool readWholeFile(const char* path, std::string& out) {
   HalFile file;
@@ -44,7 +40,7 @@ void Library::load() {
   if (loaded_) return;
   loaded_ = true;
   std::string text;
-  if (!readWholeFile(kIndex, text)) return;  // nothing saved yet is not an error
+  if (!readWholeFile(indexPath().c_str(), text)) return;  // nothing saved yet is not an error
   if (!parseSavedIndex(text, articles_)) {
     LOG_ERR("HN", "saved index is not in our format; leaving it alone");
     articles_.clear();
@@ -53,8 +49,8 @@ void Library::load() {
 }
 
 bool Library::writeIndex() {
-  Storage.ensureDirectoryExists(kDir);
-  if (writeWholeFile(kIndex, serializeSavedIndex(articles_))) return true;
+  Storage.ensureDirectoryExists(dir_.c_str());
+  if (writeWholeFile(indexPath().c_str(), serializeSavedIndex(articles_))) return true;
   LOG_ERR("HN", "could not write the saved index");
   return false;
 }
@@ -73,7 +69,7 @@ bool Library::save(const std::string& url, const std::string& title, const std::
   load();
 
   const std::string id = savedIdFor(url);
-  Storage.ensureDirectoryExists(kDir);
+  Storage.ensureDirectoryExists(dir_.c_str());
   if (!writeWholeFile(articlePath(id).c_str(), text)) {
     LOG_ERR("HN", "could not write the article");
     return false;

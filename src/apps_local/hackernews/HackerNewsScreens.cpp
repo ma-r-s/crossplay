@@ -84,6 +84,81 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, const int1
   return toybox::fitLines(target, text, width, lines, style);
 }
 
+// --- An empty list ------------------------------------------------------
+
+void emptyBlock(toybox::Screen& screen, const char* headlineText, const char* messageText, const char* actionLabel,
+                const fui::ActionId action) {
+  // OFF THE BAND, SO IT HAS TO BE INK. The display cut is otherwise only
+  // ever set on the header band, so its token colour is paper -- and taken
+  // as given here it painted NOTHING SAVED YET white on white paper. Same
+  // trap as the page label that went missing on the band, one screen along
+  // and the other way up.
+  //
+  // And the invisible half was hiding the visible one: centeredText centres
+  // in the content rect and CONSUMES NOTHING, so two calls draw at the same
+  // y. The headline was painted over the sentence all along and no one
+  // could see it happening. So the pair is laid out as a block, the way
+  // buildNotice stacks its own, and centred as a block.
+  fui::TextStyle headline = screen.theme().titleText;
+  headline.color = fui::Color::Black;
+  headline.align = fui::TextAlign::Center;
+  const fui::Rect body = screen.body();
+  // Both blocks reserve what the SDK's OWN WRAP will emit, never a
+  // single-line width divided by the column. Greedy wrapping breaks between
+  // words, so it does not fill a line to the edge: a sentence 2.6 columns
+  // wide needs THREE lines while the division says two, and the third is
+  // dropped with an ellipsis this cut is perfectly able to draw -- so the
+  // glyph gate stays quiet and the screenshot looks finished. That is how
+  // "Saved articles do ..." got as far as a render. measureWrappedText's
+  // own header warns against the estimate it replaces.
+  headline.maxLines = 2;
+  const int16_t headlineH = fui::measureWrappedText(screen.target(), headlineText, headline, body.width).height;
+
+  fui::TextStyle message = screen.theme().smallText;
+  message.align = fui::TextAlign::Center;
+  // A ceiling, not a target: the wrap emits what the sentence needs and the
+  // reservation follows it. Four lines is more than any wording here wants
+  // and still bounds a mistake.
+  message.maxLines = 4;
+  const bool hasMessage = messageText != nullptr;
+  const int16_t messageH =
+      hasMessage ? fui::measureWrappedText(screen.target(), messageText, message, body.width).height : 0;
+  const int16_t gap = hasMessage ? toybox::kGutter : 0;
+
+  // The control, when there is one. Sized like every other pill in this app
+  // so it reads as a button rather than as a second heading.
+  const bool hasAction = actionLabel != nullptr && action != fui::NO_ACTION;
+  const int16_t actionH = hasAction ? static_cast<int16_t>(kFooterHeight + toybox::kGutter * 2) : 0;
+
+  // Every element ADVANCES y as it is placed, and none of them advances for
+  // an element that was not drawn. The button used to step over messageH
+  // whether or not a message had been drawn, so a headline with no sentence
+  // under it would have had the control composited on top of it -- which is
+  // the standing trap on this screen (centeredText consumes nothing, and
+  // that is how the headline came to be painted over the sentence).
+  int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH - actionH) / 2);
+  screen.target().text(fui::makeRect(body.x, y, body.width, headlineH), headlineText, headline);
+  y = static_cast<int16_t>(y + headlineH);
+  if (hasMessage) {
+    y = static_cast<int16_t>(y + gap);
+    screen.target().text(fui::makeRect(body.x, y, body.width, messageH), messageText, message);
+    y = static_cast<int16_t>(y + messageH);
+  }
+  if (hasAction) {
+    y = static_cast<int16_t>(y + toybox::kGutter * 2);
+    fui::ButtonProps button;
+    button.label = actionLabel;
+    button.action = action;
+    button.styles = toybox::invertedStyles();
+    button.radius = static_cast<uint8_t>(toybox::kPillRadius);
+    // Narrower than the body and centred, so it cannot be mistaken for the
+    // full-width segment strip below it.
+    const int16_t width = static_cast<int16_t>(body.width * 3 / 4);
+    screen.button(button, fui::makeRect(static_cast<int16_t>(body.x + (body.width - width) / 2), y, width,
+                                        static_cast<int16_t>(kFooterHeight)));
+  }
+}
+
 // --- The front page ------------------------------------------------------
 
 fui::Rect listBand(const fui::DeviceContext& device) {
@@ -161,76 +236,7 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
     // An empty SAVED shelf is the ordinary state of a new device, so it gets a
     // sentence rather than a blank panel that reads as a fault.
     if (model.emptyHeadline != nullptr) {
-      // OFF THE BAND, SO IT HAS TO BE INK. The display cut is otherwise only
-      // ever set on the header band, so its token colour is paper -- and taken
-      // as given here it painted NOTHING SAVED YET white on white paper. Same
-      // trap as the page label that went missing on the band, one screen along
-      // and the other way up.
-      //
-      // And the invisible half was hiding the visible one: centeredText centres
-      // in the content rect and CONSUMES NOTHING, so two calls draw at the same
-      // y. The headline was painted over the sentence all along and no one
-      // could see it happening. So the pair is laid out as a block, the way
-      // buildNotice stacks its own, and centred as a block.
-      fui::TextStyle headline = screen.theme().titleText;
-      headline.color = fui::Color::Black;
-      headline.align = fui::TextAlign::Center;
-      const fui::Rect body = screen.body();
-      // Both blocks reserve what the SDK's OWN WRAP will emit, never a
-      // single-line width divided by the column. Greedy wrapping breaks between
-      // words, so it does not fill a line to the edge: a sentence 2.6 columns
-      // wide needs THREE lines while the division says two, and the third is
-      // dropped with an ellipsis this cut is perfectly able to draw -- so the
-      // glyph gate stays quiet and the screenshot looks finished. That is how
-      // "Saved articles do ..." got as far as a render. measureWrappedText's
-      // own header warns against the estimate it replaces.
-      headline.maxLines = 2;
-      const int16_t headlineH =
-          fui::measureWrappedText(screen.target(), model.emptyHeadline, headline, body.width).height;
-
-      fui::TextStyle message = screen.theme().smallText;
-      message.align = fui::TextAlign::Center;
-      // A ceiling, not a target: the wrap emits what the sentence needs and the
-      // reservation follows it. Four lines is more than any wording here wants
-      // and still bounds a mistake.
-      message.maxLines = 4;
-      const bool hasMessage = model.emptyMessage != nullptr;
-      const int16_t messageH =
-          hasMessage ? fui::measureWrappedText(screen.target(), model.emptyMessage, message, body.width).height : 0;
-      const int16_t gap = hasMessage ? toybox::kGutter : 0;
-
-      // The control, when there is one. Sized like every other pill in this app
-      // so it reads as a button rather than as a second heading.
-      const bool hasAction = model.emptyActionLabel != nullptr && model.emptyAction != fui::NO_ACTION;
-      const int16_t actionH = hasAction ? static_cast<int16_t>(kFooterHeight + toybox::kGutter * 2) : 0;
-
-      // Every element ADVANCES y as it is placed, and none of them advances for
-      // an element that was not drawn. The button used to step over messageH
-      // whether or not a message had been drawn, so a headline with no sentence
-      // under it would have had the control composited on top of it -- which is
-      // the standing trap on this screen (centeredText consumes nothing, and
-      // that is how the headline came to be painted over the sentence).
-      int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH - actionH) / 2);
-      screen.target().text(fui::makeRect(body.x, y, body.width, headlineH), model.emptyHeadline, headline);
-      y = static_cast<int16_t>(y + headlineH);
-      if (hasMessage) {
-        y = static_cast<int16_t>(y + gap);
-        screen.target().text(fui::makeRect(body.x, y, body.width, messageH), model.emptyMessage, message);
-        y = static_cast<int16_t>(y + messageH);
-      }
-      if (hasAction) {
-        y = static_cast<int16_t>(y + toybox::kGutter * 2);
-        fui::ButtonProps button;
-        button.label = model.emptyActionLabel;
-        button.action = model.emptyAction;
-        button.styles = toybox::invertedStyles();
-        button.radius = static_cast<uint8_t>(toybox::kPillRadius);
-        // Narrower than the body and centred, so it cannot be mistaken for the
-        // full-width segment strip below it.
-        const int16_t width = static_cast<int16_t>(body.width * 3 / 4);
-        screen.button(button, fui::makeRect(static_cast<int16_t>(body.x + (body.width - width) / 2), y, width,
-                                            static_cast<int16_t>(kFooterHeight)));
-      }
+      emptyBlock(screen, model.emptyHeadline, model.emptyMessage, model.emptyActionLabel, model.emptyAction);
     } else {
       screen.centeredText("NOTHING TO READ", screen.theme().bodyText);
     }
@@ -314,11 +320,20 @@ uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBod
   };
 
   const int16_t left = toybox::kMargin;
-  footerButton("<", ActionPagePrev, left, arrow, model.canPagePrev);
-  footerButton(model.showingComments ? "ARTICLE" : "COMMENTS", ActionSwapView,
-               static_cast<int16_t>(left + arrow + toybox::kGutter), middle, model.swapAvailable);
-  footerButton(">", ActionPageNext, static_cast<int16_t>(left + arrow + middle + 2 * toybox::kGutter), arrow,
-               model.canPageNext);
+  if (model.hasSwap) {
+    footerButton("<", ActionPagePrev, left, arrow, model.canPagePrev);
+    footerButton(model.showingComments ? "ARTICLE" : "COMMENTS", ActionSwapView,
+                 static_cast<int16_t>(left + arrow + toybox::kGutter), middle, model.swapAvailable);
+    footerButton(">", ActionPageNext, static_cast<int16_t>(left + arrow + middle + 2 * toybox::kGutter), arrow,
+                 model.canPageNext);
+  } else {
+    // Two halves, so neither arrow sits beside a hole where a third control
+    // would be.
+    const int16_t half = static_cast<int16_t>((usable - toybox::kGutter) / 2);
+    footerButton("<", ActionPagePrev, left, half, model.canPagePrev);
+    footerButton(">", ActionPageNext, static_cast<int16_t>(left + half + toybox::kGutter),
+                 static_cast<int16_t>(usable - half - toybox::kGutter), model.canPageNext);
+  }
 
   // Drawn into readerBody() rather than into the Screen's running content rect,
   // because the Activity counts the lines that fit in this exact rect to decide
@@ -378,7 +393,7 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   // particular notice is about goes in the headline below it, where a sentence
   // has room to be one: at the display cut the band holds about fourteen
   // characters, and "NOT READABLE HERE" came out as "NOT READABLE HE".
-  chrome(screen, "HACKER NEWS", nullptr);
+  chrome(screen, model.band, nullptr);
 
   const fui::DeviceContext& device = screen.device();
   const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
