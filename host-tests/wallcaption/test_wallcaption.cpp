@@ -70,12 +70,12 @@ EpdFont display30(&toybox_30);
 // screen is built twice and the cuts are what decide whether a string fits.
 EpdFont huge64(&toybox_64);
 EpdFont reading14(&reading_serif_14);
-EpdFontFamily smallFamily(&small10);
-EpdFontFamily buttonFamily(&button14);
-EpdFontFamily uiFamily(&ui20);
-EpdFontFamily displayFamily(&display30);
-EpdFontFamily hugeFamily(&huge64);
-EpdFontFamily readingFamily(&reading14);
+EpdFontFamily smallFamily(10, &small10);
+EpdFontFamily buttonFamily(14, &button14);
+EpdFontFamily uiFamily(20, &ui20);
+EpdFontFamily displayFamily(30, &display30);
+EpdFontFamily hugeFamily(64, &huge64);
+EpdFontFamily readingFamily(14, &reading14);
 
 class FontTarget final : public fui::DrawTarget {
  public:

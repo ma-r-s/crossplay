@@ -249,7 +249,7 @@ FIELD_ORDER = [
 DEVICE_FIELDS = FIELD_ORDER + ["clozeQuestion"]
 
 # Characters a few notes use that are typographically identical to an ASCII
-# letter but sit outside the built-in serif's coverage, so they would draw as a
+# letter but sit outside the built-in font's coverage, so they would draw as a
 # box in the middle of a reading. Found by tools_local/study/check_deck.py
 # walking all 5001 notes -- four of them use the phonetic script g.
 #
@@ -462,7 +462,7 @@ def clean(text):
 #
 # The device draws a reading above its base only in the two faces that have a
 # ruby cut beside them -- the headword and the sentence. Everything else is
-# drawn in the built-in serif, which has no CJK at all, so a reading there
+# drawn in the built-in font, which has no CJK at all, so a reading there
 # would be boxes above boxes.
 #
 # The reading slots get Anki's {{kana:}}: the readings alone. That is what an
@@ -814,7 +814,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 parts, cloze_index, names_in_order.get(nt_name, [])
             )
             extra = clean(parts[extra_index]) if extra_index >= 0 else ""
-            # The extra is drawn in the built-in serif, which has no CJK, so a
+            # The extra is drawn in the built-in font, which has no CJK, so a
             # reading there would be boxes above boxes.
             extra, _visible = rubyify(extra, "meaning")
             if nt_name not in announced:
@@ -1273,7 +1273,7 @@ def write_glyphs(notes, out_dir):
                         continue
                     # "Does the deck have to ship a face for this", not "is it
                     # CJK". Hangul is the character that made the difference:
-                    # it is not CJK by any definition, the built-in serif
+                    # it is not CJK by any definition, the built-in font
                     # cannot draw it either, and calling it Latin sent every
                     # Korean deck to a face with 1070 glyphs and no Hangul in
                     # them.

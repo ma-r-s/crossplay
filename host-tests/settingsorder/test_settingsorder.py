@@ -17,8 +17,11 @@ def check(ok, msg):
 
 
 LIST = "src/SettingsList.h"
+LIST_CPP = "src/SettingsList.cpp"
 ACT = "src/activities/settings/SettingsActivity.cpp"
-list_src = open(LIST).read()
+# The declarations live in SettingsList.cpp since CrossPoint 2.0 (#4085); the
+# header is read too, so a comment there is still policed below.
+list_src = open(LIST_CPP).read() + "\n" + open(LIST).read()
 act_src = open(ACT).read()
 # The commit this fork and upstream last had in common. Everything ownership
 # is decided against is read out of THIS, never out of a branch tip.
@@ -71,38 +74,79 @@ def body_of(func):
     raise SystemExit(f"FAIL settingsorder  cannot find the body of {func}")
 
 
-rebuild = body_of("void SettingsActivity::rebuildSettingsLists()")
+rebuild = body_of("void SettingsActivity::rebuildSettings()")
 
-# --- what the screen actually shows, in order ------------------------------
+# --- what the General section actually shows, in order ---------------------
 #
-# Declaration order first (the loop walks getSettingsList and pushes as it
-# goes), minus anything the loop holds back, then whatever the function
-# appends afterwards, in the order it appends it.
-held = set(re.findall(r"forkSystemSettings\.push_back", rebuild))  # presence only
-holdback_ids = re.findall(r"setting\.valuePtr == &CrossPointSettings::(\w+)[^;]*?"
-                          r"forkSystemSettings", rebuild, re.S)
-holdback = set(re.findall(r"&CrossPointSettings::(\w+)",
-                          rebuild.split("forkSystemSettings.push_back")[0].split(
-                              "STR_CAT_SYSTEM")[-1] if "forkSystemSettings" in rebuild else ""))
+# CrossPoint 2.0 (#3862, #4085) split Settings into sections and moved the rows
+# into forEachBaseSetting() in SettingsList.cpp. rebuildSettings() builds ONE
+# section: the action rows it adds before its loop, then the declared rows the
+# loop keeps (in declaration order, minus anything it holds back), then the
+# action rows it adds after, then whatever it appends last. The fork's rows are
+# STR_CAT_SYSTEM, which sectionFor() files under General, so General is the
+# section modelled. Every fact below is read out of the two files rather than
+# written down here.
+loop_at = rebuild.index("for (auto& setting : all)")
+before, after_loop = rebuild[:loop_at], rebuild[loop_at:]
+
+
+def general_actions(text):
+    return [{"id": m.group(1), "key": m.group(2), "val": ""}
+            for m in re.finditer(r"addAction\(SettingsSection::General,\s*StrId::(STR_\w+),\s*SettingAction::(\w+)\)",
+                                 text)]
+
+
+# The rows held back: whatever the predicate the loop skips on names.
+skip = re.search(r"if \((\w+)\(setting\)\) continue;", after_loop)
+holdback = set()
+if skip:
+    pred = re.search(r"bool " + skip.group(1) + r"\(const SettingInfo& setting\) \{(.*?)\n\}", act_src, re.S)
+    holdback = set(re.findall(r"&CrossPointSettings::(\w+)", pred.group(1))) if pred else set()
+check(bool(holdback), "rebuildSettings() holds no row back; either the fork's rows moved or the parser drifted")
+
+# Rows sectionFor() sends somewhere other than their category's section.
+section_body = act_src[act_src.index("SettingsSection sectionFor(const SettingInfo& setting) {"):]
+section_body = section_body[:section_body.index("\n}\n")]
+elsewhere = set()
+for m in re.finditer(r"if \((.*?)\)\s*\{?\s*\n?\s*return SettingsSection::(\w+);", section_body, re.S):
+    if m.group(2) != "General":
+        elsewhere |= set(re.findall(r"&CrossPointSettings::(\w+)", m.group(1)))
 
 declared = []
-for m in re.finditer(r"SettingInfo::(?:Toggle|Enum|Value|String|DynamicString)\((.*?)\),\n(?=\s*(?://|Setting|\}|#|$))",
-                     list_src, re.S):
-    b = m.group(1)
+for c in re.finditer(r"emit\(SettingInfo::(?:Toggle|Enum|StaticEnum|Value|String|DynamicString|DynamicEnum)\(", list_src):
+    i = c.end() - 1
+    depth, j = 0, i
+    while j < len(list_src):
+        if list_src[j] == "(":
+            depth += 1
+        elif list_src[j] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        j += 1
+    b = list_src[i + 1:j]
     if "STR_CAT_SYSTEM" not in b:
         continue
     key = re.findall(r'"([^"]+)"', b)
     ids = re.findall(r"StrId::(STR_\w+)", b)
     val = re.findall(r"&CrossPointSettings::(\w+)", b)
-    declared.append({"id": ids[0], "key": key[-1] if key else "", "val": val[0] if val else ""})
+    row = {"id": ids[0], "key": key[-1] if key else "", "val": val[0] if val else ""}
+    if row["val"] in elsewhere:
+        continue
+    declared.append(row)
 
-rendered = [d for d in declared if d["val"] not in holdback]
-for m in re.finditer(r"systemSettings\.push_back\(SettingInfo::Action\(StrId::(STR_\w+), SettingAction::(\w+)",
-                     rebuild):
-    rendered.append({"id": m.group(1), "key": m.group(2), "val": ""})
+# The tail: actions after the loop, then a second walk appending the held rows.
+tail_walk = after_loop.rfind("for (auto& setting : all)")
+appended_after = general_actions(after_loop[:tail_walk]) if tail_walk > 0 else general_actions(after_loop)
+held_last = tail_walk > 0 and bool(re.search(r"!(\w+)\(setting\)\) continue;", after_loop[tail_walk:]))
+check(held_last, "rebuildSettings() no longer appends the held-back rows after its action rows")
+
+rendered = general_actions(before)
+rendered += [d for d in declared if d["val"] not in holdback]
+rendered += appended_after
 rendered += [d for d in declared if d["val"] in holdback]
 
-check(len(rendered) >= 8, f"only modelled {len(rendered)} System rows; the parser has drifted")
+check(len(rendered) >= 6, f"only modelled {len(rendered)} General rows; the parser has drifted")
 
 
 _UP_SEEN = {}
@@ -145,8 +189,15 @@ def upstream_mentions(token):
 
 
 def is_ours(row):
-    """A row is upstream's if upstream's own sources mention it."""
-    for token in (row["key"], row["id"], row["val"]):
+    """A row is upstream's if upstream's own sources mention its label or field.
+
+    The persisted KEY is not asked when a label is there to ask. Keys are plain
+    words, and the device report's is "heartbeat" -- a word upstream's web
+    server happens to use -- so asking it filed the fork's own row as
+    CrossPoint's and the suite checked one fork row where there are two.
+    """
+    tokens = [t for t in (row["id"], row["val"]) if t] or [row["key"]]
+    for token in tokens:
         if token and upstream_mentions(token):
             return False
     return True
@@ -162,7 +213,7 @@ if ours and theirs:
     for i in ours:
         above = [rendered[j]["id"] for j in theirs if j > i]
         check(not above,
-              f"{rendered[i]['id']} is a CrossPlay setting but renders at position "
+              f"{rendered[i]['id']} is a CrossPlay setting but renders at General position "
               f"{i + 1} of {len(rendered)}, above CrossPoint's {', '.join(above)}")
 
 # The comment that made this invisible for months: the declaration is not the

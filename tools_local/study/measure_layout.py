@@ -6,7 +6,7 @@ that 290 of 301 cards carry, or is that only true of the short cards?
 
 Guessing at it was not good enough. A first pass using estimated line heights
 was 70% low, because `drawText` advances by the font's *ascender*
-(GfxRenderer::getTextHeight returns exactly that) and the built-in serif's
+(GfxRenderer::getTextHeight returns exactly that) and the built-in font's
 ascenders are 27, 36 and 41 pixels at 12, 16 and 18 point -- not the ~20 a
 glance at the type would suggest. So this reads the real numbers: glyph
 advances out of the .cpfont files for the CJK, and out of the generated
@@ -147,11 +147,11 @@ def main():
     if not families:
         sys.exit(f"no font families under {args.fonts}")
 
-    serif18, asc18 = builtin_font("notoserif_18_regular")
-    serif16, asc16 = builtin_font("notoserif_16_regular")
-    serif12, asc12 = builtin_font("notoserif_12_regular")
+    serif18, asc18 = builtin_font("notosans_18_regular")
+    serif16, asc16 = builtin_font("notosans_16_regular")
+    serif12, asc12 = builtin_font("notosans_12_regular")
     print(
-        f"built-in serif ascenders (the line advance): 18pt={asc18} 16pt={asc16} 12pt={asc12}"
+        f"built-in font ascenders (the line advance): 18pt={asc18} 16pt={asc16} 12pt={asc12}"
     )
 
     heights = []

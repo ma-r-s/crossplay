@@ -57,19 +57,21 @@ EpdFont readingBold16(&reading_serif_bold_16);
 EpdFont instrument10(&instrument_10);
 EpdFont instrument13(&instrument_13);
 EpdFont instrument24(&instrument_24);
-EpdFontFamily displayFamily(&display30);
-EpdFontFamily largeFamily(&large44);
-EpdFontFamily hugeFamily(&huge64);
-EpdFontFamily uiFamily(&ui20);
-EpdFontFamily tileFamily(&tile10);
-EpdFontFamily buttonFamily(&button14);
-EpdFontFamily readingSmallFamily(&reading11);
-EpdFontFamily readingFamily(&reading14);
-EpdFontFamily readingBoldSmallFamily(&readingBold12);
-EpdFontFamily readingBoldFamily(&readingBold16);
-EpdFontFamily serifTileFamily(&instrument13);
-EpdFontFamily serifSmallFamily(&instrument10);
-EpdFontFamily serifTitleFamily(&instrument24);
+// Point sizes are the ones each cut was converted at (its header's "size:");
+// GfxRenderer derives the reader's spaced line height from them.
+EpdFontFamily displayFamily(30, &display30);
+EpdFontFamily largeFamily(44, &large44);
+EpdFontFamily hugeFamily(64, &huge64);
+EpdFontFamily uiFamily(20, &ui20);
+EpdFontFamily tileFamily(10, &tile10);
+EpdFontFamily buttonFamily(14, &button14);
+EpdFontFamily readingSmallFamily(11, &reading11);
+EpdFontFamily readingFamily(14, &reading14);
+EpdFontFamily readingBoldSmallFamily(12, &readingBold12);
+EpdFontFamily readingBoldFamily(16, &readingBold16);
+EpdFontFamily serifTileFamily(13, &instrument13);
+EpdFontFamily serifSmallFamily(10, &instrument10);
+EpdFontFamily serifTitleFamily(24, &instrument24);
 
 bool registered = false;
 

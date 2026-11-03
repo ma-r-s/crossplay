@@ -143,8 +143,9 @@ bool drawsPinnedSleep(const uint8_t sleepScreenMode, const bool quickResumeAfter
   // 1. Quick resume short-circuits every mode, including the custom ones.
   if (sleepScreenMode == kSleepQuickResume) return false;
   if (fromTimeout && quickResumeAfterTimeout) return false;
-  // 2. The transparent mode has its own art (/sleep-overlay.*), not this file.
-  if (sleepScreenMode == kSleepTransparentCustom) return false;
+  // 2. The transparent modes have their own art (/sleep-overlay.*), not this
+  // file; Cover + Transparent lays it over the book cover.
+  if (sleepScreenMode == kSleepTransparentCustom || sleepScreenMode == kSleepCoverTransparent) return false;
   // 3. and 4.
   if (sleepScreenMode == kSleepCustom) return true;
   if (sleepScreenMode == kSleepCoverCustom) return !fromReader;
@@ -208,6 +209,8 @@ const char* sleepScreenModeName(const uint8_t sleepScreenMode) {
       return "Transparent";
     case kSleepNote:
       return "Note";
+    case kSleepCoverTransparent:
+      return "Cover + Transparent";
     default:
       return "Unknown";
   }
@@ -262,6 +265,8 @@ const char* modeTakeoverNote(const uint8_t previousMode) {
       return "Was Transparent, now Custom.";
     case kSleepNote:
       return "Was Note, now Custom.";
+    case kSleepCoverTransparent:
+      return "Was Cover + Transparent, now Custom.";
     default:
       return nullptr;
   }

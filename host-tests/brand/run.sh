@@ -82,7 +82,9 @@ PROTECTED = [
      "the SD card directory holding every user's saves, progress, settings and caches"),
     (["src"], "CROSSPOINT-BOARD-V1:", 2, r"CROSSPLAY-BOARD-V1",
      "firmware image magic; upstream's web flasher and our own OTA guard scan for it"),
-    (["src"], 'String message = "crosspoint (on "', 1, r'"crossplay \(on "',
+    # CrossPoint 2.0 (#4288) builds the reply with snprintf into a stack buffer
+    # rather than String concatenation; the token itself did not move.
+    (["src"], '"crosspoint (on %s);', 1, r'"crossplay \(on ',
      "the discovery reply Calibre's plugin AND scripts_local/wifi-flash.sh match on"),
     (["lib"], "sync.crosspointreader.com", 1, r"crossplayreader\.com",
      "upstream's sync server, a real hostname existing accounts live on"),
@@ -179,6 +181,25 @@ ALLOWED = {
     "STARTING CROSSPLAY": "the monitor's colour keyword, already renamed",
     "crosspoint-fonts": "upstream's font repo",
     "crosspointVersion": "a local JS identifier in an upstream page; nobody reads it",
+    # The web UI's icon keeps upstream's PATH so every page it serves merges
+    # untouched; the file at that path is CrossPlay's mark (site/assets/favicon.svg).
+    "crosspoint-icon.svg": "the web UI icon's path; the file there is CrossPlay's own mark",
+    # Plugins are JavaScript written against window.CrossPoint (plugin-host.js);
+    # renaming the object breaks every plugin, the way renaming /.crosspoint
+    # breaks every save.
+    "window.CrossPoint": "the JS object every browser-side plugin calls",
+    "CrossPoint.relay": "the same plugin API",
+    "CrossPoint.crypto": "the same plugin API",
+    "CrossPoint.writeFile": "the same plugin API",
+    "CrossPoint.fetchToSd": "the same plugin API",
+    "CrossPoint.registerAction": "the same plugin API",
+    # Upstream's release-candidate license bundle. Only release_candidate.yml
+    # runs it, and that workflow is dispatch-only and builds nothing on this
+    # fork's branches (see its FORK CHANGE note); ship.sh never calls it.
+    "CrossPoint Reader firmware licenses": "upstream's RC license bundle title; this fork never builds it",
+    "Original CrossPoint code": "the attribution in that same bundle",
+    "CrossPoint MIT license": "the attribution in that same bundle",
+    "CrossPoint 2.0": "prose about upstream's release, in a comment or doc",
     "CrossPoint display": "upstream's panel, in a test-fixture comment",
     "stock CrossPoint": "the site telling people they can flash back",
     "CrossPoint plugin": "upstream's Calibre plugin, in prose or an anchor",
@@ -209,6 +230,8 @@ ALLOWED = {
 ALLOWED_EXACT = {
     ("src/network/CrossPointWebServer.cpp", '"crosspoint"'):
         "the hostname fallback inside the discovery reply on the next line",
+    ("src/util/FirmwareIdentity.h", '"crosspoint"'):
+        "the firmware FAMILY plugin catalogs match against; a protocol value, not a label",
 }
 
 # Translation keys naming something upstream publishes, so the words stay
