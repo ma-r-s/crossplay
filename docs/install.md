@@ -55,7 +55,7 @@ hardware verification details.
 > **Experimental / Use at Your Own Risk**: Support for the BOOX Picco is **for experimental purposes only**, was developed with AI assistance / generation, and has undergone **limited production testing**. Always take a full backup of your flash (`esptool.py read_flash`) before writing, and proceed at your own risk.
 
 > [!NOTE]
-> **PSRAM Display Buffers**: Display framebuffers are allocated in external PSRAM (`FREEINK_FB_PSRAM=1`). This keeps ~100 KB of internal DRAM free for Wi-Fi MAC DMA packet buffers during TLS downloads (Wordle, XKCD, Hacker News).
+> **PSRAM Display & TLS Buffers**: Display framebuffers and wolfSSL TLS structures are allocated in external PSRAM (`FREEINK_FB_PSRAM=1` and custom `wolfSSL_SetAllocators`). This keeps internal DRAM free for Wi-Fi MAC DMA packet buffers during TLS downloads (Wordle, XKCD, Hacker News).
 
 The **BOOX Picco** preserves its vendor bootloader, partition table, and `safeboot` recovery partition. It is **never** flashed at `0x0`. Instead, flash only the single application image (`firmware.bin` or `crossplay-boox-picco-firmware.bin`) to **`0xE0000`**:
 
