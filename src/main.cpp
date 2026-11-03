@@ -228,6 +228,7 @@ static bool finishWifiSessionWithoutRestart() {
   if (esp_sntp_enabled()) {
     esp_sntp_stop();
   }
+  WiFi.disconnect(true, true);
   WiFi.mode(WIFI_OFF);
   delay(100);
   LOG_DBG("MAIN", "WiFi stopped without restart on touch device");
@@ -816,6 +817,12 @@ void setup() {
     WiFi.onEvent(applyTxCap, ARDUINO_EVENT_WIFI_STA_START);
     WiFi.onEvent(applyTxCap, ARDUINO_EVENT_WIFI_AP_START);
   }
+
+  // Disable WiFi modem sleep when connected to avoid multi-second stalls and packet
+  // drops during TLS handshakes.
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) {
+    WiFi.setSleep(false);
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
 
   const auto wakeupReason = gpio.getWakeupReason();
   // Sample the wake hold now — a click wake is released within milliseconds of
