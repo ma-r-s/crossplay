@@ -171,12 +171,14 @@ The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 e-reader featuring a 480×800 por
 #### Installing Pre-Built Firmware
 
 1. Download **`crossplay-boox-picco-firmware.bin`** from the [Releases](https://github.com/glintux/crossplay/releases) page.
-2. Connect your BOOX Picco over USB.
+2. Put the BOOX Picco into ROM bootloader mode:
+   - Power off the device completely.
+   - Press and hold **both the Power button and Volume Up (+)** side button simultaneously while connecting the USB-C cable (hold for ~5–8 seconds, then release).
 3. Flash the single application slot using `esptool`:
    ```bash
-   esptool.py --chip esp32s3 -p /dev/ttyACM0 write_flash 0xE0000 crossplay-boox-picco-firmware.bin
+   esptool --chip esp32s3 -p /dev/ttyACM0 -b 921600 write-flash 0xE0000 crossplay-boox-picco-firmware.bin
    ```
-   *(On Windows, replace `/dev/ttyACM0` with your COM port, e.g., `COM3`)*.
+   *(On Windows, replace `/dev/ttyACM0` with your COM port, e.g., `COM3`. On older esptool installations, `esptool.py` and `write_flash` syntax also work).*
 
 #### Building and Flashing from Source
 

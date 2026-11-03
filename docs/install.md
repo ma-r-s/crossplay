@@ -59,8 +59,12 @@ hardware verification details.
 
 The **BOOX Picco** preserves its vendor bootloader, partition table, and `safeboot` recovery partition. It is **never** flashed at `0x0`. Instead, flash only the single application image (`firmware.bin` or `crossplay-boox-picco-firmware.bin`) to **`0xE0000`**:
 
+1. Power off the device completely.
+2. Press and hold **both Power and Volume Up (+)** simultaneously while connecting the USB-C cable (hold for ~5–8 seconds, then release) to enter the ESP32-S3 ROM bootloader.
+3. Flash the single application slot:
+
 ```bash
-esptool.py --chip esp32s3 --baud 921600 write_flash 0xE0000 crossplay-boox-picco-firmware.bin
+esptool --chip esp32s3 -p /dev/ttyACM0 -b 921600 write-flash 0xE0000 crossplay-boox-picco-firmware.bin
 ```
 
 Or from source with PlatformIO:
