@@ -56,17 +56,22 @@ def check(ok, msg):
 
 
 LIST = "src/SettingsList.h"
+# CrossPoint 2.0 (#4085) moved the rows themselves into forEachBaseSetting() in
+# SettingsList.cpp; the header keeps the runtime-built rows. Both are read as
+# one, so a row declared in either is counted.
+LIST_CPP = "src/SettingsList.cpp"
 # Files that MUST mention every setting: the declaration, the struct that holds
 # it, and the activity that sorts the fork's rows. A reader here says nothing
 # about who owns the value.
 PLUMBING = {
     LIST,
+    LIST_CPP,
     "src/CrossPointSettings.h",
     "src/CrossPointSettings.cpp",
     "src/activities/settings/SettingsActivity.cpp",
 }
 
-list_src = open(LIST).read()
+list_src = open(LIST).read() + "\n" + open(LIST_CPP).read()
 
 
 def calls(src):

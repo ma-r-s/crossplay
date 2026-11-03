@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.15.0
+
+- CrossPoint 2.0: Settings in sections, OPDS 2.0 catalogs, GIF pictures in books, deeper dictionary lookup; Noto Serif is now an SD-card font, so Study and Wikipedia use Noto Sans
+
 ### 1.14.2
 
 - Sync CrossPoint develop (18 commits)

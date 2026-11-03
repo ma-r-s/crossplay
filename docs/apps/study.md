@@ -105,7 +105,7 @@ them:
   Japanese Support add-on's Expression / Reading / Meaning note type is
   handled as Anki's own template handles it -- the furigana lives in the
   Reading field, and that is the form the headword is drawn from. Slots drawn
-  in the built-in serif get the readings alone or the kanji alone, exactly as
+  in the built-in font get the readings alone or the kanji alone, exactly as
   `{{kana:}}` and `{{kanji:}}` would.
 - **Korean** needs a Korean TTF via `--font`. (Hangul used to be treated as
   Latin, which sent it to the built-in face -- 1070 glyphs and no Hangul -- so
@@ -133,7 +133,7 @@ exactly as they would in Anki.
   the typeface per card, which stops you learning the shape of one font instead
   of the character. Ship whichever of the five you have; the reader uses what
   it finds.
-- **Any other deck** needs nothing: the built-in serif draws it. Setup offers
+- **Any other deck** needs nothing: the built-in font draws it. Setup offers
   to build a large headword face from a font your system already has (Georgia
   on a Mac); accept and the type looks right with no further thought. To pick
   your own face, hand it any TTF -- and `--no-font` skips the question:

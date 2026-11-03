@@ -1,7 +1,9 @@
-"""Which code points the reader's serif can draw.
+"""Which code points the reader's built-in font can draw.
 
 The builder reads the glyph intervals straight out of the font header the
-device compiles in (lib/EpdFont/builtinFonts/notoserif_14_regular.h), so
+device compiles in (lib/EpdFont/builtinFonts/notosans_14_regular.h; Noto
+Serif carried the identical 1072 code points before CrossPoint 2.0 moved it
+to the SD card), so
 "drawable" means exactly what the panel can show and moves when the font
 does. A code point outside every interval would render as a box.
 """
@@ -12,7 +14,7 @@ import re
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_FONT_HEADER = os.path.join(
-    REPO, "lib", "EpdFont", "builtinFonts", "notoserif_14_regular.h"
+    REPO, "lib", "EpdFont", "builtinFonts", "notosans_14_regular.h"
 )
 
 _INTERVALS_RE = re.compile(

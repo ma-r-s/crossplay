@@ -214,7 +214,7 @@ on its next run.
 Fonts are trusted per card, not per install: before drawing, the activity
 measures the headword (and sentence) in the chosen face, and a card the face
 cannot render -- nothing painted at all, or a single unbreakable word wider
-than the screen -- falls back to the built-in serif for that card. Stale,
+than the screen -- falls back to the built-in font for that card. Stale,
 mis-built or wrongly-sized fonts degrade to plain type rather than to a blank
 or an overflow. The face table on the device is the five CJK families plus
 `Custom`, the name `make_fonts.py --font` builds under for decks in other

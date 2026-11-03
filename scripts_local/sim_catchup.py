@@ -481,12 +481,15 @@ def main(env):
         marker="sys/statvfs.h",
     )
 
+    # storageRoot() is the simulator's own (crosspoint_simulator::storageRoot,
+    # pulled in by a using-declaration); before 4c78f3ff it was a file-local
+    # configuredStorageRoot().
     patch(
         src / "HalStorage.cpp",
         "bool HalStorage::begin() {",
         "bool HalStorage::freeBytes(uint64_t &out) {\n"
         "  struct statvfs st {};\n"
-        "  if (statvfs(configuredStorageRoot().c_str(), &st) != 0) return false;\n"
+        "  if (statvfs(storageRoot().c_str(), &st) != 0) return false;\n"
         "  out = static_cast<uint64_t>(st.f_bavail) *\n"
         "        static_cast<uint64_t>(st.f_frsize);\n"
         "  return true;\n"
@@ -613,16 +616,9 @@ def main(env):
         "WebServer request-argument members",
         marker="_currentArgCount",
     )
-    # The plugin endpoints walk a String character by character.
-    patch(
-        src / "WString.h",
-        "  size_t length() const { return s.length(); }",
-        "  size_t length() const { return s.length(); }\n"
-        "  const char *begin() const { return s.c_str(); }\n"
-        "  const char *end() const { return s.c_str() + s.length(); }",
-        "String::begin/end (range-for)",
-        marker="const char *begin() const",
-    )
+    # String::begin/end (the plugin endpoints walk a String character by
+    # character) came off this list in the CrossPoint 2.0 sync: the simulator
+    # at 4c78f3ff has its own, and a second pair no longer compiles.
     # Upstream's per-book content keys (lib/DeviceSecret, lib/Epub/BookKey,
     # 2026-10) keep a device secret in NVS. The simulator's nvs.h and
     # esp_random.h shadow sim-stubs/, so they are patched here. A blob read

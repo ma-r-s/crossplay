@@ -1,5 +1,6 @@
 #include "Section.h"
 
+#include <BufferedFile.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -63,7 +64,24 @@ namespace {
 // v53: Persist per-word source ranges alongside the redaction layout changes.
 // v54: Source ranges retain codepoints absorbed by NFC composition.
 // v55: Persist the first logical word of each paragraph for clipping separators.
-constexpr uint8_t SECTION_FILE_VERSION = 55;
+// v56: Rendering layout (fonts per word, drop caps, border boxes).
+// v57: Includes explicit hyphen/dash line breaks and invalidates both v56 layouts.
+// v58: Rebuild sections for corrected rendering layout and footnote placement.
+// v59: Preserve stored CSS styles during low-heap layout.
+// v60: Text running into a block or heading start stays in its own paragraph.
+// Earlier GIF/table development builds also used versions 60 through 62.
+// v63: Rebuild for corrected paragraph boundaries and supported static GIF images.
+// v64: Explicit font inheritance preserves parent emphasis and changes text layout.
+// v65: Count literal spaces after hyphens and ellipses when justifying text.
+// v66: Omit carried no-break spaces at the start of wrapped lines.
+// v67: Count only stretchable literal spaces after visual text reordering.
+// v68: Leave text below drop caps unsplit until it is laid out at full width.
+// v69: Line spacing multiplies font size instead of advanceY.
+// v70: SD-font layout rounds each scaled glyph advance to match drawing.
+// v71: Focus split offsets follow the visual run order for RTL words.
+// v72: Make ruby rendering closer to how Chromium renders ruby by default.
+// v73: TrueType vector fonts load and advance .notdef for missing glyphs.
+constexpr uint8_t SECTION_FILE_VERSION = 73;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
@@ -512,7 +530,7 @@ bool Section::startBuild(const ReaderRenderSpec& requested, const std::function<
   return true;
 }
 
-bool Section::buildSomeMore(const int maxPages) {
+bool Section::buildSomeMore(const int maxPages, bool (*yieldNow)()) {
   if (!build_ || !build_->parser) {
     LOG_ERR("SCT", "buildSomeMore with no active build");
     return false;
@@ -531,8 +549,9 @@ bool Section::buildSomeMore(const int maxPages) {
     if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
       return finalizeBuild();
     }
-    // ParseStatus::More: yield once we've laid out the requested number of pages.
-    if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
+    // ParseStatus::More: yield once we've laid out the requested number of pages, or as soon
+    // as the caller has something more urgent to do.
+    if ((maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) || (yieldNow && yieldNow())) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
       return true;
     }
@@ -560,6 +579,77 @@ std::optional<uint16_t> Section::findAnchor(const std::string& anchor) const {
   // Fall back to the on-disk anchor map: a finalized section, or a partial whose map
   // covers everything up to its watermark (nullopt past it -- build further and retry).
   return getPageForAnchor(anchor);
+}
+
+int Section::getTocIndexForPage(const int page) const {
+  int selected = epub->getTocIndexForSpineIndex(spineIndex);
+  int latestPage = -1;
+  struct TocAnchor {
+    size_t hash;
+    int index;
+  };
+  // Bound scratch space to 512 bytes on C3; anchor text stays in the existing caches.
+  constexpr size_t BATCH_SIZE = 64;
+  auto targets = makeUniqueNoThrow<TocAnchor[]>(BATCH_SIZE);
+  if (!targets) {
+    LOG_ERR("SCT", "OOM: TOC anchor lookup");
+    return selected;
+  }
+  HalFile anchorFile;
+  uint16_t anchorCount = 0;
+  std::optional<serialization::BufferedFileReader> anchorReader;
+  uint32_t anchorStart = 0;
+  if (openAnchorMap(anchorFile, anchorCount)) {
+    anchorStart = anchorFile.position();
+    // Reuse one 1 KB buffer across batches and interleaved TOC metadata reads.
+    anchorReader.emplace(anchorFile, 1024);
+  }
+  std::string cachedAnchor;
+  size_t count = 0;
+  const auto considerAnchor = [&](const std::string& anchor, const uint16_t anchorPage, const bool fromDisk) {
+    const size_t hash = std::hash<std::string>{}(anchor);
+    for (size_t i = 0; i < count; ++i) {
+      if (targets[i].hash != hash || epub->getTocItem(targets[i].index).anchor != anchor) continue;
+      const int resolvedPage = fromDisk ? findAnchorDuringBuild(anchor).value_or(anchorPage) : anchorPage;
+      if (resolvedPage <= page &&
+          (resolvedPage > latestPage || (resolvedPage == latestPage && targets[i].index > selected))) {
+        selected = targets[i].index;
+        latestPage = resolvedPage;
+      }
+    }
+  };
+  const auto resolveBatch = [&]() {
+    if (build_ && build_->parser) {
+      for (const auto& [anchor, anchorPage] : build_->parser->getAnchors()) {
+        considerAnchor(anchor, anchorPage, false);
+      }
+    }
+    if (anchorReader && anchorReader->seek(anchorStart)) {
+      for (uint16_t i = 0; i < anchorCount; ++i) {
+        uint16_t anchorPage;
+        serialization::readString(*anchorReader, cachedAnchor);
+        serialization::readPod(*anchorReader, anchorPage);
+        considerAnchor(cachedAnchor, anchorPage, true);
+      }
+    }
+    count = 0;
+  };
+  const int first = std::max(0, selected);
+  for (int i = first; i < epub->getTocItemsCount(); ++i) {
+    const auto item = epub->getTocItem(i);
+    if (item.spineIndex != spineIndex) continue;
+    if (item.anchor.empty()) {
+      if (page >= 0 && latestPage <= 0) {
+        selected = i;
+        latestPage = 0;
+      }
+    } else {
+      targets[count++] = {std::hash<std::string>{}(item.anchor), i};
+      if (count == BATCH_SIZE) resolveBatch();
+    }
+  }
+  if (count > 0) resolveBatch();
+  return selected;
 }
 
 uint16_t Section::estimatedTotalPages() const {
@@ -915,10 +1005,9 @@ std::optional<uint16_t> Section::getCachedPageCount() const {
   return count;
 }
 
-std::optional<uint16_t> Section::getPageForAnchor(const std::string& anchor) const {
-  HalFile f;
+bool Section::openAnchorMap(HalFile& f, uint16_t& count) const {
   if (!Storage.openFileForRead("SCT", filePath, f)) {
-    return std::nullopt;
+    return false;
   }
 
   const uint32_t fileSize = f.size();
@@ -926,12 +1015,18 @@ std::optional<uint16_t> Section::getPageForAnchor(const std::string& anchor) con
   uint32_t anchorMapOffset;
   serialization::readPod(f, anchorMapOffset);
   if (anchorMapOffset == 0 || anchorMapOffset >= fileSize) {
-    return std::nullopt;
+    return false;
   }
 
   f.seek(anchorMapOffset);
-  uint16_t count;
   serialization::readPod(f, count);
+  return true;
+}
+
+std::optional<uint16_t> Section::getPageForAnchor(const std::string& anchor) const {
+  HalFile f;
+  uint16_t count;
+  if (!openAnchorMap(f, count)) return std::nullopt;
   for (uint16_t i = 0; i < count; i++) {
     std::string key;
     uint16_t page;

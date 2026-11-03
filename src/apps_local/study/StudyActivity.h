@@ -134,10 +134,10 @@ class StudyActivity final : public Activity {
   // cloze card has no headword, no reading and no example sentence, and
   // threading four more conditionals through drawCard hid both.
   int layoutClozeCard(const Rect& body, bool measureOnly);
-  // A built-in serif size, `fontStep_` steps smaller; a deck's own face as it
+  // A built-in size, `fontStep_` steps smaller; a deck's own face as it
   // is, since it is subset to the deck and has no smaller cut.
   int sized(int fontId) const;
-  // How far down the built-in serif sizes the current card had to step to fit,
+  // How far down the built-in sizes the current card had to step to fit,
   // the last row its text may reach, and whether anything was left below it.
   int fontStep_ = 0;
   int clipBottom_ = INT_MAX;

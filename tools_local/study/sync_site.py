@@ -46,8 +46,8 @@ MEMBERS = [
     "tools_local/study/web_glue.py",
     # The wasm-FreeType stand-in for freetype-py; only the page ever sees it.
     "tools_local/study/web_shims/freetype.py",
-    # check_deck reads the built-in serif's coverage from this header.
-    "lib/EpdFont/builtinFonts/notoserif_16_regular.h",
+    # check_deck reads the built-in font's coverage from this header.
+    "lib/EpdFont/builtinFonts/notosans_16_regular.h",
     # The stock converter mono_cpfont patches over, and its version module.
     "lib/EpdFont/scripts/fontconvert_sdcard.py",
     "lib/EpdFont/scripts/cpfont_version.py",
