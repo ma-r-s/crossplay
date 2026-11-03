@@ -89,6 +89,9 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Calculator**  | A calculator with keys the size of a thumb, and the sums you already did. |
 | **Notes**       | Lists you tick with one hand, kept as plain text files on the card.      |
 
+Don't want all of them? Tap GAMES or APPS at the top of the list on your device and
+untick what you don't play.
+
 And the reader is still CrossPoint's reader: the EPUB engine, sync and the file
 browser are theirs and stay theirs.
 
