@@ -18,6 +18,7 @@
 #include "FirmwareBoardTag.h"
 #include "FirmwareFlasher.h"
 #include "ReleaseSources.h"
+#include "UpdateSlot.h"
 
 namespace {
 // This fork's releases, not upstream's. Left pointing at CrossPoint, "check for
@@ -180,7 +181,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   // ourselves and stream the firmware through HttpDownloader, which runs over
   // wolfSSL when FREEINK_NET_WOLFSSL is set, reusing its redirect handling for the
   // GitHub -> CDN hop.
-  const esp_partition_t* updatePartition = esp_ota_get_next_update_partition(nullptr);
+  const esp_partition_t* updatePartition = updateSlot();
   if (!updatePartition) {
     LOG_ERR("OTA", "No OTA partition available");
     return INTERNAL_UPDATE_ERROR;
