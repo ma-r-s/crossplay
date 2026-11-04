@@ -93,6 +93,9 @@ static constexpr uint64_t kTimerWakeMicros = static_cast<uint64_t>(CROSSPLAY_TIM
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/DeviceReport.h"
+#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+#include "network/WolfsslPsramAllocators.h"
+#endif
 #include "nvs.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
@@ -805,6 +808,10 @@ void setup() {
 #endif
 
   powerManager.begin();
+
+#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+  useWolfsslPsramAllocators();
+#endif
 
   // Board TX-power ceiling. It can only be set once WiFi has started, so it is
   // applied on every STA/AP start rather than at each place that brings WiFi up.
