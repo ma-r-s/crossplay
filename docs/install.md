@@ -5,7 +5,7 @@ everybody wants. This file is the rest: installing by hand, updating a device
 you already flashed, and reflashing with no cable at all.
 
 Everything here is for the **Xteink X4 Pro**, **Seeed reTerminal Sticky**,
-and **M5Stack PaperMono / PaperMono-Lite**. All are ESP32-S3. The plain X4 and the X3 are
+**M5Stack PaperMono / PaperMono-Lite** and, where it says so, the **BOOX Picco**. All are ESP32-S3. The plain X4 and the X3 are
 ESP32-C3, these binaries are not for them, and flashing one there is a
 cross-chip flash. Install [CrossPoint](https://crosspointreader.com/) on those
 instead: it is excellent, and it is what this is built on.
@@ -48,6 +48,30 @@ the red LED flashes, then release it. If it does not restart after flashing, dou
 it off, then press it once to start. PaperMono and Lite use the same image; the Lite omits NFC and LoRa,
 which CrossPlay does not use. See [PaperMono support](papermono.md) for build and
 hardware verification details.
+
+### BOOX Picco
+
+The Picco keeps its maker's bootloader, partition table, NVS and `safeboot`
+recovery partition, so nothing above applies to it: there is no full image and
+no write at `0x0`. Only `firmware.bin` goes on it, at `0xE0000`, the one app slot.
+Support is experimental and has run on one unit, so read the whole flash first
+and keep the file:
+
+```bash
+esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin
+```
+
+To enter the ROM bootloader, turn the device off, then hold **Power** and
+**Volume Up** while connecting USB, for 5 to 8 seconds. Then write the slot:
+
+```bash
+esptool --chip esp32s3 -p <port> -b 921600 write-flash 0xE0000 firmware.bin
+```
+
+From a source checkout, `pio run -e gh_release_picco -t upload` does the same
+write and refuses to run if any other offset would be written. The sections
+below do not apply: a Picco has one app slot, so it takes no update over Wi-Fi
+or from the SD card, and every update is this same write over USB.
 
 If a flash goes wrong, [fix-bricked-xteink.md](fix-bricked-xteink.md) is the
 way back.
