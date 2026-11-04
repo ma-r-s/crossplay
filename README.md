@@ -177,6 +177,18 @@ through it is the way back to stock. Read the whole flash with
 `esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin` before the
 first install, and keep that file.
 
+Picco support is experimental: it has run on one unit, and it is not part of
+the release flashing below. To install a build you already have, enter the ROM
+bootloader (device off, hold Power and Volume Up while connecting USB, for 5 to
+8 seconds) and write the one slot:
+
+    esptool --chip esp32s3 -p <port> -b 921600 write-flash 0xE0000 firmware.bin
+
+The side keys page and scroll, touch works as on the X4 Pro, and
+**Settings > Controls > Slide Switch** binds the slide switch to the frontlight,
+night mode or the reader's touch controls. [docs/install.md](docs/install.md)
+has the rest, and `pio run -e simulator_picco` builds it for the desktop.
+
 Every release is flashed to a real X4 Pro and a real Sticky before it ships.
 That is still a small field record, so if you install it, please
 [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
