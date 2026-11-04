@@ -88,6 +88,19 @@ fi
 MAC="$(printf '%s' "$LINE" | cut -f1)"
 PORT="$(printf '%s' "$LINE" | cut -f2 | sed 's|/dev/tty|/dev/cu|')"
 
+# NEVER A PICCO. This script writes otadata at 0xe000 and the app at 0x10000,
+# which is this fork's partition table. The Picco keeps the vendor's: 0xe000 is
+# inside its NVS and 0x10000 runs over its otadata and its `safeboot` recovery
+# partition. It is flashed with `pio run -e gh_release_picco -t upload`, which
+# writes the app slot at 0xE0000 and nothing else.
+case "$ENV_NAME_FW" in
+  *picco*)
+    echo "error: usb-flash.sh does not flash the Picco; its offsets would overwrite the" >&2
+    echo "       vendor's NVS and safeboot partitions. Use:" >&2
+    echo "         pio run -e $ENV_NAME_FW -t upload" >&2
+    exit 2 ;;
+esac
+
 # Both the build and the upload run UNDER lib-sim.sh's build lock: PlatformIO
 # does not tolerate two concurrent runs of one env, and an upload is a pio run
 # like any other.
@@ -151,6 +164,28 @@ echo "image:  $IMAGE ($(wc -c < "$IMAGE" | tr -d ' ') bytes, $ENV_NAME_FW)"
 ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
 PIO_PY="$HOME/.platformio/penv/bin/python"
 [ -f "$ESPTOOL" ] || { echo "error: no esptool at $ESPTOOL" >&2; exit 1; }
+# The env name only says what was BUILT; the device on the cable may still be a
+# Picco. Read its partition table first and refuse one that carries the
+# vendor's `safeboot` partition. A separate esptool run that ends in a reset,
+# so the write below starts from a running app exactly as it always did.
+PTABLE="${TMPDIR:-/tmp}/xteink-usbflash-ptable.bin"
+rm -f "$PTABLE"
+if ! "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud 921600 \
+     --before usb_reset --after hard_reset read_flash 0x8000 0xC00 "$PTABLE" >/dev/null 2>&1; then
+  echo "error: could not read the device's partition table; nothing was written." >&2
+  exit 1
+fi
+if grep -q safeboot "$PTABLE"; then
+  echo "error: $MAC carries a vendor partition table with a safeboot partition (a Picco)." >&2
+  echo "       Nothing was written. Flash it with: pio run -e gh_release_picco -t upload" >&2
+  exit 2
+fi
+# The reset re-enumerates the USB port: let it drop, then wait for it back.
+sleep 1
+for _ in $(seq 1 20); do
+  [ -e "$PORT" ] && break
+  sleep 0.5
+done
 echo "writing over the cable (no pairing code, no Developer Mode) ..."
 # ONE esptool invocation, not two. A first run that leaves the chip in the
 # bootloader (--after no_reset) makes the second run's --before usb_reset fail:
