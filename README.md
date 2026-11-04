@@ -155,6 +155,28 @@ X4, which had a front button row the X4 Pro dropped. Back here is a swipe and
 Confirm exists only on the Sticky, which
 [docs/buttons.md](docs/buttons.md) explains.
 
+### BOOX Picco
+
+The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 too, but it keeps its maker's
+partition table, including a `safeboot` recovery partition, and CrossPlay
+leaves that table alone, as CrossPoint does. It is installed into the
+Picco's one app slot and nowhere else:
+
+    pio run -e gh_release_picco -t upload
+
+That writes `firmware.bin` at 0xE0000 and touches no other byte; the upload
+refuses to run if any other offset would be written. Upstream's own `picco` env
+does not stop there yet: its upload also writes a bootloader, a partition table
+and `boot_app0.bin` over the vendor's ([crosspoint-reader#4248](https://github.com/crosspoint-reader/crosspoint-reader/issues/4248)),
+so use this fork's env, or BOOX's or CrossPoint's web flasher. The browser
+installer, `scripts_local/usb-flash.sh`, the SD-card update and Check for
+updates all write this fork's own layout, so on a Picco they refuse and write
+nothing. Updates go over USB the same way. BOOX's own web flasher, in its "OTA
+update" mode, takes the same `firmware.bin`, and installing BOOX's firmware
+through it is the way back to stock. Read the whole flash with
+`esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin` before the
+first install, and keep that file.
+
 Every release is flashed to a real X4 Pro and a real Sticky before it ships.
 That is still a small field record, so if you install it, please
 [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
