@@ -30,8 +30,6 @@ constexpr size_t FONT_PREWARM_TEXT_MAX = 2048;
 constexpr int TOUCH_DRAG_MOVEMENT_PX = 4;
 constexpr unsigned long TOUCH_PAGE_ADVANCE_HOLD_MS = 1000;
 constexpr int TOUCH_PAGE_END_DWELL_SLOP_PX = 8;
-constexpr ClippingResult::Action SELECTION_ACTIONS[] = {ClippingResult::Action::Lookup, ClippingResult::Action::Clip,
-                                                        ClippingResult::Action::Bookmark};
 
 const char* cleanWordStart(const char* text) {
   if (!text) return "";
@@ -59,6 +57,16 @@ ClipSelectionActivity::ClipSelectionActivity(GfxRenderer& renderer, MappedInputM
 
 void ClipSelectionActivity::onEnter() {
   Activity::onEnter();
+  // FORK CHANGE: the bar is built here so Wiki can sit between Look Up and Clip.
+  barCount = 0;
+  const auto addAction = [this](const ClippingResult::Action action, const char* label) {
+    barActions[barCount] = action;
+    barLabels[barCount++] = label;
+  };
+  addAction(ClippingResult::Action::Lookup, tr(STR_LOOKUP));
+  addAction(ClippingResult::Action::Wikipedia, tr(STR_WIKI_BUTTON));
+  addAction(ClippingResult::Action::Clip, tr(STR_CLIP));
+  addAction(ClippingResult::Action::Bookmark, tr(STR_BOOKMARK_OPTION));
   fontId = SETTINGS.getReaderFontId();
   lineHeight = renderer.getLineHeight(fontId);
   if (!extractWords() || wordCount == 0) {
@@ -433,10 +441,10 @@ void ClipSelectionActivity::loop() {
   }
   if (!touchDragSelecting && mappedInput.wasScreenTapped(touchX, touchY)) {
     if (rangeStart >= 0) {
-      const int action =
-          selectionGeometry::actionAt(actionRect(), UITheme::getInstance().getMetrics().menuSpacing, touchX, touchY);
+      const int action = selectionGeometry::actionAt(actionRect(), UITheme::getInstance().getMetrics().menuSpacing,
+                                                     touchX, touchY, barCount);
       if (action >= 0) {
-        confirmSelection(SELECTION_ACTIONS[action]);
+        confirmSelection(barActions[action]);
         return;
       }
       const int first = std::min(rangeStart, selected);
@@ -495,7 +503,8 @@ void ClipSelectionActivity::loop() {
   } else if (mappedInput.wasScreenTouchPressed(touchX, touchY)) {
     if (rangeStart >= 0) {
       const Rect actions = actionRect();
-      if (selectionGeometry::actionAt(actions, UITheme::getInstance().getMetrics().menuSpacing, touchX, touchY) >= 0)
+      if (selectionGeometry::actionAt(actions, UITheme::getInstance().getMetrics().menuSpacing, touchX, touchY,
+                                      barCount) >= 0)
         return;
       const int first = std::min(rangeStart, selected);
       const int last = std::max(rangeStart, selected);
@@ -619,12 +628,11 @@ Rect ClipSelectionActivity::actionRect() const {
   safe.width = rightEdge - safe.x;
   safe.height = bottomEdge - safe.y;
   const int font = uiScaleSpec().smallFontId;
-  const int labelWidth =
-      std::max({renderer.getTextWidth(font, tr(STR_LOOKUP)), renderer.getTextWidth(font, tr(STR_CLIP)),
-                renderer.getTextWidth(font, tr(STR_BOOKMARK_OPTION))});
+  int labelWidth = 0;
+  for (int i = 0; i < barCount; ++i) labelWidth = std::max(labelWidth, renderer.getTextWidth(font, barLabels[i]));
   const int padding = metrics.menuSpacing;
-  const int width = std::min(safe.width, 3 * (labelWidth + padding * 2) + padding * 4);
-  const int lines = labelWidth > (width - padding * 4) / 3 ? 2 : 1;
+  const int width = std::min(safe.width, barCount * (labelWidth + padding * 2) + padding * (barCount + 1));
+  const int lines = labelWidth > (width - padding * (barCount + 1)) / barCount ? 2 : 1;
   const int height = std::max(36, renderer.getLineHeight(font) * lines + padding * 2);
   int first = std::min(rangeStart, selected);
   const int last = std::max(rangeStart, selected);
@@ -818,7 +826,7 @@ void ClipSelectionActivity::drawSelection() const {
       GUI.drawSelectionHandle(renderer, handleRect(first, true), !words[first].isRtl);
     if (words[last].pageOffset == currentPageOffset)
       GUI.drawSelectionHandle(renderer, handleRect(last, false), words[last].isRtl);
-    if (!touchDragSelecting) GUI.drawSelectionActions(renderer, actionRect());
+    if (!touchDragSelecting) GUI.drawSelectionActions(renderer, actionRect(), barLabels, barCount);
   } else {
     const WordBox& cursor = words[selected];
     renderer.drawRect(cursor.x + offsetX, cursor.y + offset, cursor.width, cursor.height, true);

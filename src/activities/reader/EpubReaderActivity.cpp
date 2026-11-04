@@ -2,6 +2,7 @@
 
 #include <Epub/Page.h>
 #include <Epub/blocks/TextBlock.h>
+#include <Epub/hyphenation/Hyphenator.h>
 #include <FontCacheManager.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
@@ -49,6 +50,7 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
+#include "apps_local/wikipedia/WikipediaLookup.h"
 #include "clippings/ClippingText.h"
 #include "clippings/ClippingsManager.h"
 #include "components/UITheme.h"
@@ -451,6 +453,22 @@ void EpubReaderActivity::startClipSelection(const int initialX, const int initia
       showBookmarkMessage = true;
       bookmarkMessageTime = millis();
       requestUpdate();
+      return;
+    }
+    // FORK CHANGE: the selection bar's Wikipedia button (apps_local/wikipedia).
+    if (clipping.action == ClippingResult::Action::Wikipedia) {
+      auto wikipedia = wikipedia_lookup::open(renderer, mappedInput, clipping.text);
+      if (!wikipedia) {
+        LOG_ERR("CLIP", "OOM: Wikipedia activity");
+        requestUpdate();
+        return;
+      }
+      startActivityForResult(std::move(wikipedia), [this](const ActivityResult&) {
+        // An article sets the shared hyphenator to English (Section::startBuild);
+        // the book's own build may still be running and writes its cache.
+        if (epub) Hyphenator::setPreferredLanguage(epub->getLanguage());
+        requestUpdate();
+      });
       return;
     }
     if (clipping.action == ClippingResult::Action::Lookup) {

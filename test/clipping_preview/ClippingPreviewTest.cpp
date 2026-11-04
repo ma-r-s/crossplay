@@ -314,3 +314,23 @@ TEST(SelectionGeometry, KeepsCursorClearOfHintsOnEitherAxis) {
   EXPECT_EQ(selectionGeometry::keepVisible(735, 20, 40, 700), -15);
   EXPECT_EQ(selectionGeometry::keepVisible(100, 20, 40, 700), 0);
 }
+
+TEST(SelectionGeometry, ActionBarSplitsIntoAsManyButtonsAsItCarries) {
+  const Rect bar{10, 100, 412, 60};
+  constexpr int padding = 4;
+  for (const int count : {3, 4}) {
+    int previousRight = bar.x;
+    for (int i = 0; i < count; ++i) {
+      const Rect button = selectionGeometry::button(bar, i, padding, count);
+      EXPECT_GE(button.x, previousRight) << count << " buttons, button " << i << " overlaps the one before";
+      EXPECT_LE(button.x + button.width, bar.x + bar.width) << count << " buttons, button " << i << " leaves the bar";
+      EXPECT_EQ(selectionGeometry::actionAt(bar, padding, button.x + button.width / 2, button.y + 1, count), i);
+      previousRight = button.x + button.width;
+    }
+    EXPECT_EQ(selectionGeometry::actionAt(bar, padding, bar.x, bar.y - 1, count), -1);
+  }
+  // Callers that never ask for a count keep the three-button bar.
+  const Rect third = selectionGeometry::button(bar, 2, padding);
+  EXPECT_EQ(third.width, selectionGeometry::button(bar, 2, padding, 3).width);
+  EXPECT_EQ(selectionGeometry::actionAt(bar, padding, third.x + 1, third.y + 1), 2);
+}

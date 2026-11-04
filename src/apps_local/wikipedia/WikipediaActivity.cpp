@@ -109,6 +109,37 @@ std::unique_ptr<Activity> WikipediaActivity::create(GfxRenderer& renderer, Mappe
   return makeUniqueNoThrow<WikipediaActivity>(renderer, mappedInput);
 }
 
+std::unique_ptr<Activity> WikipediaActivity::createForTitle(GfxRenderer& renderer, MappedInputManager& mappedInput,
+                                                            std::string title) {
+  auto activity = makeUniqueNoThrow<WikipediaActivity>(renderer, mappedInput, "WikipediaFromBook");
+  if (activity) {
+    activity->pendingTitle_ = std::move(title);
+    activity->returnToCaller_ = true;
+  }
+  return activity;
+}
+
+// The install screen hands the card to USB, which must never happen under an
+// open book. So from the reader, getting Wikipedia is a restart into the app:
+// the book's place is already saved (the reader saves on every page), the shelf
+// is told Wikipedia is open, and the reboot lands on its install screen with
+// nothing beneath it -- and with a fresh heap for the copy.
+void WikipediaActivity::getFromReader() {
+  if (!shelf::reopenAfterRestart(&WikipediaActivity::create)) {
+    LOG_ERR(kTag, "no shelf item to restart into");
+    return;
+  }
+  restartToAppAfterStorageHandoff();
+}
+
+void WikipediaActivity::leaveApp() {
+  if (returnToCaller_) {
+    finish();
+    return;
+  }
+  shelf::leave(renderer, mappedInput);
+}
+
 WikipediaActivity::~WikipediaActivity() = default;
 
 void WikipediaActivity::onEnter() {
@@ -151,6 +182,16 @@ void WikipediaActivity::onEnter() {
       writeFile(kCacheMarker, marker);
     }
     go(View::Search);
+    if (!pendingTitle_.empty()) {
+      const std::string title = std::move(pendingTitle_);
+      pendingTitle_.clear();
+      openTitle(title);
+    }
+  } else if (returnToCaller_) {
+    // Never the install screen over an open book: it hands the card to USB.
+    // GET WIKIPEDIA reaches it through a restart instead (getFromReader).
+    noticeOffersInstall_ = true;
+    showNotice("NOTHING YET", tr(STR_WIKI_NOT_ON_CARD), tr(STR_WIKI_GET), wikiui::ActionInstall);
   } else {
     enterInstall();
   }
@@ -507,6 +548,10 @@ void WikipediaActivity::pushHistory() {
 
 void WikipediaActivity::popHistory() {
   if (history_.empty()) {
+    if (returnToCaller_) {
+      leaveApp();
+      return;
+    }
     closeArticle();
     go(View::Search);
     return;
@@ -749,6 +794,10 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       }
       return;
     case wikiui::ActionInstall:
+      if (returnToCaller_) {
+        getFromReader();
+        return;
+      }
       enterInstall();
       return;
     case wikiui::ActionContents:
@@ -797,6 +846,8 @@ void WikipediaActivity::routeAction(const int action, const int value) {
     case wikiui::ActionBack:
       if (section_) {
         go(View::Article);
+      } else if (returnToCaller_) {
+        leaveApp();
       } else {
         go(View::Search);
       }
@@ -900,13 +951,18 @@ void WikipediaActivity::loop() {
           keyboardShown_ = false;
           requestUpdate();
         } else {
-          shelf::leave(renderer, mappedInput);
+          leaveApp();
         }
         return;
       case View::Article:
         // The edge swipe leaves the article for the main page; the band's
         // chevron is the one that walks the trail back (Mario, 2026-09-11:
         // "the back gesture and the back arrow do different things").
+        // Opened from the reader, "leave the article" is back to the book.
+        if (returnToCaller_) {
+          leaveApp();
+          return;
+        }
         saveState();
         history_.clear();
         closeArticle();
@@ -1142,6 +1198,10 @@ void WikipediaActivity::render(RenderLock&&) {
       model.body = noticeBody_.c_str();
       model.actionLabel = noticeAction_;
       model.action = noticeActionId_;
+      if (noticeOffersInstall_) {
+        model.secondaryLabel = "BACK";
+        model.secondaryAction = wikiui::ActionBack;
+      }
       wikiui::buildNotice(screen, model);
       break;
     }
