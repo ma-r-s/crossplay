@@ -1572,6 +1572,60 @@ void solitaireDrawsOneRuleAndClearsIt() {
   CHECK(solitaireui::kHeaderBand == 56);
 }
 
+// Report box #703: "if there is a long column with open cards, the only card
+// whose number and suit can be seen is the card at the very bottom." A
+// landscape column has ~138px to fan into, and the even share a deep column
+// fell back to gave every card ~7px, under the strip the rank's ink needs. The
+// open cards of a Klondike column are always one alternating run, so its top
+// card and its bottom card name every card between: the top one keeps a
+// readable strip however deep the column is.
+void solitaireDeepColumnKeepsItsTopOpenCardReadable() {
+  using cards::Suit;
+  solitaire::Game::Save save;
+  bool used[cards::kDeck] = {};
+  const auto put = [&](const int pile, const uint8_t card) {
+    save.piles[pile][save.counts[pile]++] = card;
+    used[static_cast<int>(cards::suitOf(card)) * cards::kRanks + cards::rankOf(card)] = true;
+  };
+  // The deepest column Klondike can make: six face-down under King-to-Ace.
+  constexpr int kColumn = solitaire::kTableauPiles - 1;
+  constexpr int kDown = 6;
+  const int pile = solitaire::kFirstTableau + kColumn;
+  for (int r = 0; r < kDown; ++r) put(pile, cards::makeCard(Suit::Clubs, r));
+  for (int r = cards::kRanks - 1; r >= 0; --r) {
+    put(pile, cards::faceUp(cards::makeCard(r % 2 == 0 ? Suit::Spades : Suit::Hearts, r)));
+  }
+  // The rest wherever there is room: the stock holds 24, not 33.
+  for (int i = 0; i < cards::kDeck; ++i) {
+    if (used[i]) continue;
+    const int into = save.counts[solitaire::kStockPile] < solitaire::kPileCapacity ? solitaire::kStockPile
+                                                                                   : solitaire::kFirstTableau;
+    put(into, cards::makeCard(static_cast<Suit>(i / cards::kRanks), i % cards::kRanks));
+  }
+  solitaire::Game game;
+  CHECK(game.restore(save));
+
+  const fui::DeviceContext ctx = solitaireDevice();
+  const fui::InputSnapshot noInput{};
+  Rendered board;
+  solitaireui::Layout layout;
+  {
+    toybox::Frame frame(board.target, ctx, noInput, board.interactions);
+    fui::ThemeTokens tokens;
+    toybox::Screen screen = solitaireScreen(frame, tokens);
+    solitaireui::BoardModel model;
+    model.game = &game;
+    solitaireui::buildBoard(screen, model, layout);
+  }
+  const int16_t* offset = layout.cardOffset[kColumn];
+  const int last = game.pile(pile).count - 1;
+  CHECK(offset[kDown + 1] - offset[kDown] >= solitaireui::kOpenCardStrip);
+  // Still on the panel, top card whole.
+  CHECK(layout.y[pile] + offset[last] + layout.cardHeight <= ctx.height);
+  // And every card keeps a strip of its own, so a tap can still find it.
+  for (int c = 0; c < last; ++c) CHECK(offset[c + 1] - offset[c] >= 3);
+}
+
 // The probe, tested. Every op kind FakeTarget records is planted one pixel
 // inside the chrome's forbidden rows and must be caught.
 //
@@ -8714,6 +8768,33 @@ bool contains(const std::vector<int>& actions, const int action) {
   return false;
 }
 
+// Report box #695: "make the lines on the top grid darker, so that it is
+// easier to differentiate each sub grid." The four rules between boxes were
+// 3px, a third of the 9px frame around them, and read as cell lines. They
+// are drawn at kBoxRule now: measured off the rendered board, not the constant.
+void testSudokuBoxRulesStandOutFromCellLines() {
+  sudokuui::BoardModel model;
+  model.game = aSudokuGame(sudoku::Level::Easy);
+  Rendered board;
+  buildSudokuBoard(board, model);
+  const int side = sudokuui::kGridSide;
+  int boxRules = 0;
+  int cellLines = 0;
+  for (size_t i = 0; i < board.target.fills.size(); ++i) {
+    const fui::Rect& r = board.target.fills[i];
+    const bool across = r.width == side && r.height < side;
+    const bool down = r.height == side && r.width < side;
+    if (!across && !down) continue;
+    const int weight = across ? r.height : r.width;
+    if (weight == sudokuui::kBoxRule) boxRules++;
+    if (weight == toybox::kHairline) cellLines++;
+  }
+  CHECK(boxRules == 4);
+  CHECK(cellLines == 12);
+  CHECK(sudokuui::kBoxRule > toybox::kRule);
+  CHECK(sudokuui::kBoxRule < toybox::kBoardFrame);
+}
+
 // The pair has to be an exact inverse, not merely agree at the centres. Both
 // halves matter: a rect the hit test does not cover is a dead region, and a
 // point the hit test claims for a cell outside that cell's rect is a tap that
@@ -14874,6 +14955,7 @@ int main() {
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testTheSudokuGridAndItsHitTestAreExactInverses();
+  testSudokuBoxRulesStandOutFromCellLines();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
@@ -15085,6 +15167,7 @@ int main() {
   testAKnucklebonesColumnTotalClearsItsBand();
   triviaReportScreensClearTheChrome();
   solitaireDrawsOneRuleAndClearsIt();
+  solitaireDeepColumnKeepsItsTopOpenCardReadable();
   theChromeProbeCatchesEveryDrawKind();
   everyBandCarriesItsRule();
   yahtzeeScreensClearTheChrome();
