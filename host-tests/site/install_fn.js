@@ -76,6 +76,40 @@ check("Chrome's NetworkError on open is a port", PORT.test(friendly(dom("Network
 state.device = "papermono";
 check("a PaperMono that does not answer is told about its LED", /red LED/.test(friendly(new Error("No serial data received."))), true);
 state.device = "x4pro";
+// The Picco refusal. A Picco keeps its maker's partition table with a
+// `safeboot` recovery partition, and this image would write its own table and
+// app over it, so flash() reads the device's table and stops. That is the
+// person's device, not our bug, and its own words say what to do instead.
+const picco = new Error("This device keeps its maker's partition table, as the BOOX Picco does. Nothing was written.");
+check("a Picco refused at the table is the person's own", userSide(picco), true);
+check("and keeps its own words, which say where to go", friendly(picco), picco.message);
+const vm = src.match(/function hasVendorRecovery\(table\) \{[\s\S]*?\n  \}\n/);
+if (!vm) {
+  console.log("  FAIL install.js has no hasVendorRecovery(table); a Picco's recovery partition is one click from overwritten");
+  process.exit(1);
+}
+const hasVendorRecovery = new Function(vm[0] + "\nreturn hasVendorRecovery;")();
+function tableOf(labels) {
+  const t = new Uint8Array(0x1000).fill(0xff);
+  labels.forEach(function (label, i) {
+    t[i * 32] = 0xaa; t[i * 32 + 1] = 0x50;
+    for (let j = 0; j < label.length; j++) t[i * 32 + 12 + j] = label.charCodeAt(j);
+  });
+  return t;
+}
+check("the Picco's stock table is recognised", hasVendorRecovery(tableOf(["nvs", "otadata", "safeboot", "app", "spiffs", "coredump"])), true);
+check("CrossPlay's own table is not", hasVendorRecovery(tableOf(["nvs", "otadata", "app0", "app1", "coredump"])), false);
+check("nor is a blank sector", hasVendorRecovery(new Uint8Array(0x1000).fill(0xff)), false);
+// Read, checked, and only then written: the order is the guard.
+const readAt = src.indexOf(".readFlash(OFF_PARTITIONS, PARTITION_TABLE_SIZE)");
+const checkAt = src.indexOf("if (table && hasVendorRecovery(table))");
+const writeAt = src.indexOf("loader.writeFlash(");
+check("the device's table is read and checked before the one write", readAt > 0 && readAt < checkAt && checkAt < writeAt, true);
+// Best effort, never a new way to fail: a read that throws must leave every
+// X4 Pro and Sticky installing exactly as before the check existed.
+const failOpen = src.slice(readAt, checkAt);
+check("a table that cannot be read installs as before", /\.catch\(function \(\) \{\s*return null;\s*\}\)/.test(failOpen), true);
+
 // Unknown failures keep their own words rather than borrowing advice.
 check("an unknown failure keeps its own text", friendly(new Error("Image verification failed")), "Image verification failed");
 

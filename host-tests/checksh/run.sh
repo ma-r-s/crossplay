@@ -273,8 +273,8 @@ fw_invocations() {
 # trace, because a loop that silently built nothing would satisfy every
 # assertion below that reads the trace and only this one can see it.
 mode_envs() {  # $1 = CHECK_BUILD_RELEASE_ENVS
-  if [ -n "$1" ]; then printf 'gh_release_x4pro gh_release_sticky gh_release_papermono'
-  else printf 'x4pro sticky papermono'; fi
+  if [ -n "$1" ]; then printf 'gh_release_x4pro gh_release_sticky gh_release_papermono gh_release_picco'
+  else printf 'x4pro sticky papermono picco'; fi
 }
 
 # Both readers must answer "nothing" for an EMPTY trace rather than
@@ -433,7 +433,7 @@ STUB
 
 # Both halves of the pair, and the SECOND is the one that matters: a loop that
 # read only the first env's result would pass the first case and fail this one.
-for fail_env in gh_release_x4pro gh_release_sticky gh_release_papermono; do
+for fail_env in gh_release_x4pro gh_release_sticky gh_release_papermono gh_release_picco; do
   rc="$(fail_on_env "$fail_env" 1)"
   checks=$((checks + 1))
   if ! grep -qx "$fail_env" "$WORK/trace" 2>/dev/null; then

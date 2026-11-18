@@ -565,7 +565,7 @@
       <details class="by-hand">
         <summary>What it changes</summary>
         <ul class="steps">
-          <li>Only the <strong>Xteink X4 Pro</strong>, the <strong>Seeed reTerminal Sticky</strong> and the <strong>M5Stack PaperMono / Lite</strong>. For any other device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer.</li>
+          <li>Only the <strong>Xteink X4 Pro</strong>, the <strong>Seeed reTerminal Sticky</strong> and the <strong>M5Stack PaperMono / Lite</strong>. The <strong>BOOX Picco</strong> installs by hand only, below. For any other device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer.</li>
           <li>After this, no more cables: <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
           <li>Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
         </ul>
@@ -579,6 +579,7 @@
             <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
           </li>
           <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky, <code>firmware-papermono.bin</code> for PaperMono / Lite -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
+          <li><strong>BOOX Picco</strong> (experimental, untested by us): it keeps its maker's partitions and a recovery partition, so it has no <code>-full.bin</code> and the button above refuses it. It takes <code>firmware-picco.bin</code> in its one app slot, at <code>0xE0000</code> and nowhere else, with <a href="https://crosspointreader.com/">CrossPoint's web flasher</a> (BOOX Picco, Custom .bin) or esptool, and every update goes the same way. <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md#boox-picco">The steps, and a backup to take first.</a></li>
         </ol>
       </details>
 
