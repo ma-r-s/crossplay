@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 // The decisions worth knowing (docs/apps/weather.md has the rest).
 //
-// 1. The forecast is read when the app opens, and when the menu's REFRESH is
+// 1. The forecast is read when the app opens, and when the menu's UPDATE NOW is
 //    tapped, over Wi-Fi, and at no other time: nothing in the background,
 //    no timer wake. The forks that refreshed on a timer drained batteries.
 //
@@ -83,6 +83,12 @@ class WeatherActivity final : public Activity {
 
   // --- Moving between screens ---------------------------------------------
   void openSearch();
+  // Up for typing: on opening the search, on tapping the field, and after a
+  // search that found nothing, failed or was abandoned, since each of those is
+  // answered by typing or by GO.
+  void raiseKeyboard();
+  // The places found, `delta` pages on, stopping at either end.
+  void turnPage(int delta);
   void choose(int match);
   void back();
   void routeAction(int action, int value);
@@ -103,9 +109,13 @@ class WeatherActivity final : public Activity {
   // A Back release only counts when this activity also saw the press: the
   // picker acts on the press and hands the release back here.
   bool backPressSeen_ = false;
-  // What abandoned the request in hand, acted on once it has returned.
-  enum class Interrupt : uint8_t { None, Back, Home };
+  // What abandoned the request in hand, acted on once it has returned. Back
+  // only abandons; Home is a finished Home gesture, which then goes Home;
+  // HomeKey is the Home key going down, whose gesture finishes in the main
+  // loop.
+  enum class Interrupt : uint8_t { None, Back, Home, HomeKey };
   Interrupt interrupt_ = Interrupt::None;
+  static const char* interruptName(Interrupt interrupt);
 
   weather::Place place_;
   bool havePlace_ = false;
@@ -113,15 +123,18 @@ class WeatherActivity final : public Activity {
   bool haveCache_ = false;
 
   // Strings the models point into, kept alive for the paint.
-  std::string placeLabel_;
+  std::string placeTitle_;
   std::string updated_;
 
   // Search.
   std::string query_;
   std::string searched_;  // the query the results answer
   weatherui::SearchModel::State searchState_ = weatherui::SearchModel::State::Typing;
-  std::string searchFailure_;
+  bool searchOffline_ = false;  // a failed search failed for want of Wi-Fi
   std::vector<weather::Match> matches_;
+  // The page of places asked for, and how many the last paint drew.
+  int searchPage_ = 0;
+  int searchPages_ = 0;
   bool shifted_ = false;
   bool symbols_ = false;
   bool keyboardShown_ = false;

@@ -1,6 +1,7 @@
 #include "WeatherActivity.h"
 
 #include <Arduino.h>
+#include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -17,6 +18,7 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../fontIds.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../rss/RssFetch.h"
 #include "../ui/ToyboxFonts.h"
@@ -53,12 +55,14 @@ std::string endpoint(const char* env, const char* fallback) {
   return fallback;
 }
 
-// The device clock, when it holds a present-day time; 0 when it does not, and
-// the forecast's own reading time then dates it.
-constexpr int64_t kClockFloor = 1700000000;
+// The device clock, when it can be today (the fork's one floor, ClockFloor.h:
+// no earlier than the day this firmware was built); 0 when it cannot, and the
+// forecast's own reading time then dates it. A never-set RTC reading a
+// plausible February would otherwise say UPDATED 17 NOV against it and pick
+// the wrong today out of the week.
 int64_t nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > kClockFloor ? now : 0;
+  return clockfloor::trusted(now) ? now : 0;
 }
 
 bool readText(const char* path, std::string& out) {
@@ -91,11 +95,36 @@ bool writeText(const char* path, const std::string& text) {
   return true;
 }
 
-// The faces the main screen is drawn in, pass by pass (WeatherScreens.h).
-const toybox::Faces kPlaceFaces{toybox::kReadingBoldSmallFontId, toybox::kReadingBoldFontId, toybox::kDisplayFontId};
-const toybox::Faces kDataFaces{toybox::kButtonFontId, toybox::kUiFontId, toybox::kHugeFontId};
-const toybox::Faces kSearchFaces{toybox::kReadingFontId, toybox::kReadingBoldFontId, toybox::kDisplayFontId};
-const toybox::Faces kMenuFaces{toybox::kButtonFontId, toybox::kReadingBoldFontId, toybox::kDisplayFontId};
+// The font each of the screens' faces names (WeatherScreens.h says which
+// pass binds which).
+int fontFor(const weatherui::Face face) {
+  switch (face) {
+    case weatherui::Face::ReadingSmall:
+      return toybox::kReadingSmallFontId;
+    case weatherui::Face::Reading:
+      return toybox::kReadingFontId;
+    case weatherui::Face::ReadingBoldSmall:
+      return toybox::kReadingBoldSmallFontId;
+    case weatherui::Face::ReadingBold:
+      return toybox::kReadingBoldFontId;
+    case weatherui::Face::Button:
+      return toybox::kButtonFontId;
+    case weatherui::Face::Ui:
+      return toybox::kUiFontId;
+    case weatherui::Face::Display:
+      return toybox::kDisplayFontId;
+    case weatherui::Face::Huge:
+      return toybox::kHugeFontId;
+  }
+  return toybox::kUiFontId;
+}
+
+void bindPass(void* context, const weatherui::Pass& pass) {
+  auto& target = *static_cast<fui::GfxRendererTarget*>(context);
+  target.setFont(fui::GfxRendererTarget::FONT_SMALL, fontFor(pass.small));
+  target.setFont(fui::GfxRendererTarget::FONT_BODY, fontFor(pass.body));
+  target.setFont(fui::GfxRendererTarget::FONT_TITLE, fontFor(pass.title));
+}
 
 weatherui::DayRow rowFor(const weather::Day& day, const weather::Units units) {
   weatherui::DayRow row;
@@ -126,9 +155,10 @@ void WeatherActivity::onEnter() {
   pending_ = Pending::None;
   if (havePlace_) {
     view_ = View::Main;
-    // The forecast on the card goes up first, whatever the radio says; the
-    // first loop pass then asks for a fresh one.
+    // The forecast on the card goes up first, whatever the radio says, already
+    // saying it is being updated: the first loop pass asks for a fresh one.
     refreshOnFirstPass_ = true;
+    status_ = Status::Updating;
   } else {
     openSearch();
   }
@@ -214,7 +244,8 @@ void WeatherActivity::ensureConnected(const Pending what) {
           RenderLock lock(*this);
           if (what == Pending::Search) {
             searchState_ = weatherui::SearchModel::State::Failed;
-            searchFailure_ = "Not connected to Wi-Fi. Tap the field and press GO to try again.";
+            searchOffline_ = true;
+            raiseKeyboard();
           } else {
             status_ = Status::Offline;
           }
@@ -274,11 +305,20 @@ bool WeatherActivity::fetchAnswer(const std::string& url, std::string& out) {
 bool WeatherActivity::pollDuringRequest() {
   // The request holds the loop, so nothing else is sampling input: this is the
   // one place this app pumps it, and only while a request is out (the
-  // input-pump rule). The pump eats the one-shot Home gesture before
-  // ActivityManager could see it, so it is honoured here, after the abort.
+  // input-pump rule).
   mappedInput.update();
   if (mappedInput.wasHomeGesture()) {
+    // A finished Home gesture (the bottom-edge swipe, or a Home key whose tap
+    // resolved during the wait) is one-shot and this pump has eaten it, so it
+    // is honoured here, after the abort.
     interrupt_ = Interrupt::Home;
+  } else if (gpio.hasHomeKey() && gpio.wasHomeKeyPressed()) {
+    // The Home key abandons the request the moment it goes down. Its tap is
+    // told from a double tap only after the key comes up and a window passes,
+    // and waiting for that inside this poll never ends where input edges last
+    // a frame (the simulator); the gesture finishes in the main loop instead
+    // and does whatever Home is set to do there.
+    interrupt_ = Interrupt::HomeKey;
   } else if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
              mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     interrupt_ = Interrupt::Back;
@@ -302,7 +342,7 @@ void WeatherActivity::fetchForecast() {
   if (interrupt_ != Interrupt::None) {
     // Abandoned, not failed: the forecast on the card stands as it was.
     status_ = Status::Current;
-    LOG_INF(kTag, "forecast request abandoned by %s", interrupt_ == Interrupt::Home ? "Home" : "Back");
+    LOG_INF(kTag, "forecast request abandoned by %s", interruptName(interrupt_));
     return;
   }
   if (!parsed) {
@@ -331,20 +371,24 @@ void WeatherActivity::fetchMatches() {
   RenderLock lock(*this);
   searched_ = query;
   if (interrupt_ != Interrupt::None) {
+    // Back to typing what was typed, the keyboard up as it was before GO.
     searchState_ = weatherui::SearchModel::State::Typing;
-    LOG_INF(kTag, "search abandoned by %s", interrupt_ == Interrupt::Home ? "Home" : "Back");
+    raiseKeyboard();
+    LOG_INF(kTag, "search abandoned by %s", interruptName(interrupt_));
     return;
   }
   if (!parsed) {
     if (fetched) LOG_ERR(kTag, "geocoder answer was not a list: %.80s", answer.c_str());
     searchState_ = weatherui::SearchModel::State::Failed;
-    searchFailure_ = WiFi.status() == WL_CONNECTED
-                         ? "Open-Meteo did not answer. Tap the field and press GO to try again."
-                         : "Not connected to Wi-Fi. Tap the field and press GO to try again.";
+    searchOffline_ = WiFi.status() != WL_CONNECTED;
+    raiseKeyboard();
     return;
   }
   matches_ = std::move(found);
+  searchPage_ = 0;
   searchState_ = matches_.empty() ? weatherui::SearchModel::State::NoMatch : weatherui::SearchModel::State::Results;
+  // Nothing found is a spelling to fix: the keyboard comes back for it.
+  if (matches_.empty()) raiseKeyboard();
   LOG_INF(kTag, "search \"%s\": %d places", query.c_str(), static_cast<int>(matches_.size()));
 }
 
@@ -355,12 +399,46 @@ void WeatherActivity::openSearch() {
   query_.clear();
   searched_.clear();
   matches_.clear();
+  searchPage_ = 0;
+  searchPages_ = 0;
   searchState_ = weatherui::SearchModel::State::Typing;
   shifted_ = true;  // a city starts with a capital
   symbols_ = false;
-  keyboardShown_ = true;
-  kbGate_.arm();
+  raiseKeyboard();
+}
+
+void WeatherActivity::raiseKeyboard() {
+  if (!keyboardShown_) {
+    keyboardShown_ = true;
+    kbGate_.arm();
+  }
   interactionsReady_ = false;
+}
+
+const char* WeatherActivity::interruptName(const Interrupt interrupt) {
+  switch (interrupt) {
+    case Interrupt::Back:
+      return "Back";
+    case Interrupt::Home:
+      return "Home";
+    case Interrupt::HomeKey:
+      return "the Home key";
+    case Interrupt::None:
+      break;
+  }
+  return "nothing";
+}
+
+void WeatherActivity::turnPage(const int delta) {
+  {
+    RenderLock lock(*this);
+    const int last = searchPages_ - 1;
+    const int page = searchPage_ + delta;
+    if (last <= 0 || page < 0 || page > last) return;
+    searchPage_ = page;
+    interactionsReady_ = false;
+  }
+  requestUpdate();
 }
 
 void WeatherActivity::choose(const int index) {
@@ -440,13 +518,13 @@ void WeatherActivity::routeAction(const int action, const int value) {
       LOG_INF(kTag, "units now %s", place_.units == weather::Units::Fahrenheit ? "F" : "C");
       break;
     case weatherui::ActionField:
-      if (!keyboardShown_) {
-        keyboardShown_ = true;
-        kbGate_.arm();
-      }
+      raiseKeyboard();
       break;
     case weatherui::ActionMatch:
       choose(value);
+      return;
+    case weatherui::ActionPage:
+      turnPage(value - searchPage_);
       return;
     default:
       return;
@@ -514,17 +592,15 @@ void WeatherActivity::loop() {
       fetchMatches();
     }
     interactionsReady_ = false;
-    // A Back or Home that abandoned the request is then what it always is:
-    // Back from here, or Home.
+    // The Back that abandoned a request did only that: the screen stays where
+    // it was, the forecast on the card or the search as typed, and the next
+    // Back leaves. A finished Home gesture goes Home; a Home key abandons and
+    // its gesture finishes in the main loop, which goes Home in its own time.
     const Interrupt interrupt = interrupt_;
     interrupt_ = Interrupt::None;
     backPressSeen_ = false;
     if (interrupt == Interrupt::Home) {
       onGoHome();
-      return;
-    }
-    if (interrupt == Interrupt::Back) {
-      back();
       return;
     }
     requestUpdate();
@@ -535,6 +611,22 @@ void WeatherActivity::loop() {
     backPressSeen_ = false;
     back();
     return;
+  }
+
+  // The places found, a page at a time: the side keys and a vertical swipe,
+  // the same way round as every list here.
+  if (view_ == View::Search && searchState_ == weatherui::SearchModel::State::Results && !keyboardShown_) {
+    const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
+        mappedInput.wasReleased(MappedInputManager::Button::PageForward) || swipe == MappedInputManager::SwipeDir::Up) {
+      turnPage(1);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+        mappedInput.wasReleased(MappedInputManager::Button::PageBack) || swipe == MappedInputManager::SwipeDir::Down) {
+      turnPage(-1);
+      return;
+    }
   }
 
   int tapX = 0;
@@ -561,53 +653,45 @@ void WeatherActivity::loop() {
 
 weatherui::MainModel WeatherActivity::mainModel() {
   weatherui::MainModel model;
-  placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
-  model.place = placeLabel_.c_str();
+  placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
+  model.place = placeTitle_.c_str();
   switch (status_) {
+    case Status::Current:
+      model.status = weatherui::Status::Current;
+      break;
     case Status::Updating:
-      model.status = "UPDATING...";
+      model.status = weatherui::Status::Updating;
       break;
     case Status::Offline:
-      model.status = "OFFLINE.";
+      model.status = weatherui::Status::Offline;
       break;
     case Status::Failed:
-      model.status = "COULD NOT UPDATE.";
-      break;
-    case Status::Current:
+      model.status = weatherui::Status::Failed;
       break;
   }
-  if (!haveCache_) {
-    model.hasForecast = false;
-    if (status_ == Status::Updating || status_ == Status::Current) {
-      model.emptyHeadline = "GETTING THE FORECAST";
-      model.emptyMessage = "From Open-Meteo, over Wi-Fi. It stays on the card for when you are offline.";
-      model.status = "";
-    } else {
-      model.emptyHeadline = "NO FORECAST YET";
-      model.emptyMessage = status_ == Status::Offline
-                               ? "Connect to Wi-Fi to get one. It stays on the card for when you are offline."
-                               : "Open-Meteo did not answer. Try again in a minute.";
-      model.status = "";
-      model.offerRetry = true;
-    }
-    return model;
-  }
+  if (!haveCache_) return model;
 
   const weather::Forecast& f = cache_.forecast;
   const weather::Units units = place_.units;
   const int64_t now = nowOrZero();
+  updated_ = weather::updatedLabel(cache_, now, SETTINGS.clockFormat == 1);
+  model.updated = updated_.c_str();
   const int first = weather::firstDay(cache_, now);
+  if (first < 0) {
+    // Every day on the card is past: no week, only how old it is.
+    model.stale = true;
+    return model;
+  }
   model.hasForecast = true;
   model.hasNow = f.nowC != weather::kNoTemp;
   if (model.hasNow) model.now = weather::displayTemp(f.nowC, units);
   model.nowIcon = weather::skyIcon(f.nowCode, f.isDay);
   model.sky = weather::skyWords(f.nowCode);
   model.today = rowFor(f.days[first], units);
+  model.chance = weather::chanceWord(f.days[first].code);
   for (int i = first + 1; i < f.dayCount && model.dayCount < weatherui::kRows; ++i) {
     model.days[model.dayCount++] = rowFor(f.days[i], units);
   }
-  updated_ = weather::updatedLabel(cache_, now, SETTINGS.clockFormat == 1);
-  model.updated = updated_.c_str();
   return model;
 }
 
@@ -661,37 +745,25 @@ void WeatherActivity::drawKeyboard() {
 void WeatherActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const fui::InputSnapshot noInput{};
+  // Each screen binds its own faces, pass by pass (WeatherScreens.h).
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  const weatherui::Rebind bind{&target, &bindPass};
+  toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+  toybox::Screen screen(frame);
   switch (view_) {
     case View::Main: {
-      // Three passes, two rebinds: the place measured in a cut that can draw
-      // its letters, the screen laid out and drawn in Jersey, then the place
-      // drawn where that layout put it (WeatherScreens.h).
-      const auto bind = [](fui::GfxRendererTarget& target, const toybox::Faces& faces) {
-        target.setFont(fui::GfxRendererTarget::FONT_SMALL, faces.small);
-        target.setFont(fui::GfxRendererTarget::FONT_BODY, faces.body);
-        target.setFont(fui::GfxRendererTarget::FONT_TITLE, faces.title);
-      };
-      fui::GfxRendererTarget target = toybox::makeTarget(renderer, kPlaceFaces);
-      toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
-      toybox::Screen screen(frame);
       const weatherui::MainModel model = mainModel();
-      const weatherui::MainPlace place = weatherui::buildMainTop(screen, model);
-      bind(target, kDataFaces);
-      const int16_t placeTop = weatherui::buildMainBody(screen, model, place);
-      bind(target, kPlaceFaces);
-      weatherui::drawMainPlace(screen, place, placeTop);
+      weatherui::drawMain(screen, model, bind);
       toybox::reportOverflow(interactions_, "Weather");
       break;
     }
     case View::Search: {
-      fui::GfxRendererTarget target = toybox::makeTarget(renderer, kSearchFaces);
-      toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
-      toybox::Screen screen(frame);
       weatherui::SearchModel model;
       model.query = query_.c_str();
       model.state = searchState_;
       model.firstRun = !havePlace_;
-      model.failure = searchFailure_.c_str();
+      model.offline = searchOffline_;
+      model.page = searchPage_;
       if (searchState_ == weatherui::SearchModel::State::NoMatch) model.query = searched_.c_str();
       model.rowCount = static_cast<int>(matches_.size());
       for (int i = 0; i < model.rowCount; ++i) {
@@ -701,21 +773,20 @@ void WeatherActivity::render(RenderLock&&) {
       if (keyboardShown_) {
         model.keyboardHeight = static_cast<int16_t>(renderer.getScreenHeight() - keyboardRect().y + 8);
       }
-      weatherui::buildSearch(screen, model);
+      const weatherui::SearchLayout layout = weatherui::drawSearch(screen, model, bind);
+      searchPage_ = layout.page;
+      searchPages_ = layout.pageCount;
       toybox::reportOverflow(interactions_, "Weather search");
       break;
     }
     case View::Menu: {
-      fui::GfxRendererTarget target = toybox::makeTarget(renderer, kMenuFaces);
-      toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
-      toybox::Screen screen(frame);
       weatherui::MenuModel model;
-      placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
-      model.place = placeLabel_.c_str();
+      placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
+      model.place = placeTitle_.c_str();
       model.fahrenheit = place_.units == weather::Units::Fahrenheit;
       updated_ = haveCache_ ? weather::updatedLabel(cache_, nowOrZero(), SETTINGS.clockFormat == 1) : std::string();
       model.updated = updated_.c_str();
-      weatherui::buildMenu(screen, model);
+      weatherui::drawMenu(screen, model, bind);
       toybox::reportOverflow(interactions_, "Weather menu");
       break;
     }

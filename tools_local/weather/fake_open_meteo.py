@@ -11,7 +11,8 @@ SIMULATOR build; a device always asks Open-Meteo):
     ./scripts_local/sim-shot.sh '...' '...'
 
 The first path segment picks how the server answers, so one server covers
-every case a run needs:
+every case a run needs. It may start with a week and a dash ("winter-ok"):
+the week is one of WEEKS below, the base November week when none is named.
 
     ok         the answer Open-Meteo gives, in its real shape
     malformed  an answer cut off half way, the way a dropped connection leaves it
@@ -22,8 +23,8 @@ every case a run needs:
     none       (search only) the answer to a search that found nothing
 
 The forecast's dates are today and the next six days in the place's own time
-zone, so the day names on screen are always the real ones. The numbers are a
-fixed November week in Zurich, so screenshots are comparable run to run.
+zone, so the day names on screen are always the real ones. The numbers are
+fixed weeks, so screenshots are comparable run to run.
 """
 
 import datetime as dt
@@ -109,10 +110,82 @@ SEARCHES = {
     "ndj": [
         place("N’Djamena \U0001f3d9", 12.10672, 15.0444, "TD", "Chad", "Chari-Baguirmi")
     ],
+    # Names a face without accents prints holes in.
+    "sao": [
+        place("São Bernardo do Campo", -23.69, -46.56, "BR", "Brazil", "São Paulo"),
+        place("São Paulo", -23.55, -46.63, "BR", "Brazil", "São Paulo"),
+    ],
+    "sai": [
+        place("Saint-Étienne-du-Rouvray", 49.38, 1.1, "FR", "France", "Normandy"),
+        place(
+            "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson",
+            48.63,
+            4.65,
+            "FR",
+            "France",
+            "Grand Est",
+        ),
+        place("Saint Petersburg", 27.77, -82.64, "US", "United States", "Florida"),
+    ],
+    "mun": [
+        place("Münster", 51.96, 7.63, "DE", "Germany", "North Rhine-Westphalia"),
+        place("München", 48.14, 11.58, "DE", "Germany", "Bavaria"),
+    ],
+    "bad": [
+        place("Bad Münstereifel", 50.55, 6.76, "DE", "Germany", "North Rhine-Westphalia")
+    ],
+    # One name too long for a line at any size, and nothing to break it at.
+    "lla": [
+        place(
+            "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch",
+            53.22,
+            -4.2,
+            "GB",
+            "United Kingdom",
+            "Wales",
+        ),
+        place("Llandudno", 53.32, -3.83, "GB", "United Kingdom", "Wales"),
+    ],
+    "yak": [place("Yakutsk", 62.03, 129.73, "RU", "Russia", "Sakha Republic")],
+}
+
+# Weeks, today first: weather code, high, low, chance (None = null), and the
+# reading now (temperature, code).
+WEEKS = {
+    "base": (7.3, 2, WEEK),
+    # Siberia in winter: negative and double-digit, snow under snow codes.
+    "winter": (
+        -31.6,
+        71,
+        [
+            (71, -28.0, -40.0, 100),
+            (73, -25.4, -38.2, 90),
+            (0, -30.1, -41.7, 0),
+            (3, -18.6, -33.3, 15),
+            (75, -12.0, -27.5, 100),
+            (45, -9.4, -22.0, 40),
+            (0, -15.0, -35.0, 0),
+        ],
+    ),
+    # Nulls everywhere they can be: highs, lows, chances and codes.
+    "gaps": (
+        12.0,
+        None,
+        [
+            (3, 14.0, None, None),
+            (61, None, 6.0, 55),
+            (None, 15.0, 8.0, None),
+            (63, None, None, 80),
+            (2, 16.0, 9.0, 0),
+            (0, 17.0, 10.0, 100),
+            (45, 13.0, 7.0, None),
+        ],
+    ),
 }
 
 
-def forecast(query):
+def forecast(query, week="base"):
+    now_c, now_code, days_of = WEEKS.get(week, WEEKS["base"])
     lat = float(query.get("latitude", ["47.37"])[0])
     # Roughly the place's own offset, so "today" is the place's today.
     offset_hours = round(float(query.get("longitude", ["8.55"])[0]) / 15)
@@ -139,8 +212,8 @@ def forecast(query):
         "current": {
             "time": quarter.strftime("%Y-%m-%dT%H:%M"),
             "interval": 900,
-            "temperature_2m": 7.3,
-            "weather_code": 2,
+            "temperature_2m": now_c,
+            "weather_code": now_code,
             "is_day": 1 if 7 <= now.hour < 17 else 0,
         },
         "daily_units": {
@@ -152,10 +225,10 @@ def forecast(query):
         },
         "daily": {
             "time": [d.isoformat() for d in days],
-            "weather_code": [w[0] for w in WEEK],
-            "temperature_2m_max": [w[1] for w in WEEK],
-            "temperature_2m_min": [w[2] for w in WEEK],
-            "precipitation_probability_max": [w[3] for w in WEEK],
+            "weather_code": [w[0] for w in days_of],
+            "temperature_2m_max": [w[1] for w in days_of],
+            "temperature_2m_min": [w[2] for w in days_of],
+            "precipitation_probability_max": [w[3] for w in days_of],
         },
     }
 
@@ -181,10 +254,13 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         parts = [p for p in url.path.split("/") if p]
         mode, endpoint = (parts + ["", ""])[:2]
+        week = "base"
+        if "-" in mode:
+            week, mode = mode.split("-", 1)
         query = parse_qs(url.query)
-        sys.stderr.write(f"[fake-open-meteo] {mode}/{endpoint} {url.query}\n")
+        sys.stderr.write(f"[fake-open-meteo] {week}-{mode}/{endpoint} {url.query}\n")
         if endpoint == "forecast":
-            good = json.dumps(forecast(query), ensure_ascii=False)
+            good = json.dumps(forecast(query, week), ensure_ascii=False)
         elif endpoint == "search":
             good = json.dumps(
                 {"generationtime_ms": 0.5} if mode == "none" else search(query),

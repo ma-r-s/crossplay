@@ -10,31 +10,43 @@ of what is built, not a plan.
 
 ## What it does
 
-Opening the app shows the city, the temperature now with its sky, today's high,
-low and chance of rain, and when that was read ("UPDATED 08:12"). Under it, the
-next six days as rows: the day, its sky, its chance of rain, and a bar from its
-low to its high on one scale for the whole week, so a cold snap is a shape
-rather than six numbers to compare.
+Opening the app shows the place with what tells it from another of the name
+("Springfield, Illinois", "Zürich, Switzerland"), the temperature now with its
+sky, today's high, low and chance of rain (of snow, under a snow code), and when
+that was read ("UPDATED 08:12"). Under it, the days after today as rows: the
+day, its sky, its chance, and a bar from its low to its high on one scale for
+the whole week, so a cold snap is a shape rather than six numbers to compare.
 
-The gear in the band opens the menu: the city (a door back to the search),
-Celsius or Fahrenheit, and REFRESH NOW.
+The gear in the band opens the menu: the place (a door back to the search),
+Celsius or Fahrenheit, and UPDATE NOW.
 
 ## The decisions
 
-- **Fetched when the app opens, and on REFRESH NOW. Never in the background,
+- **Fetched when the app opens, and on UPDATE NOW. Never in the background,
   never on a timer wake.** The forks that put weather on the sleep screen
   (t0nyz0's lockscreens, touch-licorice-apps) woke the device to refresh it and
   drained batteries. There is no sleep-screen weather in this version for the
   same reason.
 - **The last forecast and when it was read stay on the card**
   (`/.crosspoint/weather/forecast.txt`), so the screen opens on them with the
-  radio off. Declining Wi-Fi leaves them up marked `OFFLINE.`; a request that
-  fails leaves them up marked `COULD NOT UPDATE.`. With nothing on the card yet,
-  the screen says so and offers TRY AGAIN. It is never blank.
+  radio off. Declining Wi-Fi leaves them up marked `OFFLINE`; a request that
+  fails (no answer, a 500, a proxy's HTML) leaves them up marked `COULD NOT
+  UPDATE`, which is all a player can act on. The state and the time it was read
+  are two lines, so neither is ever cut to fit the other. With nothing on the
+  card yet the screen says so (`NO FORECAST YET`, `COULD NOT GET THE FORECAST`)
+  and offers TRY AGAIN. It is never blank.
+- **A week that has happened is not drawn as the coming one.** Only today and
+  the days after it are rows. When every day on the card is past, the screen
+  shows the place, `NO FORECAST FOR TODAY`, when it was read, and UPDATE NOW,
+  and no week.
 - **The city is typed once, on the keyboard Wikipedia's search uses**, and
-  chosen from Open-Meteo's own geocoder (ten places at most; the screen draws
-  the ones that fit and says "Not here? Type more of the name." when there were
-  more). The menu changes it. The place lives in `/.crosspoint/weather/place.txt`.
+  chosen from Open-Meteo's own geocoder (ten places at most, each with its
+  region so three Springfields can be told apart). The places come a page at a
+  time: the side keys and a vertical swipe turn the page, and a row of page
+  numbers at the foot, the shelf's, is a door to each. A search that found
+  nothing or failed puts the keyboard back up with what was typed, since the
+  answer to both is to type or press GO. The menu changes the city. The place
+  lives in `/.crosspoint/weather/place.txt`.
 - **Units follow the city's country until the player chooses.** Fahrenheit for
   the United States, its territories, the Bahamas, Belize, the Cayman Islands,
   Palau, Liberia, the Marshall Islands and Micronesia; Celsius everywhere else.
@@ -44,7 +56,8 @@ Celsius or Fahrenheit, and REFRESH NOW.
 - **The day is the place's own day.** Open-Meteo answers with the place's UTC
   offset (`timezone=auto`), so "today" and the day names come from the
   forecast's own dates and that offset, not from the device's time zone. With a
-  clock (`time()` above a 2023 floor) a forecast from yesterday starts at
+  clock (`clockfloor::trusted`, the fork's one floor: no earlier than the day
+  the firmware was built) a forecast from yesterday starts at
   today's row and says `UPDATED YESTERDAY 14:07`; without one, the forecast's
   own reading time dates it.
 
@@ -67,23 +80,51 @@ A letter of a script with no Latin reading (Greek, Cyrillic, CJK) has no base
 and goes. The real fix for all of it is a reading cut that carries more than
 Latin-1; this is the honest best until there is one.
 
+## Faces, and the place's name
+
+A target binds three faces and the main screen needs five: the band's display
+cut, the Jersey UI and button cuts for numbers and days, the huge cut for the
+temperature now, and two bold reading cuts for the place. So each screen binds
+its own, pass by pass, through the `Rebind` the activity hands it
+(`WeatherScreens.h`: `kPlacePass`, `kDataPass`, `kMenuPass`, `kSearchPass`).
+The main screen and the menu measure the place in `kPlacePass`, lay out and draw
+everything else in Jersey, then draw the place in `kPlacePass` where the layout
+put it. Because the faces and their order live in the builders, the host suite
+binds exactly what the device binds: `everyPlaceIsDrawnInAFaceWithItsLetters`
+draws São Bernardo do Campo, Saint-Étienne-du-Rouvray, Münster and Łódź on every
+screen and fails on a letter drawn in a face without it. The menu once fitted a
+long name down into Jersey's button cut and printed holes; that is the case it
+was written for.
+
+A place's name is laid out here, line by line, rather than by the component:
+a line may end at a space or after a hyphen, so
+"Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson" takes its second line before
+anything is cut. The ladder is bold 16 then bold 12, two lines, on the main
+screen and in the menu's row alike, so the region is never the first thing
+lost; a name too long for both is cut once, after its last whole word, and
+marked with an ellipsis, and through a word only when its first word alone
+will not fit. In the search list the names keep bold 16 and take two
+lines. A place with no region (a name that cleaned to nothing falls back to its
+coordinates) is one line, not a line and an empty one.
+
 ## The main screen
 
-It needs four faces and a target binds three: the band's display cut, the Jersey
-UI and button cuts for numbers and days, the huge cut for the temperature now,
-and a reading cut for the place. So it is three passes on one screen:
-`buildMainTop()` draws the band and MEASURES the place, the activity rebinds,
-`buildMainBody()` lays the whole screen out and draws it, the activity rebinds
-back, and `drawMainPlace()` draws the place where the layout put it. Jersey has
-no degree sign, so the screens draw one (a ring at the cap line, sized from the
-cap height).
+Jersey has neither a degree sign nor a minus, so the screens draw both, sized
+from the cap height: a ring at the cap line, and a bar most of a figure wide at
+the middle of the capitals. Jersey's hyphen is a short dash, and "H-28" set with
+it read as one hyphenated word; "H −28°" has a word space after the letter and a
+real minus. A day whose weather code was null draws no sky (it used to draw a
+cloud); a week with none has no sky column.
 
 **Everything is placed by its ink**, cap top to baseline, through
 `ui/ToyboxInk.h` (`docs/design-language.md`, "Stack by ink"). The first version
 stacked line boxes and measured 47, 25, 19, 17, 14, 17, 20 px between its
 sections, no two alike. Now the gaps come from one scale by relationship: 12
 between the lines of the reading, 24 between the week's rows, 36 between the
-three groups (the place, the reading, the week). The rows are paced by their
+three groups (the place, the reading, the week). The menu and the search are on
+the same scale (`menuAndSearchFollowTheSameScale`): a caption 12 over what it
+labels, 36 between groups, a region 12 under its name, 24 between places with
+the rule in the middle. The rows are paced by their
 text's capitals, so the rhythm is the same every week; each sky's ink is centred
 on them. The composition is centred between the band's rule and the panel's
 foot, so what it does not need is placed equally above and below. Everything is
@@ -114,9 +155,15 @@ their content and printed the chance of rain under the next row.
 
 Requests go through RSS's cancellable GET (`rss::fetchStreaming`, RssFetch.h):
 the radio check and the agent string HttpDownloader's door has, a 20 s timeout,
-and a poll every 50 ms that pumps input, so Back or Home abandons a request that
-hangs within a poll and then does what it always does. HttpDownloader's door
-could not: it waits 60 s a socket operation and takes no poll.
+and a poll every 50 ms that pumps input. Back abandons a request within a poll
+and does only that: the forecast on the card stays up, or the search with what
+was typed and the keyboard; the next Back leaves. The Home key abandons the
+moment it goes down, and its gesture then finishes in the main loop and goes
+Home as it always does: waiting inside the poll for a tap to be told from a
+double tap never ended where input edges last a frame, so Home used to sit out
+the whole 20 s. A finished Home gesture (the bottom-edge swipe) goes Home
+directly. HttpDownloader's door could not do any of this: it waits 60 s a socket
+operation and takes no poll.
 `host-tests/weather/abandon.py` fails the build if a request goes any other way.
 Answers are capped at 32KB. A forecast
 answer is about 1.5KB, a geocoder answer for ten places about 6KB. Reading one
@@ -140,13 +187,18 @@ WEATHER_GEOCODE_URL=http://127.0.0.1:18763/ok/search \
 The first path segment picks the answer: `ok`, `malformed` (cut off half way),
 `html` (a proxy's 502 page served as 200), `error` (HTTP 500), `slow` (holds the
 connection open past the 20 s timeout), `none` (a search that found nothing).
+It may start with a week and a dash: `winter-ok` (Yakutsk, every value
+negative, snow codes), `gaps-ok` (nulls in every array, the code included).
 The simulator's curl honours the abort poll (`scripts_local/sim_catchup.py`,
 "a hung host can be left"), so Back against `slow` behaves as on the device:
-measured, it abandoned the request 2 ms after the press and the Apps folder was
-up 135 ms later; with no Back, the request gave up at 20.3 s and kept the
-cached forecast. Searches starting
-`zur`, `lis`, `spr`, `tok`, `mos`, `lod` and `ndj` answer with fixtures that
-exercise accents, ten results, and names in scripts the cuts cannot draw. The
+measured, it abandoned the request 3 ms after the press and stayed on the
+forecast, and the second Back had the Apps folder up 220 ms later; the Home key
+abandoned it 18 ms after the press and Home was up 650 ms after it, the same
+double-tap window an idle Home takes; with no key at all, the request gave up
+at 20.3 s and kept the cached forecast. Searches starting `zur`, `lis`, `spr`,
+`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla` and `yak` answer
+with fixtures that exercise accents, hyphens, ten results, and names in scripts
+the cuts cannot draw. The
 simulator auto-connects only with a saved network in
 `fs_agent/.crosspoint/wifi.json`; `CROSSPOINT_SIM_WIFI_CONNECT=fail` makes it
 refuse.

@@ -1,4 +1,4 @@
-"""Every request Weather makes can be abandoned with Back, within a poll.
+"""Every request Weather makes can be abandoned with Back or Home, within a poll.
 
 The forecast and the geocoder are fetched while the loop is held, so whatever
 the request is waiting on, nothing else samples input. Through HttpDownloader's
@@ -13,8 +13,14 @@ how the calls are wired and a host build has no radio to hang:
   * no HttpDownloader call anywhere in the app;
   * every request is rss::fetchStreaming with a poll, and the poll is the one
     that pumps input and answers Back and Home;
-  * that poll pumps input and checks both;
-  * the loop acts on the interruption once the request has returned;
+  * that poll pumps input and checks Back, a finished Home gesture, and the
+    Home key going down: a Home tap is only told from a double tap after the
+    key is up and a window has passed, which never happens inside a poll
+    where input edges last a frame, so waiting for it ran the full 20 s;
+  * the Back that abandons a request does only that: the loop stays where it
+    was (the forecast on the card, the search as typed) and the next Back
+    leaves; a finished Home gesture goes Home;
+  * an abandoned search keeps what was typed and puts the keyboard back up;
   * RssFetch's own timeout is still the 20 s this was written against.
 
     python3 host-tests/weather/abandon.py <repo-root>
@@ -90,15 +96,35 @@ check(
     "wasHomeGesture()" in poll,
     "the poll does not answer Home, which its own pump would otherwise swallow",
 )
+check(
+    "wasHomeKeyPressed()" in poll,
+    "the poll waits for a Home tap to resolve instead of abandoning on the key going down",
+)
 
 loop = body_of(activity, r"void WeatherActivity::loop\(\)\s*\{")
+pending = body_of(loop, r"if \(pending_ != Pending::None\)\s*\{")
+check(bool(pending), "the loop has no branch for a pending request")
 check(
-    "Interrupt::Home" in loop and "onGoHome()" in loop,
-    "the loop does not go Home after a request Home abandoned",
+    "Interrupt::Home" in pending and "onGoHome()" in pending,
+    "the loop does not go Home after a request a Home gesture abandoned",
 )
 check(
-    "Interrupt::Back" in loop and "back()" in loop,
-    "the loop does not go Back after a request Back abandoned",
+    "back()" not in pending and "shelf::leave" not in pending,
+    "the Back that abandons a request also leaves: it should only abandon",
+)
+
+matches = body_of(activity, r"void WeatherActivity::fetchMatches\(\)\s*\{")
+abandoned = body_of(matches, r"if \(interrupt_ != Interrupt::None\)\s*\{")
+check(bool(abandoned), "fetchMatches does not handle an abandoned search")
+check(
+    "raiseKeyboard()" in abandoned and "query_" not in abandoned,
+    "an abandoned search does not go back to the keyboard with what was typed",
+)
+forecast = body_of(activity, r"void WeatherActivity::fetchForecast\(\)\s*\{")
+dropped = body_of(forecast, r"if \(interrupt_ != Interrupt::None\)\s*\{")
+check(
+    "Status::Current" in dropped and "haveCache_" not in dropped,
+    "an abandoned forecast request does not leave the forecast on the card as it was",
 )
 
 m = re.search(r"constexpr uint32_t kTimeoutMs = (\d+);", rss_fetch)

@@ -41,8 +41,9 @@ constexpr size_t kMaxName = 64;
 enum class Units : uint8_t { Celsius, Fahrenheit };
 
 // The picture for a sky. Night only matters for the reading taken now: the
-// daily rows are days.
-enum class Icon : uint8_t { Sun, Moon, CloudSun, CloudMoon, Cloud, Fog, Drizzle, Rain, Snow, Thunder };
+// daily rows are days. None is a code with no words (a null in the answer):
+// nothing is drawn for it, because a guessed cloud is a forecast.
+enum class Icon : uint8_t { Sun, Moon, CloudSun, CloudMoon, Cloud, Fog, Drizzle, Rain, Snow, Thunder, None };
 
 // One day of the forecast. Temperatures are tenths of a degree Celsius;
 // rainPct is the day's highest chance of precipitation, -1 when not given.
@@ -82,7 +83,7 @@ struct Cache {
 // The city, chosen once. `name` and `region` are already clean (cleanName).
 struct Place {
   std::string name;
-  std::string region;  // "Zurich, Switzerland"
+  std::string region;  // "Illinois, United States"
   char country[3] = "";
   double lat = 0;
   double lon = 0;
@@ -134,8 +135,9 @@ bool cacheIsFor(const Cache& cache, const Place& place);
 // --- What a forecast says, and when ----------------------------------------
 
 // The index of today among the forecast's days: the first day not before
-// today in the place's own time. 0 when the clock is unknown (nowUtc 0) or
-// every day is already past, so a forecast is never drawn empty.
+// today in the place's own time. 0 when the clock is unknown (nowUtc 0); -1
+// when every day is already past, because a week that has happened is not
+// the coming one and is never drawn as if it were.
 int firstDay(const Cache& cache, int64_t nowUtc);
 
 // "UPDATED 14:07", "UPDATED YESTERDAY 14:07", "UPDATED MON 14:07" or
@@ -154,6 +156,9 @@ const char* weekdayShort(const Day& day);
 // The words and the picture for a WMO weather code.
 const char* skyWords(int code);
 Icon skyIcon(int code, bool isDay);
+// What the day's chance of precipitation is a chance of: "SNOW" under a snow
+// code, "RAIN" under anything else.
+const char* chanceWord(int code);
 
 // A temperature in whole degrees of `units`, rounded half away from zero.
 int displayTemp(int16_t tenthsC, Units units);
@@ -179,6 +184,10 @@ std::string cleanName(const std::string& raw, CanDraw canDraw);
 // its region, or when nothing of that did either, its coordinates
 // ("35.69N 139.69E"). Never empty.
 std::string placeLabel(const std::string& name, const std::string& region, double lat, double lon);
+// The label with the first part of the region that is not the name again, so
+// one Springfield is told from the next: "Springfield, Illinois", "Zurich,
+// Switzerland" (for a Zurich whose canton is also Zurich). Just the label when there is no such part.
+std::string placeTitle(const std::string& name, const std::string& region, double lat, double lon);
 
 // The search as typed: ASCII the keyboard sent, trimmed, spaces collapsed.
 // Two characters is the least the geocoder answers.

@@ -6,7 +6,8 @@
 // The one floor every fork decision about the clock uses: whether a Wi-Fi join
 // resyncs it (WifiSelectionActivity), which day's puzzle Connections and Wordle
 // open, whether Study dates a review, whether Instapaper, RSS and Wavelength
-// stamp anything, and whether Live trusts its schedule. Each used to carry its
+// stamp anything, whether Live trusts its schedule, and which of the
+// forecast's days Weather calls today. Each used to carry its
 // own floor (2021, 2023-11-14, 2025-01-01, or the build YEAR), and every one of
 // them passed a reTerminal Sticky whose never-set RTC read 2026-02-06 on
 // 2026-11-17: a plausible date, nine months old, so Study said NOTHING TO

@@ -14,6 +14,13 @@ namespace {
 constexpr int16_t kMargin = toybox::kMargin;
 constexpr int16_t kGutter = toybox::kGutter;
 
+// One scale for all three screens, every gap between INKS, cap top to baseline
+// (ui/ToyboxInk.h), chosen by relationship: lines of one block a gutter
+// apart, the rows of a list two, groups three.
+constexpr int16_t kLineGap = kGutter;
+constexpr int16_t kRowGap = kGutter * 2;
+constexpr int16_t kGroupGap = kGutter * 3;
+
 int16_t max16(const int a, const int b) { return static_cast<int16_t>(a > b ? a : b); }
 
 // A style this screen owns outright. The alignment is always named: the small
@@ -35,55 +42,85 @@ int16_t widthOf(toybox::Screen& screen, const fui::FontId font, const char* text
   return screen.target().measureText(font, text, ink(font)).width;
 }
 
-// Where a capital's ink sits inside its own line box, from the cut's measured
-// metrics (ToyboxTokens.h). The fallback is for a target that is not one of
-// the fork's cuts, which in practice is the host tests' fake.
-struct Cap {
-  int16_t line;
-  int16_t top;     // line-box top to cap top
-  int16_t height;  // cap height
-};
+int16_t capOf(toybox::Screen& screen, const fui::FontId font) { return toybox::inkHeight(screen.target(), font); }
 
-Cap capOf(toybox::Screen& screen, const fui::FontId font) {
-  const int16_t line = lineOf(screen, font);
-  if (const toybox::CutMetrics* cut = toybox::cutForLineHeight(line)) {
-    return Cap{line, static_cast<int16_t>(cut->ascender - cut->inkHeight), cut->inkHeight};
-  }
-  return Cap{line, static_cast<int16_t>(line / 5), static_cast<int16_t>(line * 3 / 5)};
+// Draws `text` with its cap top at inkTop.
+void textAt(toybox::Screen& screen, const int16_t x, const int16_t inkTop, const int16_t width, const fui::FontId font,
+            const char* text, const uint8_t lines = 1, const fui::TextAlign align = fui::TextAlign::Left,
+            const fui::Color color = fui::Color::Black) {
+  screen.target().text(toybox::inkRect(screen.target(), font, x, inkTop, width, lines), text,
+                       ink(font, align, lines, color));
 }
 
-// --- Degrees -----------------------------------------------------------------
-// No Jersey cut carries U+00B0, so the sign is drawn: a ring at the cap line,
-// sized from the cap height so it scales with the number it belongs to.
+// How many lines `text` wraps to at `width`, at most `most`.
+int linesOf(toybox::Screen& screen, const char* text, const fui::FontId font, const int16_t width, const int most) {
+  const fui::TextStyle style = ink(font, fui::TextAlign::Left, static_cast<uint8_t>(most));
+  const int16_t height = fui::measureWrappedText(screen.target(), text, style, width).height;
+  const int16_t line = lineOf(screen, font);
+  return line > 0 ? max16(1, height / line) : 1;
+}
+
+// --- Signs -------------------------------------------------------------------
+// No Jersey cut carries U+00B0 or U+2212, so both are drawn, sized from the cap
+// height so they scale with the number they belong to. The minus matters
+// most: Jersey's hyphen is a short dash, and "H-28" set with it reads as one
+// hyphenated word rather than a letter and a negative number.
 
 int16_t ringRadius(const int16_t capHeight) { return max16(3, (capHeight + 4) / 7); }
 int16_t ringWeight(const int16_t capHeight) { return max16(2, capHeight / 18); }
 int16_t ringGap(const int16_t capHeight) { return max16(2, capHeight / 12); }
 
-bool isTemperature(const std::string& text) { return text != "--"; }
+struct Minus {
+  int16_t width;   // most of a figure's width, as a typeset minus is
+  int16_t weight;  // about a stroke
+  int16_t gap;     // to the first figure
+};
 
-int16_t tempWidth(toybox::Screen& screen, const fui::FontId font, const std::string& text) {
-  int16_t width = widthOf(screen, font, text.c_str());
-  if (isTemperature(text)) {
-    const Cap cap = capOf(screen, font);
-    width = static_cast<int16_t>(width + ringGap(cap.height) + 2 * ringRadius(cap.height));
-  }
-  return width;
+Minus minusOf(toybox::Screen& screen, const fui::FontId font) {
+  const int16_t cap = capOf(screen, font);
+  return Minus{max16(4, widthOf(screen, font, "0") * 3 / 4), max16(2, cap / 7), max16(2, cap / 8)};
 }
 
-// Draws "7" and its ring with the line box's top at `lineTop`.
-void drawTemp(toybox::Screen& screen, const int16_t x, const int16_t lineTop, const fui::FontId font,
-              const std::string& text, const fui::Color color = fui::Color::Black) {
-  const Cap cap = capOf(screen, font);
-  const int16_t width = widthOf(screen, font, text.c_str());
-  screen.target().text(fui::makeRect(x, lineTop, static_cast<int16_t>(width + 1), cap.line), text.c_str(),
-                       ink(font, fui::TextAlign::Left, 1, color));
-  if (!isTemperature(text)) return;
-  const int16_t r = ringRadius(cap.height);
-  const int16_t cx = static_cast<int16_t>(x + width + ringGap(cap.height) + r);
-  const int16_t cy = static_cast<int16_t>(lineTop + cap.top + r);
-  toybox::ring(screen, cx, cy, r, ringWeight(cap.height), color,
-               color == fui::Color::Black ? fui::Color::White : fui::Color::Black);
+bool isTemperature(const std::string& text) { return text != "--"; }
+bool isNegative(const std::string& text) {
+  return text.size() > 1 && text[0] == '-' && text[1] >= '0' && text[1] <= '9';
+}
+
+int16_t tempWidth(toybox::Screen& screen, const fui::FontId font, const std::string& text) {
+  if (!isTemperature(text)) return widthOf(screen, font, text.c_str());
+  const bool negative = isNegative(text);
+  int width = widthOf(screen, font, negative ? text.c_str() + 1 : text.c_str());
+  if (negative) {
+    const Minus minus = minusOf(screen, font);
+    width += minus.width + minus.gap;
+  }
+  const int16_t cap = capOf(screen, font);
+  return static_cast<int16_t>(width + ringGap(cap) + 2 * ringRadius(cap));
+}
+
+// A temperature, its minus and its ring, with the cap top at inkTop.
+void tempAt(toybox::Screen& screen, int16_t x, const int16_t inkTop, const fui::FontId font, const std::string& text,
+            const fui::Color color = fui::Color::Black) {
+  const int16_t cap = capOf(screen, font);
+  if (!isTemperature(text)) {
+    textAt(screen, x, inkTop, static_cast<int16_t>(widthOf(screen, font, text.c_str()) + 1), font, text.c_str(), 1,
+           fui::TextAlign::Left, color);
+    return;
+  }
+  const char* figures = text.c_str();
+  if (isNegative(text)) {
+    const Minus minus = minusOf(screen, font);
+    screen.target().fill(
+        fui::makeRect(x, static_cast<int16_t>(inkTop + (cap - minus.weight) / 2), minus.width, minus.weight),
+        fui::Paint::solid(color));
+    x = static_cast<int16_t>(x + minus.width + minus.gap);
+    ++figures;
+  }
+  const int16_t width = widthOf(screen, font, figures);
+  textAt(screen, x, inkTop, static_cast<int16_t>(width + 1), font, figures, 1, fui::TextAlign::Left, color);
+  const int16_t r = ringRadius(cap);
+  toybox::ring(screen, static_cast<int16_t>(x + width + ringGap(cap) + r), static_cast<int16_t>(inkTop + r), r,
+               ringWeight(cap), color, color == fui::Color::Black ? fui::Color::White : fui::Color::Black);
 }
 
 std::string number(const int value) { return std::to_string(value); }
@@ -97,16 +134,22 @@ void blit(toybox::Screen& screen, const freeink::Icon& icon, const int16_t x, co
                          fui::bitmapFromIcon(icon), fui::BitmapMode::Contain, fui::Paint::solid(color));
 }
 
+// An icon whose ink is centred on (centreX, centreY): the drawn shape, not the
+// square around it, which carries different padding from icon to icon.
+void iconCentred(toybox::Screen& screen, const freeink::Icon& icon, const int16_t centreX, const int16_t centreY) {
+  const fui::Rect drawn = toybox::iconInk(icon);
+  blit(screen, icon, static_cast<int16_t>(centreX - drawn.width / 2 - drawn.x),
+       static_cast<int16_t>(centreY - drawn.height / 2 - drawn.y));
+}
+
 void hairline(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t width) {
   screen.target().fill(fui::makeRect(x, y, width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
 }
 
 // --- The band ------------------------------------------------------------------
 
-// `insetTop` leaves the body three gutters under the rule, as most screens
-// here do; the main screen places its own composition by ink and takes none.
-void band(toybox::Screen& screen, const char* title, const fui::ActionId trailing, const char* trailingLabel,
-          const bool insetTop = true) {
+// No inset under the rule: every screen here places its first ink itself.
+void band(toybox::Screen& screen, const char* title, const fui::ActionId trailing, const char* trailingLabel) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
@@ -123,93 +166,237 @@ void band(toybox::Screen& screen, const char* title, const fui::ActionId trailin
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   toybox::headerBand(screen, header);
-  screen.insetContent(fui::Insets{static_cast<int16_t>(insetTop ? kGutter * 3 : 0), kMargin, kMargin, kMargin});
+  screen.insetContent(fui::Insets{0, kMargin, kMargin, kMargin});
 }
 
-// "OFFLINE. UPDATED 14:07": what the radio did, and when the reading is from.
-std::string statusLine(const MainModel& model) {
-  std::string line = model.status;
-  if (model.updated[0] != '\0') {
-    if (!line.empty()) line += ' ';
-    line += model.updated;
-  }
-  return line;
+// The width the body has once the band is drawn, for a pass that measures
+// before it.
+int16_t bodyWidth(toybox::Screen& screen) { return static_cast<int16_t>(screen.device().width - 2 * kMargin); }
+
+// --- A place's name --------------------------------------------------------------
+//
+// Laid out in lines this file draws one at a time, so a line can end after a
+// hyphen ("Saint-Remy-en-Bouzemont-" over "Saint-Genest-et-Isson") where the
+// component would break only at a space and cut the rest. Fitted down a
+// ladder of the slots it is given, which are bold reading cuts wherever a
+// place is drawn: a long name gets smaller, never lighter, and never reaches a
+// face without its accents.
+
+struct PlaceText {
+  std::string lines[2];
+  int count = 0;
+  fui::FontId font = toybox::kBodyFont;
+  int16_t inkHeight = 0;   // cap top of the first line to the baseline of the last
+  int16_t advance = 0;     // baseline to baseline
+  int16_t largestInk = 0;  // one line at the largest rung, which sizes a box it sits in
+};
+
+bool fitsIn(const fui::DrawTarget& target, const fui::FontId font, const std::string& text, const int16_t width) {
+  return target.measureText(font, text.c_str(), ink(font)).width <= width;
 }
+
+// The furthest a line from `start` can run and fit, ending before a space or
+// after a hyphen; npos when not even its first word fits. `next` is where the
+// line after it starts.
+size_t lineEnd(const fui::DrawTarget& target, const fui::FontId font, const std::string& text, const size_t start,
+               const int16_t width, size_t& next) {
+  size_t best = std::string::npos;
+  for (size_t i = start; i <= text.size(); ++i) {
+    size_t end = 0;
+    size_t resume = 0;
+    if (i == text.size()) {
+      end = resume = i;
+    } else if (text[i] == ' ') {
+      end = i;
+      resume = i + 1;
+    } else if (text[i] == '-' && i > start) {
+      end = resume = i + 1;
+    } else {
+      continue;
+    }
+    if (end <= start) continue;
+    if (!fitsIn(target, font, text.substr(start, end - start), width)) break;
+    best = end;
+    next = resume;
+  }
+  return best;
+}
+
+size_t skipSpaces(const std::string& text, size_t at) {
+  while (at < text.size() && text[at] == ' ') ++at;
+  return at;
+}
+
+// All of `text` in at most `most` lines; false when it will not go.
+bool wrapPlace(const fui::DrawTarget& target, const fui::FontId font, const std::string& text, const int16_t width,
+               const int most, PlaceText& out) {
+  out.count = 0;
+  size_t start = 0;
+  while (start < text.size()) {
+    if (out.count == most) return false;
+    size_t next = 0;
+    const size_t end = lineEnd(target, font, text, start, width, next);
+    if (end == std::string::npos) return false;
+    out.lines[out.count++] = text.substr(start, end - start);
+    start = skipSpaces(text, next);
+  }
+  return out.count > 0;
+}
+
+// The last resort: whole lines while they break, then the rest cut where a
+// line could have ended and marked, so no word is broken in half; on a
+// character only when not even its first word leaves room.
+void cutPlace(const fui::DrawTarget& target, const fui::FontId font, const std::string& text, const int16_t width,
+              const int most, PlaceText& out) {
+  out.count = 0;
+  size_t start = 0;
+  while (out.count < most - 1 && start < text.size() && !fitsIn(target, font, text.substr(start), width)) {
+    size_t next = 0;
+    const size_t end = lineEnd(target, font, text, start, width, next);
+    if (end == std::string::npos) break;
+    out.lines[out.count++] = text.substr(start, end - start);
+    start = skipSpaces(text, next);
+  }
+  std::string rest = text.substr(start);
+  if (!fitsIn(target, font, rest, width)) {
+    static constexpr const char* kEllipsis = "...";
+    const auto trimmed = [](std::string head) {
+      while (!head.empty() && (head.back() == ' ' || head.back() == ',' || head.back() == '-')) head.pop_back();
+      return head;
+    };
+    size_t keep = std::string::npos;
+    for (size_t end = 1; end < rest.size(); ++end) {
+      if (rest[end] != ' ' && rest[end - 1] != '-') continue;
+      const std::string head = trimmed(rest.substr(0, end));
+      if (head.empty()) continue;
+      if (!fitsIn(target, font, head + kEllipsis, width)) break;
+      keep = end;
+    }
+    if (keep != std::string::npos) {
+      rest.resize(keep);
+    } else {
+      while (!rest.empty() && !fitsIn(target, font, rest + kEllipsis, width)) {
+        size_t cut = rest.size() - 1;
+        while (cut > 0 && (static_cast<unsigned char>(rest[cut]) & 0xC0) == 0x80) --cut;
+        rest.resize(cut);
+      }
+    }
+    rest = trimmed(rest) + kEllipsis;
+  }
+  out.lines[out.count++] = rest;
+}
+
+PlaceText fitPlace(toybox::Screen& screen, const char* text, const int16_t width, const int most,
+                   const fui::FontId* rungs, const int rungCount) {
+  const fui::DrawTarget& target = screen.target();
+  const std::string whole = text != nullptr ? text : "";
+  PlaceText place;
+  bool fitted = false;
+  for (int i = 0; i < rungCount && !fitted; ++i) {
+    place.font = rungs[i];
+    fitted = wrapPlace(target, rungs[i], whole, width, most, place);
+  }
+  if (!fitted) cutPlace(target, place.font, whole, width, most, place);
+  place.inkHeight = toybox::inkHeight(target, place.font, place.count);
+  place.advance = target.lineHeight(place.font);
+  place.largestInk = toybox::inkHeight(target, rungs[0]);
+  return place;
+}
+
+void drawPlace(toybox::Screen& screen, const PlaceText& place, const int16_t x, const int16_t inkTop,
+               const int16_t width) {
+  for (int i = 0; i < place.count; ++i) {
+    textAt(screen, x, static_cast<int16_t>(inkTop + i * place.advance), width, place.font, place.lines[i].c_str());
+  }
+}
+
+// The two bold cuts kPlacePass binds, largest first.
+constexpr fui::FontId kPlaceRungs[] = {toybox::kBodyFont, toybox::kSmallFont};
 
 // --- The main screen, by ink ---------------------------------------------------------
 //
-// Every gap below is between INKS, cap top to baseline (ui/ToyboxInk.h), and
-// comes from one scale chosen by relationship: lines of one reading a gutter
-// apart, the week's rows two, the three groups (the place, the reading, the
-// week) three. The composition is then centred between the band's rule and the
-// panel's foot, so the space it does not need is placed, equally above and
-// below, instead of being handed to whichever element came last.
-constexpr int16_t kLineGap = kGutter;
-constexpr int16_t kRowGap = kGutter * 2;
-constexpr int16_t kGroupGap = kGutter * 3;
-// The place, four lines of reading, the rule, the rows; or the place and the
-// four blocks of an empty screen.
-constexpr int kBlocks = 1 + 4 + 1 + kRows;
+// The composition is centred between the band's rule and the panel's foot, so
+// the space it does not need is placed, equally above and below, instead of
+// being handed to whichever element came last.
+
+// The place, four lines of reading and two of state, the rule, the rows; or
+// the place and the blocks of a screen with no week.
+constexpr int kBlocks = 1 + 5 + 1 + kRows;
 using Column = toybox::InkColumn<kBlocks>;
 
-// Where the composition may sit: from the rule under the band to the foot of
-// the panel, never closer than a margin to either.
 int16_t spanTop() { return static_cast<int16_t>(toybox::kChromeHeight); }
 int16_t spanBottom(toybox::Screen& screen) { return screen.device().height; }
 
-// Draws `text` with its cap top at inkTop.
-void textAt(toybox::Screen& screen, const int16_t x, const int16_t inkTop, const int16_t width, const fui::FontId font,
-            const char* text, const uint8_t lines = 1) {
-  screen.target().text(toybox::inkRect(screen.target(), font, x, inkTop, width, lines), text,
-                       ink(font, fui::TextAlign::Left, lines));
+// What the radio did, on a line of its own under the reading, so neither it
+// nor the time beside it is ever cut to fit the other.
+const char* statusWords(const Status status) {
+  switch (status) {
+    case Status::Updating:
+      return "UPDATING...";
+    case Status::Offline:
+      return "OFFLINE";
+    case Status::Failed:
+      return "COULD NOT UPDATE";
+    case Status::Current:
+      break;
+  }
+  return "";
 }
 
-// A temperature and its ring with the cap top at inkTop.
-void tempAt(toybox::Screen& screen, const int16_t x, const int16_t inkTop, const fui::FontId font,
-            const std::string& text) {
-  drawTemp(screen, x, static_cast<int16_t>(inkTop - capOf(screen, font).top), font, text);
+// A main screen with no week: what is missing, what can be done about it,
+// and how old the card's forecast is when there is one.
+struct NoWeek {
+  const char* headline;
+  const char* message;
+  const char* button;  // null when trying again cannot help yet
+  bool saysStatus;     // a forecast is on the card, so the radio's state means something
+};
+
+NoWeek noWeekFor(const MainModel& model) {
+  if (model.stale) {
+    return NoWeek{"NO FORECAST FOR TODAY", "", model.status == Status::Updating ? nullptr : "UPDATE NOW", true};
+  }
+  switch (model.status) {
+    case Status::Updating:
+      return NoWeek{"GETTING THE FORECAST", "", nullptr, false};
+    case Status::Offline:
+      return NoWeek{"NO FORECAST YET", "Connect to Wi-Fi to get one.", "TRY AGAIN", false};
+    case Status::Failed:
+      return NoWeek{"COULD NOT GET THE FORECAST", "", "TRY AGAIN", false};
+    case Status::Current:
+      break;
+  }
+  return NoWeek{"NO FORECAST YET", "", "TRY AGAIN", false};
 }
 
-// An icon whose ink is centred on (centreX, centreY): the drawn shape, not the
-// square around it, which carries different padding from icon to icon.
-void iconCentred(toybox::Screen& screen, const freeink::Icon& icon, const int16_t centreX, const int16_t centreY) {
-  const fui::Rect drawn = toybox::iconInk(icon);
-  blit(screen, icon, static_cast<int16_t>(centreX - drawn.width / 2 - drawn.x),
-       static_cast<int16_t>(centreY - drawn.height / 2 - drawn.y));
-}
-
-// No forecast to draw: a headline, a sentence, the radio's state, and when it
-// helps a way to try again, left-aligned like everything else on the screen.
-int16_t emptyBlock(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
+int16_t noWeekBlock(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
   const fui::Rect body = screen.body();
-  const auto lines = [&screen, &body](const char* text, const fui::FontId font, const int most) {
-    fui::TextStyle style = ink(font, fui::TextAlign::Left, static_cast<uint8_t>(most));
-    const int16_t height = fui::measureWrappedText(screen.target(), text, style, body.width).height;
-    const int16_t line = screen.target().lineHeight(font);
-    return line > 0 ? max16(1, height / line) : 1;
-  };
-  const std::string status = statusLine(model);
-  const int headLines = lines(model.emptyHeadline, toybox::kUiFont, 2);
-  const int messageLines = model.emptyMessage[0] ? lines(model.emptyMessage, toybox::kSmallFont, 4) : 0;
+  const fui::DrawTarget& target = screen.target();
+  const NoWeek words = noWeekFor(model);
+  const char* status = words.saysStatus ? statusWords(model.status) : "";
+  const int headLines = linesOf(screen, words.headline, toybox::kUiFont, body.width, 2);
+  const int messageLines = words.message[0] ? linesOf(screen, words.message, toybox::kSmallFont, body.width, 3) : 0;
   Column column;
   const int place = column.add(0, placeInk);
-  const int head = column.add(kGroupGap, toybox::inkHeight(screen.target(), toybox::kUiFont, headLines));
+  const int head = column.add(kGroupGap, toybox::inkHeight(target, toybox::kUiFont, headLines));
   const int message =
-      messageLines ? column.add(kLineGap, toybox::inkHeight(screen.target(), toybox::kSmallFont, messageLines)) : -1;
-  const int state = status.empty() ? -1 : column.add(kLineGap, toybox::inkHeight(screen.target(), toybox::kSmallFont));
-  const int retry = model.offerRetry ? column.add(kGroupGap, toybox::kPillHeight) : -1;
+      messageLines ? column.add(kLineGap, toybox::inkHeight(target, toybox::kSmallFont, messageLines)) : -1;
+  const int state = status[0] ? column.add(kLineGap, capOf(screen, toybox::kSmallFont)) : -1;
+  const int updated = model.updated[0] ? column.add(kLineGap, capOf(screen, toybox::kSmallFont)) : -1;
+  const int retry = words.button ? column.add(kGroupGap, toybox::kPillHeight) : -1;
   column.centre(spanTop(), spanBottom(screen), kMargin);
 
-  textAt(screen, body.x, column.top(head), body.width, toybox::kUiFont, model.emptyHeadline,
+  textAt(screen, body.x, column.top(head), body.width, toybox::kUiFont, words.headline,
          static_cast<uint8_t>(headLines));
   if (message >= 0) {
-    textAt(screen, body.x, column.top(message), body.width, toybox::kSmallFont, model.emptyMessage,
+    textAt(screen, body.x, column.top(message), body.width, toybox::kSmallFont, words.message,
            static_cast<uint8_t>(messageLines));
   }
-  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status.c_str());
+  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status);
+  if (updated >= 0) textAt(screen, body.x, column.top(updated), body.width, toybox::kSmallFont, model.updated);
   if (retry >= 0) {
     fui::ButtonProps button;
-    button.label = "TRY AGAIN";
+    button.label = words.button;
     button.action = ActionRetry;
     button.text = toybox::buttonText(screen.theme());
     button.radius = toybox::kPillRadius;
@@ -219,52 +406,61 @@ int16_t emptyBlock(toybox::Screen& screen, const MainModel& model, const int16_t
   return column.top(place);
 }
 
-// "H 9  L 3  RAIN 20%" (with rings), measured once and drawn from the same
-// numbers.
+// "H 9  L -3  SNOW 70%" (with a drawn minus and rings), measured once and
+// drawn from the same numbers. Jersey's space is a couple of pixels, so the
+// gaps are set rather than typed: a word space between a letter and its value,
+// two gutters between one pair and the next.
 struct RangeLine {
   std::string high;
   std::string low;
-  std::string rain;
-  int16_t hWidth = 0;
-  int16_t lWidth = 0;
-  int16_t highWidth = 0;
-  int16_t lowWidth = 0;
-  int16_t space = 0;
+  std::string chance;
+  std::string pct;
+  int16_t space = 0;  // between a label and its value
+  int16_t pair = 0;   // between one label and value and the next
 };
 
-RangeLine rangeLine(toybox::Screen& screen, const DayRow& today, const fui::FontId font) {
+RangeLine rangeLine(toybox::Screen& screen, const MainModel& model, const fui::FontId font) {
   RangeLine line;
-  line.high = highText(today);
-  line.low = lowText(today);
-  line.rain = today.rain >= 0 ? "RAIN " + rainLabel(today.rain) : std::string();
-  // Jersey's space is a couple of pixels, so the gaps are set, not typed.
-  const int16_t letterGap = static_cast<int16_t>(kGutter / 3);
-  line.hWidth = static_cast<int16_t>(widthOf(screen, font, "H") + letterGap);
-  line.lWidth = static_cast<int16_t>(widthOf(screen, font, "L") + letterGap);
-  line.highWidth = tempWidth(screen, font, line.high);
-  line.lowWidth = tempWidth(screen, font, line.low);
-  line.space = static_cast<int16_t>(kGutter * 2);
+  line.high = highText(model.today);
+  line.low = lowText(model.today);
+  if (model.today.rain >= 0) {
+    line.chance = model.chance[0] ? model.chance : "RAIN";
+    line.pct = rainLabel(model.today.rain);
+  }
+  line.space = max16(kGutter / 2, capOf(screen, font) / 3);
+  line.pair = static_cast<int16_t>(kGutter * 2);
   return line;
 }
 
 void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, const int16_t inkTop,
                    const fui::FontId font) {
-  textAt(screen, x, inkTop, widthOf(screen, font, "H"), font, "H");
-  x = static_cast<int16_t>(x + line.hWidth);
+  // Not `word`: Arduino defines word(...) as a macro, and a device build
+  // expands it.
+  const auto label = [&screen, &x, inkTop, font](const char* text) {
+    const int16_t width = widthOf(screen, font, text);
+    textAt(screen, x, inkTop, static_cast<int16_t>(width + 1), font, text);
+    x = static_cast<int16_t>(x + width);
+  };
+  label("H");
+  x = static_cast<int16_t>(x + line.space);
   tempAt(screen, x, inkTop, font, line.high);
-  x = static_cast<int16_t>(x + line.highWidth + line.space);
-  textAt(screen, x, inkTop, widthOf(screen, font, "L"), font, "L");
-  x = static_cast<int16_t>(x + line.lWidth);
+  x = static_cast<int16_t>(x + tempWidth(screen, font, line.high) + line.pair);
+  label("L");
+  x = static_cast<int16_t>(x + line.space);
   tempAt(screen, x, inkTop, font, line.low);
-  x = static_cast<int16_t>(x + line.lowWidth + line.space);
-  if (!line.rain.empty()) textAt(screen, x, inkTop, widthOf(screen, font, line.rain.c_str()), font, line.rain.c_str());
+  x = static_cast<int16_t>(x + tempWidth(screen, font, line.low) + line.pair);
+  if (line.chance.empty()) return;
+  label(line.chance.c_str());
+  x = static_cast<int16_t>(x + line.space);
+  label(line.pct.c_str());
 }
 
 std::string nowText(const MainModel& model) { return model.hasNow ? number(model.now) : std::string("--"); }
 
 // The week's columns, measured from THIS week's strings, a gutter apart:
-// day | sky | chance of rain | low | the bar | high. Nothing is reserved for a
-// string that is not on screen, so no dead band opens between two columns.
+// day | sky | chance | low | the bar | high. Nothing is reserved for a string
+// that is not on screen, so no dead band opens between two columns, and a
+// week with no skies at all has no sky column.
 struct WeekColumns {
   int16_t nameX = 0;
   int16_t skyX = 0;  // the sky column, as wide as this week's widest sky ink
@@ -281,7 +477,7 @@ WeekColumns weekColumns(toybox::Screen& screen, const MainModel& model, const in
   for (int i = 0; i < model.dayCount && i < kRows; ++i) {
     const DayRow& day = model.days[i];
     nameW = max16(nameW, widthOf(screen, toybox::kUiFont, day.name));
-    skyW = max16(skyW, toybox::iconInk(skyBitmap(day.icon, 32)).width);
+    if (const freeink::Icon* sky = skyBitmap(day.icon, 32)) skyW = max16(skyW, toybox::iconInk(*sky).width);
     rainW = max16(rainW, widthOf(screen, toybox::kSmallFont, rainLabel(day.rain).c_str()));
     lowW = max16(lowW, tempWidth(screen, toybox::kUiFont, lowText(day)));
     highW = max16(highW, tempWidth(screen, toybox::kUiFont, highText(day)));
@@ -290,7 +486,7 @@ WeekColumns weekColumns(toybox::Screen& screen, const MainModel& model, const in
   c.nameX = left;
   c.skyX = static_cast<int16_t>(left + nameW + kGutter);
   c.skyW = skyW;
-  c.rainX = static_cast<int16_t>(c.skyX + skyW + kGutter);
+  c.rainX = skyW > 0 ? static_cast<int16_t>(c.skyX + skyW + kGutter) : c.skyX;
   const int16_t lowX = rainW > 0 ? static_cast<int16_t>(c.rainX + rainW + kGutter) : c.rainX;
   c.lowRight = static_cast<int16_t>(lowX + lowW);
   c.highRight = right;
@@ -299,21 +495,21 @@ WeekColumns weekColumns(toybox::Screen& screen, const MainModel& model, const in
   return c;
 }
 
-int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
+int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
   const fui::Rect body = screen.body();
   const int16_t right = static_cast<int16_t>(body.x + body.width);
-  const fui::DrawTarget& target = screen.target();
-  const std::string status = statusLine(model);
+  const char* status = statusWords(model.status);
   const int days = model.dayCount < kRows ? model.dayCount : kRows;
   // A row is its text's capitals: the rhythm is the words', and each sky is
   // centred on them (a 32px sky's ink is at most 29, so it reaches two pixels
   // into the row gap either side and never near a neighbour).
-  const int16_t rowBand = toybox::inkHeight(target, toybox::kUiFont);
+  const int16_t rowBand = capOf(screen, toybox::kUiFont);
+  const int16_t smallCap = capOf(screen, toybox::kSmallFont);
 
   // The whole composition, gaps first; when it will not fit with a margin to
   // spare, the rows close up to a gutter, then the groups to two.
   int rowsAt[kRows] = {};
-  int place = 0, hero = 0, sky = -1, range = 0, state = -1, rule = -1;
+  int place = 0, hero = 0, sky = -1, range = 0, state = -1, updated = -1, rule = -1;
   Column column;
   const int16_t room = static_cast<int16_t>(spanBottom(screen) - spanTop() - 2 * kMargin);
   for (const int16_t tighten : {int16_t{0}, int16_t{1}, int16_t{2}}) {
@@ -321,10 +517,11 @@ int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t p
     const int16_t groupGap = tighten > 1 ? kRowGap : kGroupGap;
     column = Column{};
     place = column.add(0, placeInk);
-    hero = column.add(groupGap, toybox::inkHeight(target, toybox::kDisplayFont));
-    sky = model.sky[0] ? column.add(kLineGap, toybox::inkHeight(target, toybox::kUiFont)) : -1;
-    range = column.add(kLineGap, toybox::inkHeight(target, toybox::kUiFont));
-    state = status.empty() ? -1 : column.add(kLineGap, toybox::inkHeight(target, toybox::kSmallFont));
+    hero = column.add(groupGap, capOf(screen, toybox::kDisplayFont));
+    sky = model.sky[0] ? column.add(kLineGap, capOf(screen, toybox::kUiFont)) : -1;
+    range = column.add(kLineGap, capOf(screen, toybox::kUiFont));
+    state = status[0] ? column.add(kLineGap, smallCap) : -1;
+    updated = model.updated[0] ? column.add(kLineGap, smallCap) : -1;
     rule = days > 0 ? column.add(groupGap, toybox::kHairline) : -1;
     for (int i = 0; i < days; ++i) rowsAt[i] = column.add(i == 0 ? groupGap : rowGap, rowBand);
     if (column.height() <= room) break;
@@ -333,19 +530,17 @@ int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t p
 
   // The reading: the number at the left edge, its sky with its ink centred on
   // the number's capitals at the right edge, then the lines under it.
-  const std::string now = nowText(model);
   const int16_t heroTop = column.top(hero);
-  const int16_t heroCap = toybox::inkHeight(target, toybox::kDisplayFont);
-  tempAt(screen, body.x, heroTop, toybox::kDisplayFont, now);
-  {
-    const freeink::Icon& icon = skyBitmap(model.nowIcon, 88);
-    const fui::Rect drawn = toybox::iconInk(icon);
-    iconCentred(screen, icon, static_cast<int16_t>(right - drawn.width / 2),
-                static_cast<int16_t>(heroTop + heroCap / 2));
+  tempAt(screen, body.x, heroTop, toybox::kDisplayFont, nowText(model));
+  if (const freeink::Icon* icon = skyBitmap(model.nowIcon, 88)) {
+    const fui::Rect drawn = toybox::iconInk(*icon);
+    iconCentred(screen, *icon, static_cast<int16_t>(right - drawn.width / 2),
+                static_cast<int16_t>(heroTop + capOf(screen, toybox::kDisplayFont) / 2));
   }
   if (sky >= 0) textAt(screen, body.x, column.top(sky), body.width, toybox::kUiFont, model.sky);
-  drawRangeLine(screen, rangeLine(screen, model.today, toybox::kUiFont), body.x, column.top(range), toybox::kUiFont);
-  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status.c_str());
+  drawRangeLine(screen, rangeLine(screen, model, toybox::kUiFont), body.x, column.top(range), toybox::kUiFont);
+  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status);
+  if (updated >= 0) textAt(screen, body.x, column.top(updated), body.width, toybox::kSmallFont, model.updated);
   if (rule < 0) return column.top(place);
   hairline(screen, body.x, column.top(rule), body.width);
 
@@ -370,16 +565,15 @@ int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t p
 
   // The week: text on one baseline per row, skies and bars centred on its caps.
   const WeekColumns cols = weekColumns(screen, model, body.x, right);
-  const int16_t uiCap = toybox::inkHeight(target, toybox::kUiFont);
-  const int16_t smallCap = toybox::inkHeight(target, toybox::kSmallFont);
   for (int i = 0; i < days; ++i) {
     const DayRow& day = model.days[i];
     const int16_t top = column.top(rowsAt[i]);
     const int16_t mid = static_cast<int16_t>(top + rowBand / 2);
-    const int16_t baseline = static_cast<int16_t>(top + uiCap);
-    textAt(screen, cols.nameX, static_cast<int16_t>(baseline - uiCap), widthOf(screen, toybox::kUiFont, day.name),
-           toybox::kUiFont, day.name);
-    iconCentred(screen, skyBitmap(day.icon, 32), static_cast<int16_t>(cols.skyX + cols.skyW / 2), mid);
+    const int16_t baseline = static_cast<int16_t>(top + rowBand);
+    textAt(screen, cols.nameX, top, widthOf(screen, toybox::kUiFont, day.name), toybox::kUiFont, day.name);
+    if (const freeink::Icon* icon = skyBitmap(day.icon, 32)) {
+      iconCentred(screen, *icon, static_cast<int16_t>(cols.skyX + cols.skyW / 2), mid);
+    }
     const std::string rain = rainLabel(day.rain);
     if (!rain.empty()) {
       textAt(screen, cols.rainX, static_cast<int16_t>(baseline - smallCap),
@@ -387,10 +581,10 @@ int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t p
     }
     const std::string low = lowText(day);
     const std::string high = highText(day);
-    tempAt(screen, static_cast<int16_t>(cols.lowRight - tempWidth(screen, toybox::kUiFont, low)),
-           static_cast<int16_t>(baseline - uiCap), toybox::kUiFont, low);
-    tempAt(screen, static_cast<int16_t>(cols.highRight - tempWidth(screen, toybox::kUiFont, high)),
-           static_cast<int16_t>(baseline - uiCap), toybox::kUiFont, high);
+    tempAt(screen, static_cast<int16_t>(cols.lowRight - tempWidth(screen, toybox::kUiFont, low)), top, toybox::kUiFont,
+           low);
+    tempAt(screen, static_cast<int16_t>(cols.highRight - tempWidth(screen, toybox::kUiFont, high)), top,
+           toybox::kUiFont, high);
     if (cols.barW <= 0) continue;
     screen.target().fill(fui::makeRect(cols.barX, static_cast<int16_t>(mid - 3), cols.barW, 6),
                          fui::Paint::dither(fui::Color::LightGray));
@@ -406,167 +600,254 @@ int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t p
 
 // --- Search ----------------------------------------------------------------------
 
-int16_t searchRowHeight(toybox::Screen& screen) {
-  return static_cast<int16_t>(lineOf(screen, toybox::kBodyFont) + lineOf(screen, toybox::kSmallFont) + 8);
+constexpr int16_t kPageCell = 44;
+
+// What was typed, from its END: the letters going in are the ones that have
+// to stay in view, so a long search loses its start behind an ellipsis.
+std::string typedTail(const fui::DrawTarget& target, const char* query, const int16_t width) {
+  std::string tail = query != nullptr ? query : "";
+  if (fitsIn(target, toybox::kBodyFont, tail, width)) return tail;
+  static constexpr const char* kEllipsis = "...";
+  while (!tail.empty() && !fitsIn(target, toybox::kBodyFont, kEllipsis + tail, width)) {
+    size_t cut = 1;
+    while (cut < tail.size() && (static_cast<unsigned char>(tail[cut]) & 0xC0) == 0x80) ++cut;
+    tail.erase(0, cut);
+  }
+  return kEllipsis + tail;
+}
+
+// One page of places from `first`, as many as fit in `room`.
+int pageFrom(const int16_t* heights, const int count, const int first, const int16_t room) {
+  int end = first + 1;
+  int used = heights[first];
+  while (end < count && used + kRowGap + heights[end] <= room) {
+    used += kRowGap + heights[end];
+    ++end;
+  }
+  return end;
+}
+
+// The ink height of each place's name and where the layout put it, carried
+// from the pass that measures names to the pass that draws them.
+struct Names {
+  int16_t ink[weather::kMaxMatches] = {};
+  int16_t top[weather::kMaxMatches] = {};
+  int16_t x = 0;
+};
+
+SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names& names) {
+  band(screen, model.firstRun ? "CHOOSE A CITY" : "CHANGE CITY", fui::NO_ACTION, nullptr);
+  const fui::Rect body = screen.body();
+  const fui::DrawTarget& target = screen.target();
+  const int16_t bottom = static_cast<int16_t>(body.y + body.height - model.keyboardHeight);
+  const int16_t smallCap = capOf(screen, toybox::kSmallFont);
+  SearchLayout layout;
+
+  // The field: an outlined box around what has been typed, its caret after the
+  // last letter while the keyboard is up. Tapping it raises the keyboard.
+  const int16_t typedCap = capOf(screen, toybox::kBodyFont);
+  const int16_t pad = static_cast<int16_t>(kGutter * 3 / 2);
+  const fui::Rect field = fui::makeRect(body.x, static_cast<int16_t>(body.y + kGroupGap), body.width,
+                                        static_cast<int16_t>(typedCap + 2 * pad));
+  screen.target().stroke(field, fui::Paint::solid(fui::Color::Black), 2, toybox::kPillRadius / 2);
+  const int16_t textX = static_cast<int16_t>(field.x + 14);
+  const int16_t textW = static_cast<int16_t>(field.width - 28);
+  const bool empty = model.query == nullptr || model.query[0] == '\0';
+  if (empty && model.keyboardHeight == 0) {
+    textAt(screen, textX, static_cast<int16_t>(field.y + (field.height - smallCap) / 2), textW, toybox::kSmallFont,
+           "Tap here to type a city");
+  } else {
+    constexpr int16_t kCaretRoom = 8;
+    const std::string shown = typedTail(target, model.query, static_cast<int16_t>(textW - kCaretRoom));
+    const int16_t typedW = widthOf(screen, toybox::kBodyFont, shown.c_str());
+    const int16_t textTop = static_cast<int16_t>(field.y + pad);
+    textAt(screen, textX, textTop, static_cast<int16_t>(typedW + 1), toybox::kBodyFont, shown.c_str());
+    if (model.keyboardHeight > 0) {
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(textX + typedW + 3), static_cast<int16_t>(textTop - 3), 3,
+                                         static_cast<int16_t>(typedCap + 6)),
+                           fui::Paint::solid(fui::Color::Black));
+    }
+  }
+  screen.frame().hit(field, ActionField);
+
+  // Sentences under it, by ink: the first a group under the field, each next a
+  // line under the one before.
+  int16_t y = static_cast<int16_t>(field.y + field.height + kGroupGap);
+  bool first = true;
+  const auto say = [&screen, &y, &first, body](const char* text, const fui::FontId font) {
+    if (!first) y = static_cast<int16_t>(y + kLineGap);
+    first = false;
+    const int lines = linesOf(screen, text, font, body.width, 3);
+    textAt(screen, body.x, y, body.width, font, text, static_cast<uint8_t>(lines));
+    y = static_cast<int16_t>(y + toybox::inkHeight(screen.target(), font, lines));
+  };
+
+  // With the keyboard up the field is being edited, and places found for what
+  // it said before would answer a question nobody is asking any more.
+  const SearchModel::State state =
+      model.state == SearchModel::State::Results && model.keyboardHeight > 0 ? SearchModel::State::Typing : model.state;
+  switch (state) {
+    case SearchModel::State::Typing:
+      say("Type at least two letters of a city, then GO.", toybox::kSmallFont);
+      return layout;
+    case SearchModel::State::Searching:
+      say("Searching...", toybox::kBodyFont);
+      return layout;
+    case SearchModel::State::NoMatch: {
+      const std::string head = std::string("No place called \"") + model.query + "\".";
+      say(head.c_str(), toybox::kBodyFont);
+      say("Check the spelling, or try a larger town nearby.", toybox::kSmallFont);
+      return layout;
+    }
+    case SearchModel::State::Failed:
+      say("Could not search.", toybox::kBodyFont);
+      if (model.offline) say("Not connected to Wi-Fi.", toybox::kSmallFont);
+      return layout;
+    case SearchModel::State::Results:
+      break;
+  }
+
+  // Each place: its name (measured and drawn in kPlacePass, like the place on
+  // every other screen), its region a line under it when it has one. A place
+  // with no region is one line tall, not two.
+  const int count = model.rowCount < weather::kMaxMatches ? model.rowCount : weather::kMaxMatches;
+  if (count <= 0) return layout;
+  names.x = body.x;
+  int16_t heights[weather::kMaxMatches] = {};
+  for (int i = 0; i < count; ++i) {
+    heights[i] = static_cast<int16_t>(names.ink[i] + (model.rows[i].region[0] ? kLineGap + smallCap : 0));
+  }
+
+  // Pages, so every place can be reached: rows from the field to the foot,
+  // and when they do not all fit, to a group above a bar of page numbers.
+  const int16_t barTop = static_cast<int16_t>(bottom - kPageCell);
+  int starts[weather::kMaxMatches + 1] = {};
+  int pages = 0;
+  const auto paginate = [&](const int16_t room) {
+    pages = 0;
+    for (int at = 0; at < count; at = pageFrom(heights, count, at, room)) starts[pages++] = at;
+    starts[pages] = count;
+  };
+  paginate(static_cast<int16_t>(bottom - y));
+  if (pages > 1) paginate(static_cast<int16_t>(barTop - kGroupGap - y));
+  layout.pageCount = pages;
+  layout.page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
+  layout.first = starts[layout.page];
+  layout.shown = starts[layout.page + 1] - layout.first;
+
+  for (int i = layout.first; i < layout.first + layout.shown; ++i) {
+    if (i > layout.first) hairline(screen, body.x, static_cast<int16_t>(y - kRowGap / 2), body.width);
+    names.top[i] = y;
+    if (model.rows[i].region[0]) {
+      const std::string region = toybox::fitLines(target, model.rows[i].region, body.width, 1, ink(toybox::kSmallFont));
+      textAt(screen, body.x, static_cast<int16_t>(y + names.ink[i] + kLineGap), body.width, toybox::kSmallFont,
+             region.c_str());
+    }
+    // The whole row answers, out to the rules either side of it.
+    screen.frame().hit(fui::makeRect(body.x, static_cast<int16_t>(y - kRowGap / 2), body.width,
+                                     static_cast<int16_t>(heights[i] + kRowGap)),
+                       ActionMatch, static_cast<int16_t>(i));
+    y = static_cast<int16_t>(y + heights[i] + kRowGap);
+  }
+
+  // The page numbers, the shelf's way: a cell a thumb wide for each, filled
+  // for this page and outlined for the others, each a door to its page.
+  if (pages > 1) {
+    const int16_t clusterX = static_cast<int16_t>(body.x + (body.width - kPageCell * pages) / 2);
+    for (int p = 0; p < pages; ++p) {
+      const fui::Rect door =
+          fui::makeRect(static_cast<int16_t>(clusterX + p * kPageCell), barTop, kPageCell, kPageCell);
+      const fui::Rect cell = fui::makeRect(static_cast<int16_t>(door.x + 2), static_cast<int16_t>(door.y + 2),
+                                           static_cast<int16_t>(kPageCell - 4), static_cast<int16_t>(kPageCell - 4));
+      const bool here = p == layout.page;
+      if (here) {
+        screen.target().fill(cell, fui::Paint::solid(fui::Color::Black), 6);
+      } else {
+        screen.target().stroke(cell, fui::Paint::solid(fui::Color::Black), 2, 6);
+      }
+      const std::string label = number(p + 1);
+      textAt(screen, cell.x, static_cast<int16_t>(cell.y + (cell.height - typedCap) / 2), cell.width, toybox::kBodyFont,
+             label.c_str(), 1, fui::TextAlign::Center, here ? fui::Color::White : fui::Color::Black);
+      screen.frame().hit(door, ActionPage, static_cast<int16_t>(p));
+    }
+  }
+  return layout;
 }
 
 }  // namespace
 
 // --- Main --------------------------------------------------------------------------
 
-MainPlace buildMainTop(toybox::Screen& screen, const MainModel& model) {
-  band(screen, "WEATHER", ActionMenu, nullptr, false);
+void drawMain(toybox::Screen& screen, const MainModel& model, const Rebind& bind) {
+  bind(kPlacePass);
+  band(screen, "WEATHER", ActionMenu, nullptr);
   const fui::Rect body = screen.body();
-  MainPlace place;
-  place.style = ink(toybox::kBodyFont, fui::TextAlign::Left, 2);
-  place.text = toybox::fittedTitle(screen.target(), model.place, body.width, place.style);
-  const int16_t height = fui::measureWrappedText(screen.target(), place.text.c_str(), place.style, body.width).height;
-  const int16_t line = screen.target().lineHeight(place.style.font);
-  place.lines = line > 0 ? max16(1, height / line) : 1;
-  place.inkHeight = toybox::inkHeight(screen.target(), place.style.font, place.lines);
-  return place;
-}
-
-int16_t buildMainBody(toybox::Screen& screen, const MainModel& model, const MainPlace& place) {
-  if (!model.hasForecast) return emptyBlock(screen, model, place.inkHeight);
-  return mainBody(screen, model, place.inkHeight);
-}
-
-void drawMainPlace(toybox::Screen& screen, const MainPlace& place, const int16_t inkTop) {
-  const fui::Rect body = screen.body();
-  screen.target().text(toybox::inkRect(screen.target(), place.style.font, body.x, inkTop, body.width, place.lines),
-                       place.text.c_str(), place.style);
+  const PlaceText place = fitPlace(screen, model.place, body.width, 2, kPlaceRungs, 2);
+  bind(kDataPass);
+  const int16_t placeTop =
+      model.hasForecast ? weekBlock(screen, model, place.inkHeight) : noWeekBlock(screen, model, place.inkHeight);
+  bind(kPlacePass);
+  drawPlace(screen, place, body.x, placeTop, body.width);
 }
 
 // --- Search ---------------------------------------------------------------------------
 
-int buildSearch(toybox::Screen& screen, const SearchModel& model) {
-  band(screen, model.firstRun ? "CHOOSE A CITY" : "CHANGE CITY", fui::NO_ACTION, nullptr);
-  const fui::Rect body = screen.body();
-  const int16_t bottom = static_cast<int16_t>(body.y + body.height - model.keyboardHeight);
-  const int16_t bodyLine = lineOf(screen, toybox::kBodyFont);
-  const int16_t smallLine = lineOf(screen, toybox::kSmallFont);
-
-  // The field: an outlined box with what has been typed, and a caret while
-  // the keyboard is up. Tapping it raises the keyboard.
-  const bool empty = model.query == nullptr || model.query[0] == '\0';
-  const fui::Rect field = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(bodyLine + 16));
-  screen.target().stroke(field, fui::Paint::solid(fui::Color::Black), 2, toybox::kPillRadius / 2);
-  const int16_t textX = static_cast<int16_t>(field.x + 14);
-  const int16_t textW = static_cast<int16_t>(field.width - 28);
-  if (empty && model.keyboardHeight == 0) {
-    screen.target().text(fui::makeRect(textX, field.y, textW, field.height), "Tap here to type a city",
-                         ink(toybox::kSmallFont));
-  } else {
-    fui::TextStyle typed = ink(toybox::kBodyFont);
-    const std::string shown = toybox::fittedTitle(screen.target(), model.query, static_cast<int16_t>(textW - 8), typed);
-    const int16_t typedW = screen.target().measureText(typed.font, shown.c_str(), typed).width;
-    screen.target().text(fui::makeRect(textX, field.y, static_cast<int16_t>(typedW + 1), field.height), shown.c_str(),
-                         typed);
-    if (model.keyboardHeight > 0) {
-      const Cap cap = capOf(screen, typed.font);
-      const int16_t lineTop = static_cast<int16_t>(field.y + max16(0, (field.height - cap.line) / 2));
-      screen.target().fill(
-          fui::makeRect(static_cast<int16_t>(textX + typedW + 3), static_cast<int16_t>(lineTop + cap.top - 2), 3,
-                        static_cast<int16_t>(cap.height + 6)),
-          fui::Paint::solid(fui::Color::Black));
-    }
+SearchLayout drawSearch(toybox::Screen& screen, const SearchModel& model, const Rebind& bind) {
+  // The names first, in the place's faces, so a long one steps down to bold
+  // 12 rather than to the regular cut the regions are set in; then the rest;
+  // then the names where the rest put them.
+  const int count = model.rowCount < weather::kMaxMatches ? model.rowCount : weather::kMaxMatches;
+  const int16_t width = bodyWidth(screen);
+  Names names;
+  bind(kPlacePass);
+  for (int i = 0; i < count; ++i) {
+    names.ink[i] = fitPlace(screen, model.rows[i].name, width, 2, kPlaceRungs, 2).inkHeight;
   }
-  screen.frame().hit(field, ActionField);
-
-  int16_t y = static_cast<int16_t>(field.y + field.height + kGutter);
-  const int16_t width = body.width;
-  const auto sentence = [&screen, &y, width, body](const char* text, const fui::FontId font) {
-    fui::TextStyle style = ink(font, fui::TextAlign::Left, 3);
-    const int16_t h = fui::measureWrappedText(screen.target(), text, style, width).height;
-    screen.target().text(fui::makeRect(body.x, y, width, h), text, style);
-    y = static_cast<int16_t>(y + h + kGutter / 2);
-  };
-
-  switch (model.state) {
-    case SearchModel::State::Typing:
-      sentence(model.firstRun ? "Which city is the forecast for? Type at least two letters of its name, then GO."
-                              : "Type at least two letters of a city, then GO.",
-               toybox::kSmallFont);
-      return 0;
-    case SearchModel::State::Searching:
-      sentence("Searching...", toybox::kBodyFont);
-      return 0;
-    case SearchModel::State::NoMatch: {
-      std::string head = std::string("No place called \"") + model.query + "\".";
-      sentence(head.c_str(), toybox::kBodyFont);
-      sentence("Check the spelling, or try a larger town nearby.", toybox::kSmallFont);
-      return 0;
-    }
-    case SearchModel::State::Failed:
-      sentence("Could not search.", toybox::kBodyFont);
-      sentence(model.failure, toybox::kSmallFont);
-      return 0;
-    case SearchModel::State::Results:
-      break;
+  bind(kSearchPass);
+  const SearchLayout layout = buildSearch(screen, model, names);
+  bind(kPlacePass);
+  for (int i = layout.first; i < layout.first + layout.shown; ++i) {
+    drawPlace(screen, fitPlace(screen, model.rows[i].name, width, 2, kPlaceRungs, 2), names.x, names.top[i], width);
   }
-
-  const int16_t rowH = searchRowHeight(screen);
-  const int16_t moreH = static_cast<int16_t>(smallLine + kGutter);
-  int shown = 0;
-  for (int i = 0; i < model.rowCount; ++i) {
-    const bool last = i + 1 == model.rowCount;
-    // The announcement of what did not fit is reserved before the row that
-    // would take its place.
-    if (y + rowH + (last ? 0 : moreH) > bottom) break;
-    const fui::Rect row = fui::makeRect(body.x, y, body.width, rowH);
-    fui::TextStyle name = ink(toybox::kBodyFont);
-    const std::string fittedName = toybox::fittedTitle(screen.target(), model.rows[i].name, row.width, name);
-    screen.target().text(fui::makeRect(row.x, static_cast<int16_t>(row.y + 2), row.width, bodyLine), fittedName.c_str(),
-                         name);
-    if (model.rows[i].region[0]) {
-      fui::TextStyle region = ink(toybox::kSmallFont);
-      const std::string fittedRegion = toybox::fittedTitle(screen.target(), model.rows[i].region, row.width, region);
-      screen.target().text(fui::makeRect(row.x, static_cast<int16_t>(row.y + 2 + bodyLine), row.width, smallLine),
-                           fittedRegion.c_str(), region);
-    }
-    hairline(screen, row.x, static_cast<int16_t>(row.y + row.height - 1), row.width);
-    screen.frame().hit(row, ActionMatch, static_cast<int16_t>(i));
-    y = static_cast<int16_t>(y + rowH);
-    ++shown;
-  }
-  if (shown < model.rowCount) {
-    y = static_cast<int16_t>(y + kGutter / 2);
-    sentence("Not here? Type more of the name.", toybox::kSmallFont);
-  }
-  return shown;
+  return layout;
 }
 
 // --- Menu ------------------------------------------------------------------------------
 
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+void drawMenu(toybox::Screen& screen, const MenuModel& model, const Rebind& bind) {
+  // The city row: the name a gutter in from its left edge, the chevron a
+  // gutter in from its right, a gutter between them.
+  constexpr int16_t kChevron = 32;
+  const int16_t rowWidth = bodyWidth(screen);
+  const int16_t nameW = static_cast<int16_t>(rowWidth - kChevron - 3 * kGutter);
+
+  bind(kPlacePass);
+  const PlaceText place = fitPlace(screen, model.place, nameW, 2, kPlaceRungs, 2);
+
+  bind(kMenuPass);
   band(screen, "WEATHER", ActionCloseMenu, "DONE");
   const fui::Rect body = screen.body();
-  const int16_t smallLine = lineOf(screen, toybox::kSmallFont);
-  const int16_t bodyLine = lineOf(screen, toybox::kBodyFont);
-  int16_t y = body.y;
-
-  const auto caption = [&screen, &y, body, smallLine](const char* text) {
-    screen.target().text(fui::makeRect(body.x, y, body.width, smallLine), text, ink(toybox::kSmallFont));
-    y = static_cast<int16_t>(y + smallLine + 4);
+  const int16_t captionCap = capOf(screen, toybox::kSmallFont);
+  const int16_t pad = static_cast<int16_t>(kGutter * 3 / 2);
+  int16_t y = static_cast<int16_t>(body.y + kGroupGap);
+  const auto caption = [&screen, &y, body, captionCap](const char* text) {
+    textAt(screen, body.x, y, body.width, toybox::kSmallFont, text);
+    y = static_cast<int16_t>(y + captionCap + kLineGap);
   };
 
-  // The city: the whole row is the door back to the search.
+  // The city: the whole row is the door back to the search. It is at least a
+  // line of the largest cut tall, so a name that steps down does not move
+  // what is under it, and two lines when the name takes two.
   caption("CITY");
-  {
-    const int16_t rowH = static_cast<int16_t>(bodyLine + 20);
-    const fui::Rect row = fui::makeRect(body.x, y, body.width, rowH);
-    screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), toybox::kHairline, toybox::kPillRadius / 2);
-    const int16_t chevronX = static_cast<int16_t>(row.x + row.width - kGutter - 32);
-    fui::TextStyle name = ink(toybox::kBodyFont);
-    const int16_t nameW = static_cast<int16_t>(chevronX - row.x - kGutter * 2);
-    const std::string fitted = toybox::fittedTitle(screen.target(), model.place, nameW, name);
-    screen.target().text(fui::makeRect(static_cast<int16_t>(row.x + kGutter), row.y, nameW, row.height), fitted.c_str(),
-                         name);
-    blit(screen, icon_opens_32, chevronX, static_cast<int16_t>(row.y + (row.height - 32) / 2));
-    screen.frame().hit(row, ActionChangeCity);
-    y = static_cast<int16_t>(y + rowH + kGutter * 2);
-  }
+  const fui::Rect row =
+      fui::makeRect(body.x, y, body.width, static_cast<int16_t>(max16(place.largestInk, place.inkHeight) + 2 * pad));
+  screen.target().stroke(row, fui::Paint::solid(fui::Color::Black), toybox::kHairline, toybox::kPillRadius / 2);
+  iconCentred(screen, icon_opens_32, static_cast<int16_t>(row.x + row.width - kGutter - kChevron / 2),
+              static_cast<int16_t>(row.y + row.height / 2));
+  screen.frame().hit(row, ActionChangeCity);
+  const int16_t placeX = static_cast<int16_t>(row.x + kGutter);
+  const int16_t placeTop = static_cast<int16_t>(row.y + (row.height - place.inkHeight) / 2);
+  y = static_cast<int16_t>(row.y + row.height + kGroupGap);
 
   // Celsius or Fahrenheit: two segments, the one in force filled and inert.
   caption("UNITS");
@@ -590,29 +871,30 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
                                           i == 0 ? half : static_cast<int16_t>(body.width - half - kGutter),
                                           toybox::kPillHeight));
     }
-    y = static_cast<int16_t>(y + toybox::kPillHeight + kGutter * 2);
+    y = static_cast<int16_t>(y + toybox::kPillHeight + kGroupGap);
   }
 
-  // A refresh, and when the forecast was last read.
+  // An update, and when the forecast on the card was read.
   caption("FORECAST");
   {
-    fui::ButtonProps refresh;
-    refresh.label = "REFRESH NOW";
-    refresh.action = ActionRefresh;
-    refresh.styles = toybox::rowStyles();
-    refresh.text = toybox::buttonText(screen.theme());
-    refresh.radius = toybox::kPillRadius / 2;
-    screen.button(refresh, fui::makeRect(body.x, y, body.width, toybox::kPillHeight));
-    y = static_cast<int16_t>(y + toybox::kPillHeight + 6);
-    if (model.updated[0]) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, smallLine), model.updated, ink(toybox::kSmallFont));
-    }
+    fui::ButtonProps update;
+    update.label = "UPDATE NOW";
+    update.action = ActionRefresh;
+    update.styles = toybox::rowStyles();
+    update.text = toybox::buttonText(screen.theme());
+    update.radius = toybox::kPillRadius / 2;
+    screen.button(update, fui::makeRect(body.x, y, body.width, toybox::kPillHeight));
+    y = static_cast<int16_t>(y + toybox::kPillHeight + kLineGap);
+    if (model.updated[0]) textAt(screen, body.x, y, body.width, toybox::kSmallFont, model.updated);
   }
+
+  bind(kPlacePass);
+  drawPlace(screen, place, placeX, placeTop, nameW);
 }
 
 // --- Skies ---------------------------------------------------------------------------------
 
-const freeink::Icon& skyBitmap(const weather::Icon icon, const int size) {
+const freeink::Icon* skyBitmap(const weather::Icon icon, const int size) {
   // One row per sky, one column per generated size: 32 for the rows, 88 for
   // the reading, whose ink then fits inside the number's capitals.
   static const freeink::Icon* const kTable[][2] = {
@@ -627,9 +909,11 @@ const freeink::Icon& skyBitmap(const weather::Icon icon, const int size) {
       {&icon_wx_snow_32, &icon_wx_snow_88},
       {&icon_wx_thunder_32, &icon_wx_thunder_88},
   };
-  static_assert(sizeof(kTable) / sizeof(kTable[0]) == static_cast<size_t>(weather::Icon::Thunder) + 1,
-                "one row per weather::Icon");
-  return *kTable[static_cast<int>(icon)][size >= 88 ? 1 : 0];
+  static_assert(sizeof(kTable) / sizeof(kTable[0]) == static_cast<size_t>(weather::Icon::None),
+                "one row per weather::Icon that has a picture");
+  const size_t row = static_cast<size_t>(icon);
+  if (row >= sizeof(kTable) / sizeof(kTable[0])) return nullptr;
+  return kTable[row][size >= 88 ? 1 : 0];
 }
 
 }  // namespace weatherui
