@@ -19,6 +19,7 @@
 #include "../../network/HttpDownloader.h"
 #include "../../util/DeviceHostname.h"
 #include "../../util/QrUtils.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ShelfScreen.h"
 #include "../hackernews/HackerNewsCore.h"
@@ -99,9 +100,11 @@ bool writeText(const char* path, const std::string& text) {
   return true;
 }
 
+// 0 for a clock earlier than this firmware's build, which settleDates() reads
+// as "no clock": undated posts stay undated rather than taking a wrong date.
 uint32_t nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > static_cast<int64_t>(rss::kClockFloor) ? static_cast<uint32_t>(now) : 0u;
+  return clockfloor::trusted(now) ? static_cast<uint32_t>(now) : 0u;
 }
 
 }  // namespace
@@ -1168,9 +1171,9 @@ void RssActivity::render(RenderLock&&) {
       }
 
       // Only the rows this page shows are built, fitted and handed over.
-      const int first = topIndex_;
-      const int last = std::min(count, topIndex_ + std::max(visibleRows_, 1));
-      const int window = std::max(0, last - first);
+      const rssui::PageWindow page = rssui::pageWindow(count, visibleRows_, topIndex_);
+      const int first = page.first;
+      const int window = page.count;
       labels_.assign(static_cast<size_t>(window), std::string());
       values_.assign(static_cast<size_t>(window), std::string());
       items_.assign(static_cast<size_t>(window), fui::ListItem{});

@@ -151,3 +151,7 @@ files are also written _to_ Mario rather than _by_ him, which is why they say
 
 [PaperMono support](papermono.md) documents the PaperMono / Lite hardware,
 build environments, installation assets and device verification steps.
+
+[BOOX Picco support](picco.md) documents the experimental Picco: why it gets
+only its app slot, what each install and update path does with it, what its
+apps see, and everything that still needs a Picco in hand.

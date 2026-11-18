@@ -21,6 +21,18 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.15.1
+
+- RSS: the last page of a list shows its posts again
+- Study: the card count no longer covers the back arrow in the Classic theme
+- Study: a short question and a long answer share a page instead of leaving one nearly empty
+- Wikipedia, RSS and Study keep the page margins
+- Study: a wrong clock now says WRONG DATE instead of "nothing to review", and Sync sets it
+- Wordle and Connections open today's puzzle even when the clock is months behind
+- Notes: the menu says EDIT ON YOUR PHONE
+- BOOX Picco support (experimental, untested by us): firmware-picco.bin goes into its app slot only
+- The Install button no longer writes over a BOOX Picco's recovery partition
+
 ### 1.15.0
 
 - CrossPoint 2.0: Settings in sections, OPDS 2.0 catalogs, GIF pictures in books, deeper dictionary lookup; Noto Serif is now an SD-card font, so Study and Wikipedia use Noto Sans

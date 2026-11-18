@@ -6,7 +6,9 @@
 // pill -- places them on this row rather than finding its own middle of the
 // band. It found one before: centred on the whole band, battery strip
 // included, while the theme centres its back arrow on the row below the
-// strip, so "3 LEFT" sat 12px above its own arrow.
+// strip, so "3 LEFT" sat 12px above its own arrow. A left-aligned word starts
+// at `textLeft`, not `title.x`, which is under the arrow in a theme that
+// centres its title.
 //
 // Written and read on the render task, in the same paint: drawHeader, then
 // the app's own drawing.

@@ -17,6 +17,7 @@
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "apps_local/ClockFloor.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/PluginEvents.h"
@@ -28,16 +29,11 @@ constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SCAN = 2;
 constexpr fui::ActionId ACTION_PROMPT = 3;
 
-// System time follows the RTC, so a wall clock earlier than the year this
-// firmware was compiled can only be a reset RTC, never a real date.
-bool clockPredatesBuild() {
-  int buildYear = 0;
-  sscanf(__DATE__, "%*s %*d %d", &buildYear);  // "Aug 26 2026"
-  const time_t now = time(nullptr);
-  struct tm t;
-  localtime_r(&now, &t);
-  return t.tm_year + 1900 < buildYear;
-}
+// CrossPlay: system time follows the RTC, so a wall clock earlier than the day
+// this firmware was built can only be a reset or never-set RTC, never a real
+// date. The day, not the year: a Sticky's RTC read 2026-02-06 on 2026-11-17,
+// which the year alone let through on every join. apps_local/ClockFloor.h.
+bool clockPredatesBuild() { return !clockfloor::trusted(static_cast<int64_t>(time(nullptr))); }
 }  // namespace
 
 WifiSelectionActivity::WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

@@ -1,5 +1,6 @@
 #include "StudyActivity.h"
 
+#include <HalClock.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -16,6 +17,7 @@
 #include "../../components/HeaderLayoutRecord.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -33,6 +35,12 @@ namespace {
 // Where decks live. The directory name under /study is the tool's choice, not
 // ours: study.py names it after the deck, and Mario's card predates that and
 // says "mandarin". findDeckDir scans for whichever single deck is installed.
+// Set when NTP answered in this power cycle: that clock outranks a deck's
+// future-dated review (study::clockUntrusted). Process-wide rather than a member
+// because the activity is rebuilt every time Study opens; a cold boot clears it,
+// and so does the deep sleep that RAM does not survive.
+bool clockConfirmedByNtp = false;
+
 constexpr const char* kStudyRoot = "/study";
 constexpr const char* kFontsDirName = "fonts";
 
@@ -254,6 +262,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
 
 // Everything that starts over when a deck opens -- first open and every switch.
 void StudyActivity::beginDeckSession() {
+  rescanAfterClockSet_ = false;
   fonts_.setRoot(deckDir_);
   fonts_.probe();
   today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
@@ -534,6 +543,7 @@ void StudyActivity::buildQueue() {
   queuePos_ = 0;
   dueTotal_ = 0;
   newTotal_ = 0;
+  latestReviewDay_ = -1;
   for (int& day : forecast_) day = 0;
 
   // Read cards.dat in chunks rather than record by record: 5001 records is
@@ -562,6 +572,11 @@ void StudyActivity::buildQueue() {
       std::memcpy(&probe.dueDay, record + 16, sizeof(probe.dueDay));
       probe.state = record[28];
       probe.dueMinute = static_cast<uint16_t>(record[30] | (record[31] << 8));
+      // Every card, suspended ones included: the latest review anywhere in
+      // the deck is the floor under today (study::clockBehindDeck).
+      int32_t lastReview = -1;
+      std::memcpy(&lastReview, record + 20, sizeof(lastReview));
+      if (lastReview > latestReviewDay_) latestReviewDay_ = lastReview;
 
       if (probe.state == static_cast<uint8_t>(study::State::Suspended)) continue;
       if (probe.state == static_cast<uint8_t>(study::State::New)) {
@@ -629,6 +644,9 @@ void StudyActivity::buildQueue() {
   }
   LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_,
           minute);
+  if (study::clockBehindDeck(today_, latestReviewDay_)) {
+    LOG_ERR("STUDY", "clock says day %d but a card was reviewed on day %d; not trusting it", today_, latestReviewDay_);
+  }
 }
 
 bool StudyActivity::takeNext() {
@@ -771,13 +789,13 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
   {
     uint8_t record[32] = {};
     const int64_t nowS = static_cast<int64_t>(time(nullptr));
-    if (nowS < study::kClockFloor) {
-      // No clock yet (a flat battery clears the RTC; the first sync sets it).
-      // A review logged now is stamped near the epoch, and deck_to_anki
-      // replays that straight into the real collection as the card's last
-      // review. Refusing the record loses one answer; writing it corrupts
-      // the user's own scheduling history.
-      LOG_ERR("STUDY", "clock is not set; not logging this review");
+    if (clockUntrusted()) {
+      // No clock yet (a flat battery clears the RTC; the first sync sets it),
+      // or one months behind the deck. A review logged now is stamped with
+      // that date, and deck_to_anki replays it straight into the real
+      // collection as the card's last review. Refusing the record loses one
+      // answer; writing it corrupts the user's own scheduling history.
+      LOG_ERR("STUDY", "clock is not trusted; not logging this review");
       return false;
     }
     const int64_t nowMs = nowS * 1000;
@@ -951,6 +969,13 @@ void StudyActivity::undo() {
 }
 
 void StudyActivity::loop() {
+  // A sync's NTP step moved the clock under an open deck, and some ways out of
+  // the flow (pairing, the deck picker) never reopen it: recount everything the
+  // old date decided before the deck screen is used again.
+  if (rescanAfterClockSet_ && view_ == View::Deck && deckDir_[0] != '\0') {
+    beginDeckSession();
+    requestUpdate();
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view_ == View::SyncFlow) {
       view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
@@ -1400,8 +1425,9 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   int y = body.y + kCardInset;
 
   y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
-  // The answer's own text starts below the word: on a paged face its first
-  // line starts a new page, and that page is where a reveal opens (drawCard).
+  // The answer's own text starts below the word, and the page its first line
+  // lands on is where a reveal opens (drawCard). It starts a new page only
+  // when the question above it already ran past one (StudyText.h TextFlow).
   // A field the question face also showed is drawn unmarked, so the mark
   // cannot land on it.
   textFlow_.marking = answer;
@@ -1735,7 +1761,7 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.deckCount = deckCount_;
   out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
   out.writeFailed = writeFailed_;
-  out.clockUnset = time(nullptr) < study::kClockFloor;
+  out.clockUnset = clockUntrusted();
   out.decksOverCap = decksOverCap_;
 }
 
@@ -1766,6 +1792,13 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
   // sit on this screen past the rollover hour, and what was due then is not
   // what is due now.
   buildQueue();
+  // A session under a clock the deck proves wrong would save none of its
+  // answers (the review log refuses them), so it does not start. The deck
+  // screen already shows its door shut; this covers every other way in.
+  if (clockUntrusted()) {
+    requestUpdate();
+    return;
+  }
   if (takeNext()) {
     // Reset the summary only when a session truly starts: a tap that finds
     // nothing to review must not wipe the DONE screen it lands back on.
@@ -1903,14 +1936,16 @@ void StudyActivity::render(RenderLock&&) {
   // after the arrow, centred on the arrow's line. Never on a middle of the band
   // worked out here. The band includes the battery strip and the theme's row
   // sits below it, so a title centred on the whole band floated 12px above its
-  // own arrow.
+  // own arrow. And never at title.x: a theme that centres its title (Classic)
+  // keeps the whole band for it, so title.x is the margin under the arrow and
+  // "6 LEFT" was drawn over it. textLeft is where a left-aligned title starts.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
   GUI.drawHeader(renderer, headerBand, "");
   const freeink::ui::HeaderLayout& row = HeaderLayoutRecord::last;
   const freeink::ui::Rect& line = row.leading.width > 0 ? row.leading : row.title;
 
-  const int titleX = row.title.x;
+  const int titleX = row.textLeft;
   if (title[0] != '\0') {
     toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, line.y, line.height, title, true);
   }
@@ -2102,15 +2137,40 @@ void StudyActivity::onSyncWifi(const bool connected) {
 
 void StudyActivity::syncTimeIfNeeded() {
   // Certificate dates are validated on the bridge connection, so the clock
-  // must be sane before the first handshake. Same dance as KOSync.
-  if (time(nullptr) > study::kClockFloor) return;
-  if (esp_sntp_enabled()) esp_sntp_stop();
-  esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
-  esp_sntp_setservername(0, "pool.ntp.org");
-  esp_sntp_init();
-  for (int retry = 0; retry < 50 && sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; ++retry) {
-    delay(100);
+  // must be sane before the first handshake. And once per power cycle whatever
+  // the clock says: a wrong date can be a plausible one (#727), and on a first
+  // sync, or for a deck that is not the open one, the deck that would prove it
+  // is not there to ask. Same dance as KOSync.
+  if (clockConfirmedByNtp) return;
+  // On a board with an RTC, set the chip as well as the system clock: the
+  // Sticky reloads its RTC at every boot, so a sync that only fixed time()
+  // was undone by the next power-off.
+  if (halClock.isAvailable()) {
+    clockConfirmedByNtp = halClock.syncFromNTP();
+  } else {
+    if (esp_sntp_enabled()) esp_sntp_stop();
+    esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+    // Read inside the loop: sntp_get_sync_status() reports COMPLETED once and
+    // then resets, so a second read after the loop always says it never came.
+    for (int retry = 0; retry < 50 && !clockConfirmedByNtp; ++retry) {
+      clockConfirmedByNtp = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+      if (!clockConfirmedByNtp) delay(100);
+    }
   }
+  if (clockConfirmedByNtp) {
+    rescanAfterClockSet_ = true;
+  } else {
+    LOG_ERR("STUDYSYNC", "NTP did not answer; the clock stays as it was");
+  }
+}
+
+bool StudyActivity::clockUntrusted() const {
+  // Two witnesses: this firmware's build day (a clock earlier than it cannot be
+  // today, deck or no deck) and the deck's own last review.
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  return !clockfloor::trusted(now) || study::clockUntrusted(now, today_, latestReviewDay_, clockConfirmedByNtp);
 }
 
 void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const studyui::SyncSafety safety,

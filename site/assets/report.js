@@ -45,6 +45,7 @@
         <label><input type="checkbox" name="device" value="x4pro"><span>X4 Pro</span></label>
         <label><input type="checkbox" name="device" value="sticky"><span>Sticky</span></label>
         <label><input type="checkbox" name="device" value="papermono"><span>PaperMono / Lite</span></label>
+        <label><input type="checkbox" name="device" value="picco"><span>BOOX Picco</span></label>
       </div>
     </div>
   </div>

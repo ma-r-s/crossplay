@@ -74,6 +74,17 @@ struct ListModel {
   fui::ActionId emptyAction = fui::NO_ACTION;
 };
 
+// The rows a page draws, which are the rows the activity has to build: row
+// `first` of the list and the `count` after it. `topIndex` is the page the
+// activity is on, `visible` how many rows a page holds. On the last page of a
+// list that does not divide into pages, `first` is before `topIndex`: the list
+// fills that page from the end, as every list in the fork does.
+struct PageWindow {
+  int first = 0;
+  int count = 0;
+};
+PageWindow pageWindow(int listCount, int visible, int topIndex);
+
 // The posts of every feed, of one feed, or of the saved shelf. Rows open with
 // ActionOpenPost and their absolute index.
 void buildPosts(toybox::Screen& screen, const ListModel& model);

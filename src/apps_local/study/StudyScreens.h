@@ -60,10 +60,12 @@ struct DeckModel {
   int lifetimeReviews = 0;
   bool sessionOver = false;  // nothing left to answer right now
   bool writeFailed = false;
-  // No wall clock yet (a flat battery clears the RTC; a sync sets it). Every
-  // review answered in this state is stamped near the epoch and would be
-  // replayed into the real Anki collection as the card's last review, so the
-  // app refuses to log one -- and therefore must refuse to ask for one.
+  // No wall clock yet (a flat battery clears the RTC; a sync sets it), or one
+  // the deck proves wrong (study::clockUntrusted). Every review answered in
+  // this state is stamped with that date and would be replayed into the real
+  // Anki collection as the card's last review, so the app refuses to log one
+  // -- and therefore must refuse to ask for one. The headline says WRONG DATE
+  // rather than a count or ALL CLEAR worked out from that date.
   bool clockUnset = false;
   // Deck folders on the card past the number this reader can open. Their
   // reviews cannot be sent, so silence here reads as "nothing outstanding".

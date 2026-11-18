@@ -39,6 +39,35 @@ inline constexpr uint8_t kRevlogVoided = 1 << 0;
 // log and the NTP catch-up gate on it.
 inline constexpr int64_t kClockFloor = 1700000000;
 
+// A clock can also be SET and still be months wrong, which the floor cannot
+// see. A reTerminal Sticky's RTC read 2026-02-06 at boot on 2026-11-17: it had
+// never been set by this firmware, and Feb 2026 is a perfectly plausible date.
+// By that clock every card a deck had due in November was due in nine months,
+// so Study said NOTHING TO REVIEW over a deck full of due cards (report #727).
+//
+// The deck is the witness. A card last reviewed on day N means today is at
+// least day N, whatever the clock says, and that holds for a review done in
+// Anki as much as for one done here (both write the same day numbering). One
+// day of slack absorbs a reader a few minutes behind the computer the last
+// review was done on, across a rollover. -1 is "no card has been reviewed",
+// which proves nothing either way.
+inline constexpr int kClockSlackDays = 1;
+
+inline bool clockBehindDeck(const int todayDay, const int latestReviewDay) {
+  return latestReviewDay >= 0 && latestReviewDay > todayDay + kClockSlackDays;
+}
+
+// The one question the deck screen, the review log and the sync all ask: may a
+// review be dated by this clock? No when it is below the floor, and no when the
+// deck holds a review from a day the clock has not reached -- unless NTP has
+// just confirmed the clock. Then the witness is the one that is wrong (a review
+// stamped by a device whose own clock ran ahead), and without this exit a
+// single such record would keep the deck shut until its date came round.
+inline bool clockUntrusted(const int64_t now, const int todayDay, const int latestReviewDay,
+                           const bool confirmedByNtp = false) {
+  return now < kClockFloor || (!confirmedByNtp && clockBehindDeck(todayDay, latestReviewDay));
+}
+
 // Two weeks, matching the deck screen's forecast so the two panels read as one
 // timeline: what happened, then what is coming.
 inline constexpr int kHistoryDays = 14;
