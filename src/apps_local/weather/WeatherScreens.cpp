@@ -303,6 +303,61 @@ PlaceText fitPlace(toybox::Screen& screen, const char* text, const int16_t width
   return place;
 }
 
+// A list of parts ("North Rhine-Westphalia, Germany") on one line of `font`:
+// whole, or as many whole parts as fit and an ellipsis after the last of
+// them, so a cut never ends on the comma between two parts. Only a first part
+// too long for the line by itself is cut inside, after its last whole word.
+std::string fitParts(const fui::DrawTarget& target, const fui::FontId font, const char* text, const int16_t width) {
+  const std::string whole = text != nullptr ? text : "";
+  if (fitsIn(target, font, whole, width)) return whole;
+  static constexpr const char* kEllipsis = "...";
+  for (size_t comma = whole.rfind(", "); comma != std::string::npos && comma > 0;
+       comma = whole.rfind(", ", comma - 1)) {
+    const std::string head = whole.substr(0, comma) + kEllipsis;
+    if (fitsIn(target, font, head, width)) return head;
+  }
+  const size_t comma = whole.find(", ");
+  PlaceText first;
+  cutPlace(target, font, comma == std::string::npos ? whole : whole.substr(0, comma), width, 1, first);
+  return first.lines[0];
+}
+
+// The place and its qualifier in at most `most` lines, down the rungs. Whole
+// when it fits; otherwise, at the smallest rung, the qualifier keeps the last
+// line to itself and the name has the lines above it, cut where it must: the
+// region is never the first thing lost, and a one-word name too long for a
+// line ("Llanfairpwllgwyngyllgogerychwyrndrobwll...") no longer takes its
+// region down with it.
+PlaceText fitTitle(toybox::Screen& screen, const char* name, const char* qualifier, const int16_t width, const int most,
+                   const fui::FontId* rungs, const int rungCount) {
+  const std::string label = name != nullptr ? name : "";
+  const std::string part = qualifier != nullptr ? qualifier : "";
+  if (part.empty()) return fitPlace(screen, label.c_str(), width, most, rungs, rungCount);
+  const std::string whole = label + ", " + part;
+  const fui::DrawTarget& target = screen.target();
+  PlaceText place;
+  for (int i = 0; i < rungCount; ++i) {
+    place.font = rungs[i];
+    if (wrapPlace(target, rungs[i], whole, width, most, place)) break;
+    place.count = 0;
+  }
+  if (place.count == 0) {
+    if (most >= 2) {
+      if (!wrapPlace(target, place.font, label, width, most - 1, place)) {
+        cutPlace(target, place.font, label, width, most - 1, place);
+      }
+      place.lines[place.count++] = fitParts(target, place.font, part.c_str(), width);
+    } else {
+      place.lines[0] = fitParts(target, place.font, whole.c_str(), width);
+      place.count = 1;
+    }
+  }
+  place.inkHeight = toybox::inkHeight(target, place.font, place.count);
+  place.advance = target.lineHeight(place.font);
+  place.largestInk = toybox::inkHeight(target, rungs[0]);
+  return place;
+}
+
 void drawPlace(toybox::Screen& screen, const PlaceText& place, const int16_t x, const int16_t inkTop,
                const int16_t width) {
   for (int i = 0; i < place.count; ++i) {
@@ -759,7 +814,7 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names
     if (i > layout.first) hairline(screen, body.x, static_cast<int16_t>(y - kRowGap / 2), body.width);
     names.top[i] = y;
     if (model.rows[i].region[0]) {
-      const std::string region = toybox::fitLines(target, model.rows[i].region, body.width, 1, ink(toybox::kSmallFont));
+      const std::string region = fitParts(target, toybox::kSmallFont, model.rows[i].region, body.width);
       textAt(screen, body.x, static_cast<int16_t>(y + names.ink[i] + kLineGap), body.width, toybox::kSmallFont,
              region.c_str());
     }
@@ -802,7 +857,7 @@ void drawMain(toybox::Screen& screen, const MainModel& model, const Rebind& bind
   bind(kPlacePass);
   band(screen, "WEATHER", ActionMenu, nullptr);
   const fui::Rect body = screen.body();
-  const PlaceText place = fitPlace(screen, model.place, body.width, 2, kPlaceRungs, 2);
+  const PlaceText place = fitTitle(screen, model.place, model.region, body.width, 2, kPlaceRungs, 2);
   bind(kDataPass);
   const int16_t placeTop =
       model.hasForecast ? weekBlock(screen, model, place.inkHeight) : noWeekBlock(screen, model, place.inkHeight);
@@ -842,7 +897,7 @@ void drawMenu(toybox::Screen& screen, const MenuModel& model, const Rebind& bind
   const int16_t nameW = static_cast<int16_t>(rowWidth - kChevron - 3 * kGutter);
 
   bind(kPlacePass);
-  const PlaceText place = fitPlace(screen, model.place, nameW, 2, kPlaceRungs, 2);
+  const PlaceText place = fitTitle(screen, model.place, model.region, nameW, 2, kPlaceRungs, 2);
 
   bind(kMenuPass);
   band(screen, "WEATHER", ActionCloseMenu, "DONE");

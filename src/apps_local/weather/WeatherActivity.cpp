@@ -653,8 +653,10 @@ void WeatherActivity::loop() {
 
 weatherui::MainModel WeatherActivity::mainModel() {
   weatherui::MainModel model;
-  placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
-  model.place = placeTitle_.c_str();
+  placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
+  placeQualifier_ = weather::placeQualifier(place_.name, place_.region);
+  model.place = placeLabel_.c_str();
+  model.region = placeQualifier_.c_str();
   switch (status_) {
     case Status::Current:
       model.status = weatherui::Status::Current;
@@ -784,8 +786,10 @@ void WeatherActivity::render(RenderLock&&) {
     }
     case View::Menu: {
       weatherui::MenuModel model;
-      placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
-      model.place = placeTitle_.c_str();
+      placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
+      placeQualifier_ = weather::placeQualifier(place_.name, place_.region);
+      model.place = placeLabel_.c_str();
+      model.region = placeQualifier_.c_str();
       model.fahrenheit = place_.units == weather::Units::Fahrenheit;
       updated_ = haveCache_ ? weather::updatedLabel(cache_, nowOrZero(), SETTINGS.clockFormat == 1) : std::string();
       model.updated = updated_.c_str();

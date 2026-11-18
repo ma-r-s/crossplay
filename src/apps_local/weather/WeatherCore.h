@@ -198,10 +198,13 @@ std::string cleanName(const std::string& raw, CanDraw canDraw);
 // its region, or when nothing of that did either, its coordinates
 // ("35.69N 139.69E"). Never empty.
 std::string placeLabel(const std::string& name, const std::string& region, double lat, double lon);
-// The label with the first part of the region that is not the name again, so
-// one Springfield is told from the next: "Springfield, Illinois", "Zurich,
-// Switzerland" (for a Zurich whose canton is also Zurich). Just the label when there is no such part.
-std::string placeTitle(const std::string& name, const std::string& region, double lat, double lon);
+// What tells a place from another of the name: the first part of its region
+// that is not the name again ("Illinois" for a Springfield, "Switzerland" for
+// a Zurich whose canton is also Zurich). Empty when there is no such part, and
+// when the name could not be drawn, since the label is then the region itself
+// or the coordinates. The screens set it after the label, a comma between,
+// and keep it whole: it is never cut, and never the first thing lost.
+std::string placeQualifier(const std::string& name, const std::string& region);
 
 // The search as typed: ASCII the keyboard sent, trimmed, spaces collapsed.
 // Two characters is the least the geocoder answers.

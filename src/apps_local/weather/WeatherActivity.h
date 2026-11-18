@@ -123,7 +123,8 @@ class WeatherActivity final : public Activity {
   bool haveCache_ = false;
 
   // Strings the models point into, kept alive for the paint.
-  std::string placeTitle_;
+  std::string placeLabel_;
+  std::string placeQualifier_;
   std::string updated_;
 
   // Search.

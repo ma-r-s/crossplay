@@ -1021,9 +1021,8 @@ std::string placeLabel(const std::string& name, const std::string& region, const
   return coordinates(lat, lon);
 }
 
-std::string placeTitle(const std::string& name, const std::string& region, const double lat, const double lon) {
-  const std::string label = placeLabel(name, region, lat, lon);
-  if (name.empty()) return label;
+std::string placeQualifier(const std::string& name, const std::string& region) {
+  if (name.empty()) return std::string();
   // The first part of the region that is not the name again: the state, the
   // province, or the country when the region is only that.
   size_t start = 0;
@@ -1031,10 +1030,10 @@ std::string placeTitle(const std::string& name, const std::string& region, const
     size_t comma = region.find(", ", start);
     if (comma == std::string::npos) comma = region.size();
     const std::string part = region.substr(start, comma - start);
-    if (!part.empty() && !sameName(part, name)) return label + ", " + part;
+    if (!part.empty() && !sameName(part, name)) return part;
     start = comma + 2;
   }
-  return label;
+  return std::string();
 }
 
 std::string cleanQuery(const std::string& typed) {

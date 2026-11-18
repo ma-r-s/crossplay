@@ -332,20 +332,20 @@ void testPlaceLabelIsNeverEmpty() {
   CHECK_EQ_STR(weather::placeLabel("", "", 40.71, -74.01), "40.71N 74.01W");
 }
 
-void testPlaceTitleTellsSameNamesApart() {
+void testPlaceQualifierTellsSameNamesApart() {
   // The first part of the region: the state for a Springfield, the country
   // where the region is only that.
-  CHECK_EQ_STR(weather::placeTitle("Springfield", "Illinois, United States", 39.8, -89.6), "Springfield, Illinois");
-  CHECK_EQ_STR(weather::placeTitle("Springfield", "Missouri, United States", 37.2, -93.3), "Springfield, Missouri");
-  CHECK_EQ_STR(weather::placeTitle("Lisbon", "Portugal", 38.7, -9.1), "Lisbon, Portugal");
+  CHECK_EQ_STR(weather::placeQualifier("Springfield", "Illinois, United States"), "Illinois");
+  CHECK_EQ_STR(weather::placeQualifier("Springfield", "Missouri, United States"), "Missouri");
+  CHECK_EQ_STR(weather::placeQualifier("Lisbon", "Portugal"), "Portugal");
   // A region that opens with the name again skips to what follows it.
-  CHECK_EQ_STR(weather::placeTitle("Zürich", "Zurich, Switzerland", 47.4, 8.6), "Zürich, Switzerland");
-  CHECK_EQ_STR(weather::placeTitle("Singapore", "", 1.3, 103.9), "Singapore");
-  CHECK_EQ_STR(weather::placeTitle("Singapore", "Singapore", 1.3, 103.9), "Singapore");
+  CHECK_EQ_STR(weather::placeQualifier("Zürich", "Zurich, Switzerland"), "Switzerland");
+  CHECK_EQ_STR(weather::placeQualifier("Singapore", ""), "");
+  CHECK_EQ_STR(weather::placeQualifier("Singapore", "Singapore"), "");
   // A name that could not be drawn is already the region or the coordinates:
   // nothing is said twice.
-  CHECK_EQ_STR(weather::placeTitle("", "Russia", 55.8, 37.6), "Russia");
-  CHECK_EQ_STR(weather::placeTitle("", "", 35.69, 139.69), "35.69N 139.69E");
+  CHECK_EQ_STR(weather::placeQualifier("", "Russia"), "");
+  CHECK_EQ_STR(weather::placeQualifier("", ""), "");
 }
 
 void testCleanQuery() {
@@ -686,7 +686,7 @@ int main() {
   testNonLatinNamesKeepWhatCanBeDrawn();
   testCleanNameKeepsLettersAndDropsTheRest();
   testPlaceLabelIsNeverEmpty();
-  testPlaceTitleTellsSameNamesApart();
+  testPlaceQualifierTellsSameNamesApart();
   testCleanQuery();
   testUrls();
   testPlaceRoundTrips();

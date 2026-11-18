@@ -112,9 +112,13 @@ struct DayRow {
 };
 
 struct MainModel {
-  // "Springfield, Illinois": the place and what tells it from another of the
-  // name (weather::placeTitle). Never empty.
+  // The place (weather::placeLabel, never empty) and what tells it from
+  // another of the name (weather::placeQualifier, "Illinois"; may be empty),
+  // drawn "Springfield, Illinois". The qualifier is a whole part: when the
+  // two will not fit together it takes the last line of its own and the name
+  // gives way, so it is never cut and never the first thing lost.
   const char* place = "";
+  const char* region = "";
 
   // A forecast with today in it is on the card. Without one the screen says
   // why, and offers a way to try again when that can help.
@@ -194,6 +198,7 @@ SearchLayout drawSearch(toybox::Screen& screen, const SearchModel& model, const 
 
 struct MenuModel {
   const char* place = "";  // as on the main screen
+  const char* region = "";
   bool fahrenheit = false;
   const char* updated = "";  // "UPDATED 14:07", or empty before any forecast
 };

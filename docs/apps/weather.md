@@ -106,11 +106,17 @@ A place's name is laid out here, line by line, rather than by the component:
 a line may end at a space or after a hyphen, so
 "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson" takes its second line before
 anything is cut. The ladder is bold 16 then bold 12, two lines, on the main
-screen and in the menu's row alike, so the region is never the first thing
-lost; a name too long for both is cut once, after its last whole word, and
-marked with an ellipsis, and through a word only when its first word alone
-will not fit. In the search list the names keep bold 16 and take two
-lines. A place with no region (a name that cleaned to nothing falls back to its
+screen and in the menu's row alike. The name and what tells it apart
+("Illinois", `weather::placeQualifier`) are fitted together, "Springfield,
+Illinois", and when they will not go together the qualifier takes the last
+line to itself, whole, and the name has the lines above it: the region is
+never the first thing lost, and a one-word name wider than a line
+("Llanfairpwllgwyngyllgogerychwyrndrobwll...") keeps "Wales" under it. A name
+is cut once, after its last whole word, and through a word only when its
+first word alone will not fit. A region line in the search list keeps whole
+parts ("North Rhine-Westphalia..."), so no cut ends on the comma between two.
+In the search list the names take the same ladder, measured and drawn in the
+place's own pass. A place with no region (a name that cleaned to nothing falls back to its
 coordinates) is one line, not a line and an empty one.
 
 ## The main screen
