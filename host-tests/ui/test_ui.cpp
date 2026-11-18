@@ -16444,26 +16444,32 @@ void theFieldShowsTheEndOfWhatWasTyped() {
   CHECK(spr && faceOf(*spr, face) && face == weatherui::Face::ReadingBold);
 }
 
-// A place's name is bold on every row however long it is: it takes a second
-// line, never the regular cut.
+// A place's name in the list is fitted as it is everywhere else: bold 16,
+// then bold 12, two lines, and never the regular cut the regions are set in
+// ("Saint-Remy-en-Bouzemont-Saint-Genest..." was cut at bold 16 while bold 12
+// held all of it).
 void longNamesInTheListKeepTheirWeight() {
-  weatherui::SearchModel m = results(2);
-  m.rows[0].name = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson";
-  Rendered out;
-  buildSearch(out, m);
-  const std::string name = m.rows[0].name;
-  int lines = 0;
-  std::string whole;
-  for (const auto& run : out.target.texts) {
-    if (run.text.size() < 4 || name.find(run.text) == std::string::npos) continue;
-    ++lines;
-    whole += run.text;
-    weatherui::Face face{};
-    CHECK(faceOf(run, face) && face == weatherui::Face::ReadingBold);
+  for (const char* longName : {"Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson",
+                               "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson-sur-la-Riviere-du-Nord-et-du-Sud"}) {
+    weatherui::SearchModel m = results(2);
+    m.rows[0].name = longName;
+    Rendered out;
+    buildSearch(out, m);
+    const std::string name = longName;
+    int lines = 0;
+    std::string whole;
+    for (const auto& run : out.target.texts) {
+      if (run.text.size() < 4 || name.find(run.text) == std::string::npos) continue;
+      ++lines;
+      whole += run.text;
+      weatherui::Face face{};
+      CHECK(faceOf(run, face) && (face == weatherui::Face::ReadingBold || face == weatherui::Face::ReadingBoldSmall));
+    }
+    CHECK(lines == 2);
+    if (whole != name) std::printf("  weather list name drawn as \"%s\"\n", whole.c_str());
+    CHECK(whole == name);
+    CHECK(clean(out, "search, long name"));
   }
-  CHECK(lines == 2);
-  CHECK(whole == name);
-  CHECK(clean(out, "search, long name"));
 }
 
 void searchSaysWhatHappened() {

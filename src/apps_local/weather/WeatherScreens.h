@@ -72,8 +72,8 @@ constexpr Pass kPlacePass{Face::ReadingBoldSmall, Face::ReadingBold, Face::Displ
 constexpr Pass kDataPass{Face::Button, Face::Ui, Face::Huge};
 // The menu's band, labels and buttons: Jersey.
 constexpr Pass kMenuPass{Face::Button, Face::Ui, Face::Display};
-// The search: what was typed and the names bold, regions and sentences
-// regular, the band in Jersey.
+// The search: what was typed bold, regions and sentences regular, the band in
+// Jersey. The places' names are measured and drawn in kPlacePass.
 constexpr Pass kSearchPass{Face::Reading, Face::ReadingBold, Face::Display};
 
 // Binds a pass's faces into the target the screen is drawing on: a function
@@ -183,7 +183,8 @@ struct SearchLayout {
   int shown = 0;
 };
 
-// Binds kSearchPass.
+// Binds kPlacePass (the names measured), kSearchPass (everything else), then
+// kPlacePass again (the names drawn).
 SearchLayout drawSearch(toybox::Screen& screen, const SearchModel& model, const Rebind& bind);
 
 // --- Menu ----------------------------------------------------------------------

@@ -627,7 +627,15 @@ int pageFrom(const int16_t* heights, const int count, const int first, const int
   return end;
 }
 
-SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model) {
+// The ink height of each place's name and where the layout put it, carried
+// from the pass that measures names to the pass that draws them.
+struct Names {
+  int16_t ink[weather::kMaxMatches] = {};
+  int16_t top[weather::kMaxMatches] = {};
+  int16_t x = 0;
+};
+
+SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names& names) {
   band(screen, model.firstRun ? "CHOOSE A CITY" : "CHANGE CITY", fui::NO_ACTION, nullptr);
   const fui::Rect body = screen.body();
   const fui::DrawTarget& target = screen.target();
@@ -699,15 +707,15 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model) {
       break;
   }
 
-  // Each place: its name in bold on up to two lines, its region a line under
-  // it when it has one. A place with no region is one line tall, not two.
+  // Each place: its name (measured and drawn in kPlacePass, like the place on
+  // every other screen), its region a line under it when it has one. A place
+  // with no region is one line tall, not two.
   const int count = model.rowCount < weather::kMaxMatches ? model.rowCount : weather::kMaxMatches;
   if (count <= 0) return layout;
-  const fui::FontId nameRungs[] = {toybox::kBodyFont};
+  names.x = body.x;
   int16_t heights[weather::kMaxMatches] = {};
   for (int i = 0; i < count; ++i) {
-    const PlaceText name = fitPlace(screen, model.rows[i].name, body.width, 2, nameRungs, 1);
-    heights[i] = static_cast<int16_t>(name.inkHeight + (model.rows[i].region[0] ? kLineGap + smallCap : 0));
+    heights[i] = static_cast<int16_t>(names.ink[i] + (model.rows[i].region[0] ? kLineGap + smallCap : 0));
   }
 
   // Pages, so every place can be reached: rows from the field to the foot,
@@ -729,11 +737,10 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model) {
 
   for (int i = layout.first; i < layout.first + layout.shown; ++i) {
     if (i > layout.first) hairline(screen, body.x, static_cast<int16_t>(y - kRowGap / 2), body.width);
-    const PlaceText name = fitPlace(screen, model.rows[i].name, body.width, 2, nameRungs, 1);
-    drawPlace(screen, name, body.x, y, body.width);
+    names.top[i] = y;
     if (model.rows[i].region[0]) {
       const std::string region = toybox::fitLines(target, model.rows[i].region, body.width, 1, ink(toybox::kSmallFont));
-      textAt(screen, body.x, static_cast<int16_t>(y + name.inkHeight + kLineGap), body.width, toybox::kSmallFont,
+      textAt(screen, body.x, static_cast<int16_t>(y + names.ink[i] + kLineGap), body.width, toybox::kSmallFont,
              region.c_str());
     }
     // The whole row answers, out to the rules either side of it.
@@ -786,8 +793,23 @@ void drawMain(toybox::Screen& screen, const MainModel& model, const Rebind& bind
 // --- Search ---------------------------------------------------------------------------
 
 SearchLayout drawSearch(toybox::Screen& screen, const SearchModel& model, const Rebind& bind) {
+  // The names first, in the place's faces, so a long one steps down to bold
+  // 12 rather than to the regular cut the regions are set in; then the rest;
+  // then the names where the rest put them.
+  const int count = model.rowCount < weather::kMaxMatches ? model.rowCount : weather::kMaxMatches;
+  const int16_t width = bodyWidth(screen);
+  Names names;
+  bind(kPlacePass);
+  for (int i = 0; i < count; ++i) {
+    names.ink[i] = fitPlace(screen, model.rows[i].name, width, 2, kPlaceRungs, 2).inkHeight;
+  }
   bind(kSearchPass);
-  return buildSearch(screen, model);
+  const SearchLayout layout = buildSearch(screen, model, names);
+  bind(kPlacePass);
+  for (int i = layout.first; i < layout.first + layout.shown; ++i) {
+    drawPlace(screen, fitPlace(screen, model.rows[i].name, width, 2, kPlaceRungs, 2), names.x, names.top[i], width);
+  }
+  return layout;
 }
 
 // --- Menu ------------------------------------------------------------------------------
