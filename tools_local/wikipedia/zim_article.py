@@ -848,7 +848,7 @@ class Converter:
                 if j and c == cells[j - 1]:
                     continue
                 c = cut_words(c.strip(), TABLE_ROW_CELL_WORDS)
-                if not c or c in ("-", "–", "—", "−") or c.endswith(":"):
+                if not c or c in ("-", "\u2013", "\u2014", "\u2212") or c.endswith(":"):
                     continue
                 label = labels[j] if j < len(labels) else ""
                 if not parts:
