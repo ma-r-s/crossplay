@@ -422,8 +422,12 @@ class PackWriter:
         level=ZSTD_LEVEL,
         batch_blocks=512,
         workers=None,
+        meta=None,
     ):
         self.out_dir = out_dir
+        # extra manifest fields a pack in a language other than the first
+        # carries: "lang", "name", "facts", "source" (see the format doc)
+        self.meta = dict(meta or {})
         self.pack = pack
         self.snapshot = snapshot
         self.tier_names = [name for name, _ in tiers]
@@ -678,6 +682,9 @@ class PackWriter:
             "shards": self.shards,
             "tiers": tiers,
         }
+        for k, v in self.meta.items():
+            if v is not None and k not in manifest:
+                manifest[k] = v
         tmp = os.path.join(self.out_dir, "manifest.json.part")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, ensure_ascii=False)

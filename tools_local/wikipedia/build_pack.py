@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Build the Wikipedia pack from structured-wikipedia rows.
+"""Build the Wikipedia pack from structured-wikipedia rows or a ZIM file.
 
     build_pack.py --rows rows.jsonl.gz [--rows more.jsonl] --out DIR
                   [--vital vital.json | --no-vital] [--tier essentials=N]
                   [--redirects redirects.tsv] [--snapshot YYYY-MM-DD]
+    build_pack.py --zim wikipedia_de_top_nopic_2026-10.zim --out DIR
+
+A ZIM (Kiwix's archive, published for every Wikipedia language) is read by
+zim_source.py and converted by zim_article.py; its language, snapshot date
+and redirect list come from the file, its words from languages.py, and the
+pack is one tier ordered by title (a top set has no importance order to
+cut). Everything after the conversion is the same code for both inputs.
 
 Reads rows (one JSON object per line, jsonl or jsonl.gz, the columns of
 wikimedia/structured-wikipedia), converts each with article_html.py, orders
@@ -177,9 +184,10 @@ def read_redirects(path):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument(
-        "--rows", action="append", required=True, help="jsonl or jsonl.gz, repeatable"
-    )
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--rows", action="append", help="jsonl or jsonl.gz, repeatable")
+    src.add_argument("--zim", help="a Kiwix ZIM file (any language)")
+    ap.add_argument("--workers", type=int, help="conversion processes (ZIM only; default: every core)")
     ap.add_argument(
         "--out",
         required=True,
@@ -197,7 +205,7 @@ def main(argv=None):
     )
     ap.add_argument("--redirects", help="TSV of redirect<TAB>target")
     ap.add_argument("--snapshot", help="YYYY-MM-DD (default: the newest date_modified)")
-    ap.add_argument("--pack", default="en")
+    ap.add_argument("--pack", help="pack code (default: en, or the ZIM's language)")
     ap.add_argument("--block-bytes", type=int, default=pf.BLOCK_TARGET)
     ap.add_argument("--shard-bytes", type=int, default=pf.SHARD_BYTES)
     ap.add_argument("--dict-bytes", type=int, default=pf.DICT_BYTES)
@@ -217,8 +225,27 @@ def main(argv=None):
 
     t0 = time.time()
     stats = {}
-    say(f"reading {len(args.rows)} row file(s)")
-    articles = convert_rows(args.rows, stats, args.limit)
+    zim_redirects = []
+    meta = {}
+    if args.zim:
+        import languages
+        import zim_source
+
+        articles, zim_redirects, zmeta = zim_source.convert_zim(
+            args.zim, args.pack, stats, workers=args.workers, limit=args.limit, log=say
+        )
+        args.pack = args.pack or zmeta["lang"]
+        profile = languages.profile(args.pack)
+        stats["snapshot"] = zmeta["snapshot"]
+        # a ZIM top set has no importance order to cut: one tier, by title
+        args.no_vital = True
+        if not args.tier:
+            args.tier = ["essentials=all"]
+        meta = {"lang": args.pack, "name": profile["name"], "facts": profile["facts"], "source": zmeta["source"]}
+    else:
+        args.pack = args.pack or "en"
+        say(f"reading {len(args.rows)} row file(s)")
+        articles = convert_rows(args.rows, stats, args.limit)
     if not articles:
         sys.exit("no articles")
     say(
@@ -258,6 +285,7 @@ def main(argv=None):
         tiers=tiers,
         block_target=args.block_bytes,
         shard_bytes=args.shard_bytes,
+        meta=meta,
     )
     rng = random.Random(args.seed)
     sample_titles = (
@@ -275,7 +303,7 @@ def main(argv=None):
 
     # Every title the pack answers to, before any article is written: a link
     # to anything else is dropped to plain text, so no link in a pack is dead.
-    redirects = read_redirects(args.redirects)
+    redirects = read_redirects(args.redirects) + zim_redirects
     known = set(articles)
     known.update(title for title, target in redirects if target in articles)
     say(f"writing {len(order):,} articles")
@@ -285,12 +313,21 @@ def main(argv=None):
         writer.add_article(title, headings, xhtml)
         if (i + 1) % 5000 == 0:
             say(f"  {i + 1:,} written, {len(writer.shards)} shards closed")
-    kept = dropped = 0
+    kept = dropped = variants = 0
     for title, target in redirects:
+        # "STRABAG" to "Strabag": the index looks every title up folded, so
+        # a redirect that only differs in case or accents is found anyway,
+        # and as an entry of its own it filled the search list with one
+        # article five times
+        if fold(title) == fold(target):
+            variants += 1
+            continue
         if target in writer.by_title and writer.add_redirect(title, target):
             kept += 1
         else:
             dropped += 1
+    if variants:
+        stats["redirects_case_variants"] = variants
     # "Mozart, Wolfgang Amadeus": the surname entry every printed index has,
     # so a person is found by the name people know.
     names = 0
@@ -343,6 +380,14 @@ def main(argv=None):
         "seconds": round(time.time() - t0, 1),
         "built": manifest["built"],
     }
+    if args.zim:
+        # the next language's skip list is written from this: the sections
+        # that are apparatus show up as the most common names
+        counts = {}
+        for headings, _ in articles.values():
+            for h in headings:
+                counts[h] = counts.get(h, 0) + 1
+        summary["headings_top"] = sorted(counts.items(), key=lambda kv: -kv[1])[:40]
     # every other counter the converter kept (tables_listed, hatnotes_dropped,
     # navboxes_dropped, empty_sections_dropped, compat_folded, ...), so a new
     # rule's count reaches the report without a summary edit
