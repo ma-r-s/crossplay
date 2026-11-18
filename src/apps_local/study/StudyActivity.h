@@ -26,10 +26,12 @@
 #include "StudyFonts.h"
 #include "StudyFsrs.h"
 #include "StudyImages.h"
+#include "StudyPaging.h"
 #include "StudyScheduler.h"
 #include "StudyScreens.h"
 #include "StudyStats.h"
 #include "StudySync.h"
+#include "StudyText.h"
 
 struct Rect;
 
@@ -134,14 +136,33 @@ class StudyActivity final : public Activity {
   // cloze card has no headword, no reading and no example sentence, and
   // threading four more conditionals through drawCard hid both.
   int layoutClozeCard(const Rect& body, bool measureOnly);
-  // A built-in size, `fontStep_` steps smaller; a deck's own face as it
-  // is, since it is subset to the deck and has no smaller cut.
+  // A built-in size, `fontStep_` steps smaller, or the 10pt cut when the
+  // card holds a word wider than a line even at 12pt; a deck's own face as
+  // it is, since it is subset to the deck and has no smaller cut.
   int sized(int fontId) const;
+  // The hairline between two fields: drawn at once on a face that fits, and
+  // handed to the next line on a paged one, so it lands on that line's page.
+  void fieldRule(int y, bool measureOnly);
   // How far down the built-in sizes the current card had to step to fit,
   // the last row its text may reach, and whether anything was left below it.
   int fontStep_ = 0;
+  bool tinyText_ = false;
   int clipBottom_ = INT_MAX;
   mutable bool clipped_ = false;
+  // The face's pages, and what a word wider than a line does (StudyText.h).
+  // Unpaged (height 0) whenever the face fits its body.
+  mutable study::TextFlow textFlow_;
+  // The page on screen, counted from 0, and how many the face has. The count
+  // is the one the last paint drew; a reveal or a new card resets both until
+  // the next paint measures again.
+  int cardPage_ = 0;
+  int cardPages_ = 1;
+
+  // The card body: between the header and the footer. One place, so the
+  // pager the paint draws and the pager a tap is tested against are the same.
+  Rect cardBody() const;
+  // A press, a swipe or a tap on the card view, routed by StudyPaging.h.
+  void applyCardInput(study::CardInput input, int footerSlot = 0);
 
   HalFile deckFile_;
   HalFile cardFile_;

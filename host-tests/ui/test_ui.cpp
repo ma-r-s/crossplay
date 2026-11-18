@@ -5458,6 +5458,121 @@ void testStudyPanelSaysSoWhenItHasNothing() {
   CHECK(!some.target.drew("NOTHING RECORDED YET"));
 }
 
+// --- the study card pager (card #761) ----------------------------------------
+//
+// A card longer than its screen pages, and the pager at the foot of the card
+// body is the touch route to the pages the side keys turn. Drawn into the
+// card body the review screen uses: below the header, above the 128px footer.
+
+fui::Rect studyCardBody() { return fui::makeRect(0, 89, 480, 800 - 89 - 128); }
+
+bool insideRect(const fui::Rect& outer, const fui::Rect& inner) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.right() <= outer.right() && inner.bottom() <= outer.bottom();
+}
+
+bool pointInside(const fui::Rect& outer, const fui::Point& p) {
+  return p.x >= outer.x && p.x <= outer.right() && p.y >= outer.y && p.y <= outer.bottom();
+}
+
+void testStudyPagerTakesTheFootOfTheCard() {
+  const fui::Rect body = studyCardBody();
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(body);
+  // The band is the foot of the body, so the card's text stops above it and
+  // the footer below it is untouched.
+  CHECK(pager.band.y == body.bottom() - studyui::kCardPagerBand);
+  CHECK(pager.band.bottom() == body.bottom());
+  CHECK(pager.band.x == body.x && pager.band.width == body.width);
+  CHECK(insideRect(pager.band, pager.pill));
+  CHECK(pager.pill.x - body.x == body.right() - pager.pill.right());  // centred
+  // The two targets are inside the band, do not overlap, and each covers the
+  // arrow drawn at its end of the pill.
+  CHECK(insideRect(pager.band, pager.previous));
+  CHECK(insideRect(pager.band, pager.next));
+  CHECK(pager.previous.right() <= pager.next.x);
+  CHECK(pager.previous.x <= pager.pill.x && pager.previous.right() > pager.pill.x + 20);
+  CHECK(pager.next.right() >= pager.pill.right() && pager.next.x < pager.pill.right() - 20);
+}
+
+void testStudyPagerDrawsOnlyForALongFace() {
+  const fui::Rect body = studyCardBody();
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(body);
+
+  // One page: nothing at all, so a card that fits looks as it always did.
+  Rendered single;
+  studyui::drawCardPager(single.target, pager, 0, 1);
+  CHECK(single.target.texts.empty() && single.target.fills.empty() && single.target.strokes.empty() &&
+        single.target.lines.empty());
+
+  // Three pages, on the first: the count, the outline, and both chevrons, all
+  // inside the band.
+  Rendered first;
+  studyui::drawCardPager(first.target, pager, 0, 3);
+  CHECK(first.target.drew("1 / 3"));
+  CHECK(first.target.outlined(pager.pill));
+  bool linesInside = !first.target.lines.empty();
+  for (const auto& segment : first.target.lines) {
+    linesInside = linesInside && pointInside(pager.pill, segment.a) && pointInside(pager.pill, segment.b);
+  }
+  CHECK(linesInside);
+  // Two strokes per chevron, two dividers.
+  CHECK(first.target.lines.size() == 6);
+  // The count sits inside the pill, one line of it.
+  CHECK(first.target.texts.size() == 1);
+  for (const auto& run : first.target.texts) CHECK(insideRect(pager.pill, run.rect) && run.style.maxLines == 1);
+}
+
+// Whether a dithered ground was laid over the left or the right end of the pill.
+bool dimmedAt(const Rendered& out, const studyui::CardPagerLayout& pager, const bool right) {
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    if (out.target.fillPaints[i].kind != fui::PaintKind::Dither) continue;
+    const fui::Rect& rect = out.target.fills[i];
+    const int centre = rect.x + rect.width / 2;
+    if (right ? centre > pager.pill.x + pager.pill.width / 2 : centre < pager.pill.x + pager.pill.width / 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void testStudyPagerDimsTheSpentArrow() {
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(studyCardBody());
+  // A control that cannot act dims; it does not disappear
+  // (docs/design-language.md). Both arrows are always drawn.
+  Rendered first;
+  studyui::drawCardPager(first.target, pager, 0, 3);
+  CHECK(dimmedAt(first, pager, false));
+  CHECK(!dimmedAt(first, pager, true));
+
+  Rendered middle;
+  studyui::drawCardPager(middle.target, pager, 1, 3);
+  CHECK(middle.target.drew("2 / 3"));
+  CHECK(!dimmedAt(middle, pager, false));
+  CHECK(!dimmedAt(middle, pager, true));
+
+  Rendered last;
+  studyui::drawCardPager(last.target, pager, 2, 3);
+  CHECK(last.target.drew("3 / 3"));
+  CHECK(!dimmedAt(last, pager, false));
+  CHECK(dimmedAt(last, pager, true));
+  CHECK(last.target.lines.size() == first.target.lines.size());
+}
+
+void testStudyPagerArrowsAreWhereTheyAreDrawn() {
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(studyCardBody());
+  const int midY = pager.pill.y + pager.pill.height / 2;
+  using Hit = studyui::CardPagerHit;
+  // On each chevron, and beside it out to the edge of the band.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, midY) == Hit::Previous);
+  CHECK(studyui::cardPagerHit(pager, pager.pill.right() - 22, midY) == Hit::Next);
+  CHECK(studyui::cardPagerHit(pager, 2, pager.band.y + 2) == Hit::Previous);
+  CHECK(studyui::cardPagerHit(pager, 477, pager.band.bottom() - 2) == Hit::Next);
+  // The count between them takes the tap and is neither.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + pager.pill.width / 2, midY) == Hit::Between);
+  // Above the band is the card, and below it the footer.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, pager.band.y - 1) == Hit::Outside);
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, pager.band.bottom()) == Hit::Outside);
+}
+
 void testStudyWarnsWhenAReviewDidNotSave() {
   int forecast[studyui::kForecastDays] = {};
   studyui::DeckModel model = deckWithWork(forecast);
@@ -15100,6 +15215,10 @@ int main() {
   testStudyRecordShowsTheStreak();
   testStudyPanelSaysSoWhenItHasNothing();
   testStudyWarnsWhenAReviewDidNotSave();
+  testStudyPagerTakesTheFootOfTheCard();
+  testStudyPagerDrawsOnlyForALongFace();
+  testStudyPagerDimsTheSpentArrow();
+  testStudyPagerArrowsAreWhereTheyAreDrawn();
   testInsiderCitizenIsNeverToldTheWord();
   testInsiderFaceDownCardShowsNothingAtAll();
   testInsiderFaceDownCardTakesATapAnywhere();

@@ -55,6 +55,13 @@ Chan), whose independently compiled table this one is checked against byte for
 byte. Full text at `assets_local/go/LICENSE-ardugo`, with the derivation in
 `assets_local/go/README.md`.
 
+**CrossNext**, MIT, by manuelx900, from
+[manuelx900/CrossNext](https://github.com/manuelx900/CrossNext), a fork built
+from CrossPlay that carries this repository's own LICENSE. Study's long-card
+paging adapts its design: the page arithmetic in
+`src/apps_local/study/StudyText.h` (`TextPages`) and the page-turn rule in
+`src/apps_local/study/StudyPaging.h`.
+
 **Libraries linked into the build**, each under its own licence as published:
 
 | Library               | Author          |
