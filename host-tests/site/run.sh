@@ -247,9 +247,10 @@ else
     grep -q "id=\"$id\"" "$WP" && ok || bad "wikipedia.js asks for #$id and wikipedia/index.html has no such element"
   done
 fi
-# The page must reach the pack through one constant, and the manifest must be
-# written LAST: the device treats a pack as present the moment it sees it.
-grep -q '^const PACK_BASE_URL = "https://' "$WJ" && ok || bad "wikipedia.js has no PACK_BASE_URL constant at the top"
+# The page must reach the packs through one constant (the host; each language
+# is a folder of it), and the manifest must be written LAST: the device treats
+# a pack as present the moment it sees it.
+grep -q '^const PACK_HOST = "https://' "$WJ" && ok || bad "wikipedia.js has no PACK_HOST constant at the top"
 last_write="$(grep -nE 'writeText\(wiki, "manifest.json"|copyOne\(wiki, step' "$WJ" | tail -1)"
 printf '%s' "$last_write" | grep -q 'manifest.json' && ok || bad "wikipedia.js does not write manifest.json after the last copy"
 # ?mock=1 must be the ONLY thing that points the page away from the pack host.

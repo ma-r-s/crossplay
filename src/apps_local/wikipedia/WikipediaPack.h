@@ -35,20 +35,28 @@ struct Article {
 
 class Pack {
  public:
-  static constexpr const char* kDir = "/wikipedia";
-  static constexpr const char* kManifestPath = "/wikipedia/manifest.json";
-  static constexpr const char* kStatePath = "/wikipedia/state.json";
+  static constexpr const char* kRoot = "/wikipedia";
   static constexpr const char* kInstallPath = "/wikipedia/install.json";
+  // Every pack on the card is listed (install.json names them all); the
+  // chooser shows the first wikiui::kMaxPacks. A bound, not a design limit.
+  static constexpr size_t kMaxListed = 32;
 
   Pack() = default;
   ~Pack();
   Pack(const Pack&) = delete;
   Pack& operator=(const Pack&) = delete;
 
-  // True when a manifest is on the card and the dictionary, the directory and
-  // at least the first title index loaded. A pack with no shard present at
-  // all still opens: search works and every article says "not on the card".
-  bool open();
+  // Every pack on the card: the root's (dir "") first, then each folder of
+  // /wikipedia holding a manifest, by name. Reads each manifest and state.
+  static std::vector<PackSummary> discover();
+  // install.json, written whole; `json` is installJson()'s.
+  static bool writeInstallJson(const std::string& json);
+
+  // True when a manifest is in `dir` ("" is /wikipedia itself, "de" is
+  // /wikipedia/de) and the dictionary, the directory and at least the first
+  // title index loaded. A pack with no shard present at all still opens:
+  // search works and every article says "not on the card".
+  bool open(const std::string& dir = "");
   void close();
   bool isOpen() const { return open_; }
   // The dictionary and the block directory (half a megabyte off the card)
@@ -58,6 +66,7 @@ class Pack {
   bool warm();
   bool isWarm() const { return warm_; }
   const Manifest& manifest() const { return manifest_; }
+  const std::string& folder() const { return folder_; }
   int shardsPresent() const { return shardsPresent_; }
   int shardsTotal() const { return static_cast<int>(manifest_.shards.size()); }
   // The essentials tier's shard count, 1 when the manifest names no tiers.
@@ -76,12 +85,10 @@ class Pack {
 
   bool loadState(State& state) const;
   bool saveState(const State& state) const;
-  // What the install page may read to know the drive and what is already on
-  // it. `freeBytes` negative writes null: the count walks the whole FAT, so
-  // the install screen no longer asks.
-  bool writeInstallJson(int64_t freeBytes, const char* firmwareVersion, const char* deviceName) const;
 
  private:
+  // A file of this pack: "<pack folder>/<name>".
+  std::string filePath(const std::string& name) const { return packPath(folder_) + "/" + name; }
   bool loadManifest();
   bool loadDict();
   bool loadDirectory();
@@ -93,6 +100,7 @@ class Pack {
 
   bool open_ = false;
   bool warm_ = false;
+  std::string folder_;
   Manifest manifest_;
   BlocksDir dir_;
   std::unique_ptr<FileSource> dirSource_;  // blocks.dir stays on the card; dir_ reads records from it

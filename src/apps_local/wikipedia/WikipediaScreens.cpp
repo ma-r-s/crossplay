@@ -101,7 +101,7 @@ fui::StyleSet bandOutlineStyles() {
 // reader cut rather than Jersey: the activity binds the reader's faces so the
 // title has real cuts to step through, and three slots is all there are.
 void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel = nullptr,
-            const fui::ActionId trailingAction = 0, const bool back = false, const bool reading = false,
+            const fui::ActionId trailingAction = 0, const fui::ActionId backAction = 0, const bool reading = false,
             const freeink::Icon* trailingIcon = nullptr) {
   fui::HeaderProps header;
   header.title = title;
@@ -115,9 +115,9 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
     header.trailingStyles = bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
   }
-  if (back) {
+  if (backAction != 0) {
     header.leadingIcon = fui::bitmapFromIcon(icon_wiki_back_32);
-    header.leadingAction = ActionPrevious;
+    header.leadingAction = backAction;
     header.leadingStyles = bandOutlineStyles();
     header.leadingRadius = toybox::kPillRadius / 2;
   }
@@ -338,7 +338,8 @@ int16_t footerHeight(toybox::Screen& screen) {
 // trail) above the count line, and above the keyboard when that is up. With
 // a query: the matches.
 void buildSearch(toybox::Screen& screen, const SearchModel& model) {
-  chrome(screen, "WIKIPEDIA");
+  chrome(screen, model.bandTitle ? model.bandTitle : "WIKIPEDIA", nullptr, 0,
+         model.languagesBack ? ActionLanguages : 0);
   const fui::Rect body = screen.body();
   const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
   const bool empty = model.query == nullptr || model.query[0] == '\0';
@@ -399,7 +400,7 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
 }
 
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model) {
-  chrome(screen, model.title, nullptr, ActionContents, model.back, true,
+  chrome(screen, model.title, nullptr, ActionContents, model.back ? ActionPrevious : 0, true,
          model.contents ? &icon_wiki_contents_32 : nullptr);
   const fui::Rect body = screen.body();
   return fui::Rect{body.x, body.y, body.width, static_cast<int16_t>(body.height - footerHeight(screen))};
@@ -433,7 +434,7 @@ void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model)
 }
 
 int buildContents(toybox::Screen& screen, const ContentsModel& model) {
-  chrome(screen, model.title, "CLOSE", ActionClose, false, true);
+  chrome(screen, model.title, "CLOSE", ActionClose, 0, true);
   const fui::Rect body = screen.body();
   int16_t y = static_cast<int16_t>(body.y + 8);
   // Room for the window line under the rows.
@@ -516,8 +517,10 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
     screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
   }
   y = static_cast<int16_t>(y + lineHeight + 10);
+  // No time here. It depends on the language and the route, which the page
+  // knows and this screen does not, and the page states it beside the choice.
   drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
-            "Open this in Chrome or Edge on a computer. About ten minutes.", fui::TextAlign::Center);
+            "Open this in Chrome or Edge on a computer.", fui::TextAlign::Center);
   y = static_cast<int16_t>(y + twoLines + 12);
 
   const int16_t side = 232;
@@ -530,6 +533,11 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, status,
             fui::TextAlign::Center);
   y = static_cast<int16_t>(y + twoLines + 8);
+  if (model.languageLine) {
+    drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, model.languageLine,
+              fui::TextAlign::Center);
+    y = static_cast<int16_t>(y + twoLines + 4);
+  }
   if (model.partsLine) {
     drawLabel(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 28}, model.partsLine,
               toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
@@ -539,6 +547,83 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
     drawAction(screen, box, "TRY AGAIN", ActionRetry, true);
   }
   return qr;
+}
+
+// The languages on the card, as cards in the home's own idiom: the one opened
+// last is filled like CONTINUE, the loudest thing on the page, and every card
+// names the article its language was left on, so the choice is made by what
+// you were reading as much as by the language's name. Chosen over a plain
+// list and a grid of language codes, rendered side by side (the commit that
+// added it says why).
+namespace {
+
+constexpr int16_t kAddLanguage = 52;
+constexpr int16_t kCardPad = 12;
+constexpr int16_t kCardDetail = 24;
+
+}  // namespace
+
+void buildChooser(toybox::Screen& screen, const ChooserModel& model) {
+  chrome(screen, "WIKIPEDIA");
+  const fui::Rect body = screen.body();
+  const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
+  const int16_t textWidth = static_cast<int16_t>(inner - 28);
+  const int16_t addTop = static_cast<int16_t>(body.bottom() - toybox::kGutter - kAddLanguage);
+  const int16_t bottom = static_cast<int16_t>(addTop - toybox::kGutter);
+  const int16_t top = static_cast<int16_t>(body.y + toybox::kGutter + 2);
+  const int16_t bodyLine = screen.target().lineHeight(toybox::kBodyFont);
+  const int count = model.count < kMaxPacks ? model.count : kMaxPacks;
+  // A card is its name, its count and the article it was left on; when that
+  // many cards do not fit above ADD A LANGUAGE, every card drops the article
+  // rather than any language dropping off the panel.
+  const int16_t compact = static_cast<int16_t>(kCardPad + bodyLine + 4 + kCardDetail + kCardPad);
+  bool withTitle = true;
+  {
+    int32_t need = 0;
+    for (int i = 0; i < count; ++i) {
+      const char* waits = model.rows[i].continueTitle ? model.rows[i].continueTitle : "Nothing opened yet.";
+      const TitleFit fit = fitTitle(screen, textWidth, waits, toybox::kBodyFont);
+      need += compact + 6 + fit.lines * bodyLine + (i ? toybox::kGutter : 0);
+    }
+    withTitle = need <= bottom - top;
+  }
+  int16_t y = top;
+  for (int i = 0; i < count; ++i) {
+    const PackRow& row = model.rows[i];
+    const bool live = i == model.last;
+    const char* waits = row.continueTitle ? row.continueTitle : "Nothing opened yet.";
+    const TitleFit fit = fitTitle(screen, textWidth, waits, toybox::kBodyFont);
+    const int16_t textHeight = static_cast<int16_t>(fit.lines * bodyLine);
+    const fui::Rect card{static_cast<int16_t>(body.x + kMargin), y, inner,
+                         static_cast<int16_t>(compact + (withTitle ? 6 + textHeight : 0))};
+    if (card.bottom() > bottom) break;
+    const fui::Color ink = live ? fui::Color::White : fui::Color::Black;
+    if (live) {
+      screen.target().fill(card, fui::Paint::solid(fui::Color::Black));
+    } else {
+      screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), 2);
+    }
+    // The language's own name, in the reading face: a name like "Français"
+    // is not in the app's caps cut.
+    fui::TextStyle name = textStyle(toybox::kBodyFont, fui::TextAlign::Left, ink);
+    name.maxLines = 1;
+    name.bold = true;
+    screen.target().text(
+        fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + kCardPad), textWidth, bodyLine},
+        row.name, name);
+    int16_t ty = static_cast<int16_t>(card.y + kCardPad + bodyLine + 4);
+    drawLabel(screen, fui::Rect{static_cast<int16_t>(card.x + 14), ty, textWidth, kCardDetail}, row.detail,
+              toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, ink);
+    if (withTitle) {
+      ty = static_cast<int16_t>(ty + kCardDetail + 6);
+      drawTitle(screen, fui::Rect{static_cast<int16_t>(card.x + 14), ty, textWidth, textHeight}, waits,
+                toybox::kBodyFont, fit, ink);
+    }
+    screen.frame().hit(card, ActionPack, static_cast<int16_t>(i));
+    y = static_cast<int16_t>(card.bottom() + toybox::kGutter);
+  }
+  drawAction(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), addTop, inner, kAddLanguage}, "ADD A LANGUAGE",
+             ActionInstall, false);
 }
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model) {

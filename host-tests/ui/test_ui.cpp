@@ -187,6 +187,11 @@ class FakeTarget final : public fui::DrawTarget {
   // one paragraph gaining a line while another loses one -- that a check
   // counting lines cannot see at all.
   std::vector<std::pair<std::string, int16_t>> kerns;
+  // One cell per CHARACTER rather than per byte. Off by default like the two
+  // above. The keyboard test needs it: a key cap is one letter, and at a byte
+  // a cell an "ü" or a "й" would read as two letters wide and fail a key it
+  // fits on the panel.
+  bool perCodePoint = false;
 
   fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
     ++measureCalls;
@@ -199,7 +204,14 @@ class FakeTarget final : public fui::DrawTarget {
       }
     }
     if (style.bold) cell = static_cast<int16_t>(cell + boldBonus);
-    int32_t w = static_cast<int32_t>(std::strlen(text)) * cell;
+    int32_t chars = static_cast<int32_t>(std::strlen(text));
+    if (perCodePoint) {
+      chars = 0;
+      for (const char* c = text; *c != 0; ++c) {
+        if ((static_cast<unsigned char>(*c) & 0xC0) != 0x80) ++chars;
+      }
+    }
+    int32_t w = chars * cell;
     if ((kernBonus != 0 && !kernSeq.empty()) || !kerns.empty()) {
       const std::string run(text);
       if (kernBonus != 0 && !kernSeq.empty()) {
@@ -14615,11 +14627,18 @@ void testWikipediaInstallSaysTheAddressFirst() {
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
   // Each sentence has two lines of the reader's face, whatever its height.
-  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer. About ten minutes.");
+  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer.");
   CHECK(open != nullptr);
   if (open != nullptr) {
     CHECK(open->style.maxLines == 2);
     CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+  }
+  // No time on the device: it was "About ten minutes" for every language and
+  // route, and the page now works one out per language (14 minutes for
+  // English by cable, 12 for German) and shows it beside the choice.
+  for (const auto& run : out.target.texts) {
+    check(run.text.find("minute") == std::string::npos && run.text.find("hour") == std::string::npos,
+          "the install screen states no time", __LINE__);
   }
   CHECK(!out.target.drew("TRY AGAIN"));
   model.stage = wikiui::InstallModel::Stage::Failed;
@@ -14627,6 +14646,237 @@ void testWikipediaInstallSaysTheAddressFirst() {
   buildWikiInstall(failed, model);
   const FakeTarget::TextRun* retry = failed.target.find("TRY AGAIN");
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
+}
+
+// --- Wikipedia in more than one language ------------------------------------
+
+void buildWikiChooser(Rendered& out, const wikiui::ChooserModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildChooser(screen, model);
+}
+
+// Two packs on the card: a card each, the one opened last filled, each card
+// naming its language and the article it was left on, a tap on a card
+// opening that pack and ADD A LANGUAGE opening the install screen.
+void testWikipediaChooserCardsOpenTheirPack() {
+  wikiui::ChooserModel model;
+  model.count = 2;
+  model.rows[0] = {"English", "EN", "50,034 ARTICLES, MAY 2026", "Photosynthesis"};
+  model.rows[1] = {"Deutsch", "DE", "50,000 ARTICLES, OCTOBER 2026", "Johann Wolfgang von Goethe"};
+  model.last = 1;
+  Rendered out;
+  buildWikiChooser(out, model);
+  CHECK(out.target.drew("WIKIPEDIA"));
+  for (int i = 0; i < 2; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(model.rows[i].name);
+    const FakeTarget::TextRun* waits = out.target.find(model.rows[i].continueTitle);
+    CHECK(name != nullptr && waits != nullptr && out.target.drew(model.rows[i].detail));
+    if (name == nullptr || waits == nullptr) continue;
+    // the language's own name is in the reading face, whose letters reach
+    // past ASCII; the app's caps cut does not
+    CHECK(name->style.font == toybox::kBodyFont && name->style.bold);
+    const fui::ActionEvent byName = tapRun(out, name);
+    const fui::ActionEvent byTitle = tapRun(out, waits);
+    CHECK(byName.action == wikiui::ActionPack && byName.value == i);
+    CHECK(byTitle.action == wikiui::ActionPack && byTitle.value == i);
+    CHECK(waits->rect.y > name->rect.y);
+    // paper ink on the filled card, black on the outlined one
+    CHECK((name->style.color == fui::Color::White) == (i == model.last));
+  }
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  CHECK(add != nullptr && tapRun(out, add).action == wikiui::ActionInstall);
+  // nothing tappable reaches under the glass
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    CHECK(out.interactions.data()[i].rect.bottom() <= 800);
+  }
+  // a card never opened says so instead of naming nothing
+  wikiui::ChooserModel fresh = model;
+  fresh.rows[1].continueTitle = nullptr;
+  fresh.last = -1;
+  Rendered blank;
+  buildWikiChooser(blank, fresh);
+  CHECK(blank.target.drew("Nothing opened yet."));
+}
+
+// The most packs the chooser lists all fit: with no room for every card's
+// article, the cards drop the article line, never a language.
+void testWikipediaChooserFitsEveryPack() {
+  wikiui::ChooserModel model;
+  static const char* kNames[wikiui::kMaxPacks] = {"English", "Deutsch",  "Français",
+                                                  "Español", "Italiano", "Nederlands"};
+  model.count = wikiui::kMaxPacks;
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    model.rows[i] = {kNames[i], "XX", "50,000 ARTICLES, OCTOBER 2026",
+                     "A long title that wraps onto a second line of the reading face"};
+  }
+  model.last = 0;
+  Rendered out;
+  buildWikiChooser(out, model);
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(kNames[i]);
+    CHECK(name != nullptr);
+    if (name != nullptr) CHECK(tapRun(out, name).action == wikiui::ActionPack && tapRun(out, name).value == i);
+  }
+  CHECK(!out.target.drew("A long title that wraps onto a second line of the reading face"));
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  const FakeTarget::TextRun* lastName = out.target.find(kNames[wikiui::kMaxPacks - 1]);
+  CHECK(add != nullptr && lastName != nullptr);
+  if (add != nullptr && lastName != nullptr) CHECK(lastName->rect.bottom() < add->rect.y);
+  // two packs keep their articles
+  model.count = 2;
+  Rendered two;
+  buildWikiChooser(two, model);
+  CHECK(two.target.drew("A long title that wraps onto a second line of the reading face"));
+}
+
+// With more than one pack the home's band names the language and its chevron
+// goes back to the chooser; with one, the band is the one it always was.
+void testWikipediaHomeBandNamesTheLanguage() {
+  wikiui::SearchModel model;
+  model.footer = "50,000 ARTICLES, OCTOBER 2026";
+  model.bandTitle = "WIKIPEDIA DE";
+  model.languagesBack = true;
+  Rendered out;
+  buildWikiSearch(out, model);
+  CHECK(out.target.drew("WIKIPEDIA DE"));
+  CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionLanguages);
+  wikiui::SearchModel one;
+  one.footer = "50,034 ARTICLES, MAY 2026";
+  Rendered single;
+  buildWikiSearch(single, one);
+  CHECK(single.target.drew("WIKIPEDIA"));
+  CHECK(!single.has(wikiui::ActionLanguages));
+}
+
+// The install screen says which language it is about, in the reading face,
+// between the cable's status and the parts line, inside the panel.
+void testWikipediaInstallNamesTheLanguage() {
+  wikiui::InstallModel model;
+  model.url = "crossplay.ma-r-s.com/wikipedia";
+  model.languageLine = "On the card: Deutsch, October 2026.";
+  model.partsLine = "1 OF 2 PARTS ON THE CARD";
+  Rendered out;
+  buildWikiInstall(out, model);
+  const FakeTarget::TextRun* line = out.target.find("On the card: Deutsch, October 2026.");
+  const FakeTarget::TextRun* status = out.target.find("Then plug the reader into the computer with its cable.");
+  const FakeTarget::TextRun* parts = out.target.find("1 OF 2 PARTS ON THE CARD");
+  CHECK(line != nullptr && status != nullptr && parts != nullptr);
+  if (line != nullptr && status != nullptr && parts != nullptr) {
+    CHECK(line->style.font == toybox::kBodyFont);
+    CHECK(line->rect.y >= status->rect.bottom());
+    CHECK(parts->rect.y >= line->rect.bottom());
+    CHECK(parts->rect.bottom() <= 800);
+  }
+  wikiui::InstallModel first;
+  first.url = "crossplay.ma-r-s.com/wikipedia";
+  first.languageLine = "Choose the language on the page.";
+  Rendered blank;
+  buildWikiInstall(blank, first);
+  CHECK(blank.target.drew("Choose the language on the page."));
+}
+
+// --- The keyboard draws every key label whole -------------------------------
+//
+// German search drew its Shift key as "Sh..." (card #651). "Shift" is 53.6px in
+// the body face, and an eleven-key row leaves its one-and-a-half-unit shift
+// key 53.5px inside the button's padding, so the renderer cut it. Nothing
+// asserted anything about it: the label was handed over whole, and it is the
+// renderer that shortens a run wider than its rect, so every "did it draw"
+// check passed.
+//
+// The keyboard decides its own labels, so this drives the component itself
+// rather than one app: every built-in layout and every layer, both theme gaps
+// (0 for Base and Lyra, 10 for RoundedRaff), the Shift label in each of its
+// translations, and glyph cells from narrower to wider than the panel's face.
+// Wikipedia's search and Weather's city search pass exactly these props.
+void testNoKeyboardLabelIsElided() {
+  using Id = fui::KeyboardLayoutId;
+  static const Id kIds[] = {Id::QwertyEn,   Id::AzertyFr,   Id::QwertzDe, Id::SpanishEs, Id::CyrillicRu, Id::CyrillicUk,
+                            Id::CyrillicBe, Id::CyrillicKk, Id::HebrewIl, Id::ArabicAr,  Id::GreekEl};
+  // Every distinct STR_KEY_SHIFT in lib/I18n/translations.
+  static const char* const kShift[] = {"Shift", "Maj", "Mayús", "Posuň", "OOk!", "Maiúsculas"};
+  static const int16_t kGaps[] = {0, 10};
+  static const int16_t kCells[] = {8, 10, 12, 14};
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  int elided = 0;
+  int boards = 0;
+  bool englishSaysShift = false;
+  bool germanSaysShift = false;
+  bool germanCutShift = false;
+  bool germanArrow = false;
+  std::string firstCut;
+  for (const Id id : kIds) {
+    for (int layer = 0; layer < 16; ++layer) {
+      const bool shifted = (layer & 1) != 0;
+      const bool symbols = (layer & 2) != 0;
+      const bool numberRow = (layer & 4) != 0;
+      const bool langKey = (layer & 8) != 0;
+      const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, numberRow, langKey);
+      for (const int16_t gap : kGaps) {
+        for (const int16_t cell : kCells) {
+          for (const char* shift : kShift) {
+            FakeTarget target;
+            target.charW = cell;
+            target.perCodePoint = true;
+            fui::InteractionBuffer<56> table;
+            const fui::DeviceContext ctx = device();
+            const fui::InputSnapshot noInput{};
+            fui::Frame<56> frame(target, ctx, noInput, table);
+            fui::KeyboardProps props;
+            props.layout = &layout;
+            props.keyAction = 1;
+            props.okLabel = "GO";
+            props.shiftLabel = shift;
+            props.modeLabel = symbols ? "abc" : "?123";
+            props.inputMask = static_cast<uint16_t>(fui::InputTouch);
+            props.labelText.font = toybox::kBodyFont;
+            props.altText.font = toybox::kSmallFont;
+            props.gap = gap;
+            props.padding = fui::Insets{0, 0, 0, 0};
+            // WikipediaActivity::keyboardRect(): 94% of the panel, 56px rows.
+            const int16_t rows = layout.rowCount;
+            const int16_t height = static_cast<int16_t>(rows * 56 + (rows - 1) * gap);
+            const fui::Rect kb{14, static_cast<int16_t>(800 - 8 - height), 451, height};
+            fui::keyboard(frame, kb, props);
+            ++boards;
+            for (const auto& run : target.texts) {
+              const int16_t wide = target.measureText(run.style.font, run.text.c_str(), run.style).width;
+              if (run.style.maxLines == 1 && wide > run.rect.width) {
+                if (firstCut.empty()) {
+                  char where[160];
+                  std::snprintf(where, sizeof where, "layout %d layer %d gap %d cell %d: \"%s\" %dpx in %dpx",
+                                static_cast<int>(id), layer, gap, cell, run.text.c_str(), wide, run.rect.width);
+                  firstCut = where;
+                }
+                ++elided;
+                if (id == Id::QwertzDe && run.text == "Shift") germanCutShift = true;
+              }
+            }
+            // Where the label fits it stays: English at the panel's own gap,
+            // and German once its cell is narrow enough.
+            const bool letters = !symbols && std::strcmp(shift, "Shift") == 0;
+            if (letters && gap == 0 && cell == 10 && id == Id::QwertyEn) englishSaysShift = target.drew("Shift");
+            if (letters && gap == 0 && cell == 8 && id == Id::QwertzDe) germanSaysShift = target.drew("Shift");
+            // Where it does not, the key carries the arrow the system keyboard
+            // draws, never a cut word.
+            if (letters && gap == 0 && cell == 12 && id == Id::QwertzDe) {
+              for (const auto& blit : target.blits) germanArrow |= blit.data == arrow.data;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!firstCut.empty()) std::printf("  first elided key label: %s\n", firstCut.c_str());
+  check(elided == 0, "no key label on any built-in keyboard is cut short", __LINE__);
+  check(!germanCutShift, "the German Shift key is never drawn as a cut word", __LINE__);
+  check(boards == 11 * 16 * 2 * 4 * 6, "every layout, layer, gap, cell and Shift label was drawn", __LINE__);
+  check(englishSaysShift, "English still says Shift where it fits", __LINE__);
+  check(germanSaysShift, "German says Shift too where its key is wide enough", __LINE__);
+  check(germanArrow, "a German Shift key too narrow for the word draws the shift arrow", __LINE__);
 }
 
 // --- Notes: every line of a long item is drawn, fits, and is struck --------
@@ -16664,6 +16914,11 @@ int main() {
   testWikipediaRecentTrailIsDivided();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
+  testWikipediaChooserCardsOpenTheirPack();
+  testWikipediaChooserFitsEveryPack();
+  testWikipediaHomeBandNamesTheLanguage();
+  testWikipediaInstallNamesTheLanguage();
+  testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();

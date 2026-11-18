@@ -187,7 +187,8 @@ test("the two routes carry the plan's wording, essentials first", () => {
   assert.equal(ROUTES.length, 2);
   assert.equal(ROUTES[0].id, "essentials");
   assert.equal(ROUTES[0].title, "The essentials, with the cable.");
-  assert.equal(ROUTES[0].time, "About ten minutes.");
+  // the time is the pack's, worked out from its bytes, not a fixed promise
+  assert.equal(ROUTES[0].time, undefined);
   assert.equal(
     ROUTES[0].instruction,
     "Plug the reader into the computer with its cable.",
@@ -199,7 +200,6 @@ test("the two routes carry the plan's wording, essentials first", () => {
     ROUTES[1].title,
     "All of Wikipedia, with the card in the computer.",
   );
-  assert.equal(ROUTES[1].time, "About fifteen minutes.");
   assert.match(
     ROUTES[1].instruction,
     /^Take the card out of the reader and put it in the computer/,
@@ -486,4 +486,80 @@ test("the snapshot prints as a month and a year", () => {
   assert.equal(formatSnapshot("2026-12"), "December 2026");
   assert.equal(formatSnapshot("2026-13-01"), "2026-13-01");
   assert.equal(formatSnapshot("latest"), "latest");
+});
+
+// --- languages ----------------------------------------------------------------
+
+import {
+  DEFAULT_LANGUAGES,
+  parseLanguages,
+  languageByCode,
+  cardFolder,
+  cardPacks,
+  MEASURED_RATES,
+  routeSeconds,
+  formatEstimate,
+} from "../plan.js";
+
+test("languages: the host's list, English at the root and every other in its own folder", () => {
+  const list = parseLanguages(
+    JSON.stringify([
+      { code: "en", name: "English", dir: "" },
+      { code: "de", name: "Deutsch", dir: "de" },
+    ]),
+  );
+  assert.deepEqual(list, [
+    { code: "en", name: "English", dir: "" },
+    { code: "de", name: "Deutsch", dir: "de" },
+  ]);
+  assert.deepEqual(cardFolder(languageByCode(list, "en")), ["wikipedia"]);
+  assert.deepEqual(cardFolder(languageByCode(list, "de")), ["wikipedia", "de"]);
+  // a folder that is not the code, or a path, is refused; so is a duplicate
+  const odd = parseLanguages([
+    { code: "de", name: "Deutsch", dir: "../x" },
+    { code: "fr", name: "Français" },
+    { code: "fr", name: "again" },
+    { code: "Bad Code" },
+  ]);
+  assert.deepEqual(odd, [{ code: "fr", name: "Français", dir: "fr" }]);
+  // no list (an older host), or junk: English alone, as the page always was
+  assert.deepEqual(parseLanguages("not json"), DEFAULT_LANGUAGES);
+  assert.deepEqual(parseLanguages([]), DEFAULT_LANGUAGES);
+  assert.deepEqual(parseLanguages({ languages: [{ code: "de", name: "Deutsch" }] }), [
+    { code: "de", name: "Deutsch", dir: "de" },
+  ]);
+});
+
+test("languages: what the reader says is on its card, from either install.json", () => {
+  // a reader that knows about languages lists every pack
+  assert.deepEqual(
+    cardPacks({
+      pack: "en",
+      snapshot: "2026-05-13",
+      packs: [
+        { pack: "en", dir: "", snapshot: "2026-05-13", shardsPresent: 2 },
+        { pack: "de", dir: "de", snapshot: "2026-10-10", shardsPresent: 2 },
+      ],
+    }),
+    {
+      en: { snapshot: "2026-05-13", shardsPresent: 2 },
+      de: { snapshot: "2026-10-10", shardsPresent: 2 },
+    },
+  );
+  // one that predates them describes its one pack at the top level
+  assert.deepEqual(cardPacks({ pack: "en", snapshot: "2026-05-13", shardsPresent: 3 }), {
+    en: { snapshot: "2026-05-13", shardsPresent: 3 },
+  });
+  assert.deepEqual(cardPacks({ pack: null, snapshot: null, packs: [] }), {});
+  assert.deepEqual(cardPacks(null), {});
+});
+
+test("time before measuring: the cable route runs at the slower of the two rates, the card route at the host's", () => {
+  const mb = 381e6;
+  assert.equal(routeSeconds(mb, "essentials"), mb / MEASURED_RATES.cable);
+  assert.equal(routeSeconds(mb, "all"), mb / MEASURED_RATES.host);
+  // the German pack: 381 MB over the cable is about 12 minutes
+  assert.equal(formatEstimate(routeSeconds(mb, "essentials")), "About 12 minutes.");
+  assert.equal(formatEstimate(routeSeconds(10.4e9, "all")), "About 1 hour 44 minutes.");
+  assert.equal(formatEstimate(null), "");
 });

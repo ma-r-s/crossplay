@@ -40,7 +40,8 @@ order.
 
 The shelf tile says WIKIPEDIA. Opening it with no pack on the card shows one
 screen: the address in large type, `crossplay.ma-r-s.com/wikipedia`, then
-"Open this in Chrome or Edge on a computer. About ten minutes.", and a QR
+"Open this in Chrome or Edge on a computer." (it said "About ten minutes."
+too until 2026-11-18; see below), and a QR
 code under it for a phone. The phone page is one sentence and a SEND THIS TO
 MY COMPUTER button (the Web Share API, mail as the fallback), because no
 phone browser can write the card; the computer is where the copy happens,
@@ -700,3 +701,72 @@ matters is "it reads like a book page, not a web page".
 elided with the h1 stripped from the page, and "Chișinău" had lost two
 letters in the band: the two title findings above, both fixed, and the
 gate is the reason they were found.
+
+## More than one language (2026-11-18, card #651)
+
+Asked for by report box #651 and #660 and GitHub #334; German first, built
+so the next language is a build run, not new code. What a reader sees: the
+install page offers the languages the pack host publishes, each with its
+size and a time worked out from the two rates measured so far (the device's
+cable at 0.55 MB/s, the pack host at 1.66 MB/s); English stays in
+`/wikipedia/` and keeps working with nothing done, every other language goes
+in `/wikipedia/<code>/`. With one pack on the card the app opens it as it
+always did; with more, it opens on the chooser, and the home's band says
+which language it is ("WIKIPEDIA DE") with a chevron back to the chooser.
+The German pack's search keyboard is QWERTZ with the umlauts and the eszett.
+
+**Source.** structured-wikipedia has English and French only, so every
+other language is built from Kiwix's ZIM (`wikipedia_de_top_nopic_2026-10`,
+1.2 GB: 50,000 articles, 154,316 redirects and 41,035 redirects to a
+section). `zim.py` reads it with the standard library; `zim_article.py`
+converts Parsoid's HTML by structure (the classes say what a reference, a
+navbox or a transcription is) where `article_html.py` repairs a flattened
+dump with rules over text; the two share only the glyph tables, the symbol
+spellings and the TeX renderer. The words that differ by language are
+`languages.py`'s, one entry per language, written from the corpus's own
+heading counts (the build summary prints them); a language without an
+entry still builds on the structural rules. A raw disk image (the
+crossink-wiki approach) was ruled out: it needs a contiguous file on the
+card, which the page cannot write.
+
+**The German pack.** 50,000 articles, 242,337 index entries (redirects whose
+title only differs in case dropped: the index folds, and "STRABAG",
+"Strabag", "Strabag CR" filled the list with one article), 381 MB in two
+shards (381,439,652 bytes), built in under three minutes on this Mac. Published as
+`de-2026-10-top1` beside `en-2026-05-full7` on the pack host, stable name
+`https://packs.ma-r-s.com/wikipedia/de/`, listed in `languages.json`.
+The copy on the host was built there, from the same ZIM by the same commit,
+because the uplink from the Mac to the pi ran at about 30 KB/s that day (376
+MB would have been three and a half hours); it was published only once its
+digest over every article's title, headings and XHTML matched this Mac's
+build. `zim.py` reads zstd clusters with the `zstd` command on a Python
+older than 3.14 for that reason.
+
+**The chooser** was chosen from three rendered arrangements (a list, cards,
+a grid of language codes; `review-2026-11-02/11-wikide-variants.png`): the
+cards, because they are the home's own idiom (the language opened last is
+filled like CONTINUE, the loudest thing on the page) and because each card
+names the article its language was left on, which is how a bilingual reader
+tells "where was I" faster than by the language's name. Given up: the
+list's quietness, the grid's large codes. With more cards than fit, every
+card drops its article line before any language drops off the panel.
+
+**Search.** Results show one row per article: an article and its redirects
+that match the same prefix fold into the article's own title
+(`oneRowPerArticle`), which the English pack never needed (its only
+redirects are the surname entries).
+
+**Not done here.** The app's own captions stay English (they always were,
+outside `tr()`); maths spelled by `tex_text` is translated for German in
+rendered formulas only.
+
+**Two fixes after review.** The QWERTZ keyboard drew its Shift key as
+"Sh...": "Shift" is 53.6px in the body face and the eleven-key row leaves
+the 1.5-unit key 53.5px. The shared keyboard component now draws an
+app-supplied control label only when the key can hold it, and a Shift key
+that cannot draws the arrow the system keyboard uses (freeink-sdk
+`fix/keyboard-labels-fit`); English, at the panel's own gap, still says
+"Shift". And the device's install screen no longer says "About ten
+minutes": the time depends on the language and the route, the page works
+it out from the measured rates and shows it beside the choice, and the
+device knows neither.

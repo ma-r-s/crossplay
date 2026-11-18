@@ -37,6 +37,46 @@ the shards, `manifest.json` last. So after the first tier the essentials are
 complete and readable with their own titles, and nothing in the first tier
 is dead weight for it.
 
+## More than one language
+
+A language is a pack. The first one, English, lives in `/wikipedia/` itself,
+where it always has, so a card that has it needs nothing done. Every other
+language is a pack of exactly this format in a folder of `/wikipedia/` named
+by its code: `/wikipedia/de/manifest.json`, `/wikipedia/de/shards/000.blk`,
+`/wikipedia/de/state.json`. A folder name is lowercase letters, digits and
+`-`, starting with a letter, at most 15 (`WikipediaCore::isPackDirName`),
+never `shards` or `overlay`. The device lists the root pack first and the
+folders after it by name; with one pack it opens it as it always did, with
+more it opens on the chooser, which shows the first six (`install.json`
+lists them all). `install.json` stays at `/wikipedia/install.json`.
+
+The device keeps each pack's laid-out articles apart: the root pack's in
+`/.crosspoint/wikipedia/` as before, every other in
+`/.crosspoint/wikipedia/lang-<code>/` (a name no numbered article of the
+root's can have), so switching language costs no cache. The
+pack opened last is `/.crosspoint/wikipedia/chosen` (`dir:` and the folder,
+empty for the root), which is the card the chooser fills.
+
+A pack built from a Kiwix ZIM (`build_pack.py --zim`) says what it is in
+three more manifest fields, which the English packs predate and the reader
+defaults when they are absent:
+
+```json
+{ "lang": "de", "name": "Deutsch", "facts": "Kurzinfo", "source": "wikipedia_de_top_nopic_2026-10.zim" }
+```
+
+`name` is what the chooser and the install page call the language, in its
+own words (default "English" for `pack` "en", else the code in capitals);
+`facts` is the heading over the infobox grid, which the reader keeps out of
+the fresh-page anchors (default "Quick facts"); `lang` picks the search
+keyboard (`de` types umlauts and eszett on QWERTZ). The pack host lists its
+languages in `https://packs.ma-r-s.com/wikipedia/languages.json`, rewritten
+by `publish_pack.sh` on every publish:
+
+```json
+[{ "code": "en", "name": "English", "dir": "" }, { "code": "de", "name": "Deutsch", "dir": "de" }]
+```
+
 ## manifest.json
 
 ```json
@@ -363,6 +403,22 @@ can find the right drive, know what fits, and know what is already there:
 }
 ```
 
+From the release that reads more than one pack, it also lists every pack on
+the card and the one the install screen was opened from (its home's door;
+null from the chooser or an empty card), which the page offers first. The
+top-level `pack`, `snapshot` and `shardsPresent` keep describing the root
+pack, so a page that predates the list still reads it right:
+
+```json
+{
+  "want": "de",
+  "packs": [
+    { "pack": "en", "dir": "", "snapshot": "2026-05-13", "shardsPresent": 39, "shardsTotal": 39 },
+    { "pack": "de", "dir": "de", "snapshot": "2026-10-10", "shardsPresent": 2, "shardsTotal": 2 }
+  ]
+}
+```
+
 `free` is null: counting free space walks the whole FAT (seven seconds on a
 16 GB card, before the install screen could draw), and the page sizes the
 copy from the manifest, so the device stopped asking. The field stays for a
@@ -372,7 +428,8 @@ card.
 
 ### state.json
 
-Owned by the app, not the pack, and not in the manifest:
+Owned by the app, not the pack, and not in the manifest; one per pack, in the
+pack's own folder:
 
 ```json
 {

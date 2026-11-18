@@ -65,6 +65,8 @@ class Section {
   std::string standaloneHtmlPath_;
   std::string standaloneCacheDir_;
   std::vector<std::string> standaloneAnchors_;
+  // The language a standalone document is hyphenated in (an Epub says its own).
+  std::string standaloneLanguage_ = "en";
   bool captureFootnotes_ = true;
   bool buildComplete_ = false;
   // Pages laid out by the active build (== build_->lut.size()). Distinct from pageCount,
@@ -105,6 +107,9 @@ class Section {
   Section(std::string htmlPath, std::string cacheDir, int index, GfxRenderer& renderer,
           std::vector<std::string> sectionAnchors, bool captureFootnotes);
   ~Section();
+  // A standalone document's language, for hyphenation ("de" breaks
+  // "Bundespräsidenten" as Bun-des-prä-si-den-ten, not as English would).
+  void setStandaloneLanguage(std::string lang) { standaloneLanguage_ = std::move(lang); }
   bool loadSectionFile(const ReaderRenderSpec& spec);
   bool clearCache() const;
   bool createSectionFile(const ReaderRenderSpec& spec, const std::function<void()>& popupFn = nullptr);

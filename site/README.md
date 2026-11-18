@@ -583,10 +583,13 @@ above forbid one anyway). Three files carry it and a fourth is vendored:
 - `wikipedia/sha256.js` is a streaming SHA-256 (MIT, written here), because
   `crypto.subtle.digest` is one-shot and a shard is a gigabyte.
 
-**`PACK_BASE_URL` at the top of `wikipedia.js` is where the pack lives:**
-`https://packs.ma-r-s.com/wikipedia/en/`, the Orange Pi behind its own
-Cloudflare Tunnel (`server/packs/`), a stable name pointing at the current
-snapshot. The host answers CORS for any origin (GET, HEAD and OPTIONS,
+**`PACK_HOST` at the top of `wikipedia.js` is where the packs live:**
+`https://packs.ma-r-s.com/wikipedia/`, the Orange Pi behind its own
+Cloudflare Tunnel (`server/packs/`). Each language is a stable name under it
+pointing at its current build (`en/`, `de/`), and `languages.json` beside
+them, rewritten by `publish_pack.sh`, lists what the page offers; without it
+the page offers English alone. English is written to `wikipedia/` on the
+card, every other language to `wikipedia/<code>/`. The host answers CORS for any origin (GET, HEAD and OPTIONS,
 exposing Content-Length and Content-Range, Range accepted); without that
 every fetch fails as the browser's opaque "Failed to fetch", which the page
 can only report as a dropped connection. Verified with curl against the
