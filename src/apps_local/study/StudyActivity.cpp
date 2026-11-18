@@ -1904,14 +1904,16 @@ void StudyActivity::render(RenderLock&&) {
   // after the arrow, centred on the arrow's line. Never on a middle of the band
   // worked out here. The band includes the battery strip and the theme's row
   // sits below it, so a title centred on the whole band floated 12px above its
-  // own arrow.
+  // own arrow. And never at title.x: a theme that centres its title (Classic)
+  // keeps the whole band for it, so title.x is the margin under the arrow and
+  // "6 LEFT" was drawn over it. textLeft is where a left-aligned title starts.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
   GUI.drawHeader(renderer, headerBand, "");
   const freeink::ui::HeaderLayout& row = HeaderLayoutRecord::last;
   const freeink::ui::Rect& line = row.leading.width > 0 ? row.leading : row.title;
 
-  const int titleX = row.title.x;
+  const int titleX = row.textLeft;
   if (title[0] != '\0') {
     toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, line.y, line.height, title, true);
   }
