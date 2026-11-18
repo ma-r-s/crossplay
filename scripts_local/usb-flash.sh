@@ -41,6 +41,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# NEVER A PICCO. This script writes otadata at 0xe000 and the app at 0x10000,
+# which is this fork's partition table. The Picco keeps the vendor's: 0xe000 is
+# inside its NVS and 0x10000 runs over its otadata and its `safeboot` recovery
+# partition. It takes its app slot only (docs/install.md, BOOX Picco). Refused
+# before the cable is looked at; the table read further down catches a Picco
+# under any other env.
+case "$ENV_NAME_FW" in
+  *picco*)
+    echo "error: usb-flash.sh does not flash the Picco; its offsets would overwrite the" >&2
+    echo "       vendor's NVS and safeboot partitions. Use:" >&2
+    echo "         pio run -e $ENV_NAME_FW -t upload" >&2
+    exit 2 ;;
+esac
+
 # macOS maps a USB serial device to a port name; this is the only place the two
 # are connected, and it is read fresh every run.
 inventory() {
@@ -87,19 +101,6 @@ fi
 
 MAC="$(printf '%s' "$LINE" | cut -f1)"
 PORT="$(printf '%s' "$LINE" | cut -f2 | sed 's|/dev/tty|/dev/cu|')"
-
-# NEVER A PICCO. This script writes otadata at 0xe000 and the app at 0x10000,
-# which is this fork's partition table. The Picco keeps the vendor's: 0xe000 is
-# inside its NVS and 0x10000 runs over its otadata and its `safeboot` recovery
-# partition. It is flashed with `pio run -e gh_release_picco -t upload`, which
-# writes the app slot at 0xE0000 and nothing else.
-case "$ENV_NAME_FW" in
-  *picco*)
-    echo "error: usb-flash.sh does not flash the Picco; its offsets would overwrite the" >&2
-    echo "       vendor's NVS and safeboot partitions. Use:" >&2
-    echo "         pio run -e $ENV_NAME_FW -t upload" >&2
-    exit 2 ;;
-esac
 
 # Both the build and the upload run UNDER lib-sim.sh's build lock: PlatformIO
 # does not tolerate two concurrent runs of one env, and an upload is a pio run
@@ -164,35 +165,6 @@ echo "image:  $IMAGE ($(wc -c < "$IMAGE" | tr -d ' ') bytes, $ENV_NAME_FW)"
 ESPTOOL="$HOME/.platformio/packages/tool-esptoolpy/esptool.py"
 PIO_PY="$HOME/.platformio/penv/bin/python"
 [ -f "$ESPTOOL" ] || { echo "error: no esptool at $ESPTOOL" >&2; exit 1; }
-# The env name only says what was BUILT; the device on the cable may still be a
-# Picco. Read its partition table first and refuse one that carries the
-# vendor's `safeboot` partition. A separate esptool run that ends in a reset,
-# so the write below starts from a running app exactly as it always did.
-PTABLE="${TMPDIR:-/tmp}/xteink-usbflash-ptable.bin"
-rm -f "$PTABLE"
-if ! "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud 921600 \
-     --before usb_reset --after hard_reset read_flash 0x8000 0xC00 "$PTABLE" >/dev/null 2>&1; then
-  echo "error: could not read the device's partition table; nothing was written." >&2
-  exit 1
-fi
-if grep -q safeboot "$PTABLE"; then
-  echo "error: $MAC carries a vendor partition table with a safeboot partition (a Picco)." >&2
-  echo "       Nothing was written. Flash it with: pio run -e gh_release_picco -t upload" >&2
-  exit 2
-fi
-# The reset re-enumerates the USB port: let it drop, then wait for it back.
-sleep 1
-for _ in $(seq 1 20); do
-  [ -e "$PORT" ] && break
-  sleep 0.5
-done
-echo "writing over the cable (no pairing code, no Developer Mode) ..."
-# ONE esptool invocation, not two. A first run that leaves the chip in the
-# bootloader (--after no_reset) makes the second run's --before usb_reset fail:
-# the ROM is already there and does not answer a reset request the same way.
-# So otadata is written as blank bytes in the same write_flash as the app.
-OTABLANK="${TMPDIR:-/tmp}/xteink-otadata-blank.bin"
-python3 -c "import sys; open(sys.argv[1],'wb').write(b'\xff' * 0x2000)" "$OTABLANK"
 # Which reset reaches the chip depends on what is on the other end of the cable.
 # The S3's own USB (the X4 Pro) reports its MAC as the USB serial number and is
 # reset by the USB control request above. A USB-UART bridge (the Sticky's CH343)
@@ -206,6 +178,40 @@ else
   BEFORE=default_reset BAUD=460800
 fi
 echo "reset:  $BEFORE at $BAUD"
+# The env name only says what was BUILT; the device on the cable may still be a
+# Picco. Read its partition table first and refuse one that carries the
+# vendor's `safeboot` partition. A separate esptool run, with the same reset the
+# write uses and ending in a reset of its own, so the write below starts from a
+# running app exactly as a lone write does. The one table sector, as
+# CrossPoint's web flasher reads it before every install.
+PTABLE="${TMPDIR:-/tmp}/xteink-usbflash-ptable.bin"
+rm -f "$PTABLE"
+if ! "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud "$BAUD" \
+     --before "$BEFORE" --after hard_reset read_flash 0x8000 0x1000 "$PTABLE" >/dev/null 2>&1; then
+  echo "error: could not read the device's partition table; nothing was written." >&2
+  exit 1
+fi
+if grep -q safeboot "$PTABLE"; then
+  echo "error: $MAC carries a vendor partition table with a safeboot partition (a BOOX Picco)." >&2
+  echo "       Nothing was written. A Picco takes its app slot only: docs/install.md, BOOX Picco." >&2
+  exit 2
+fi
+# A reset on the S3's own USB re-enumerates the port: let it drop, then wait
+# for it back. A USB-UART bridge keeps its port and passes straight through.
+sleep 1
+for _ in $(seq 1 20); do
+  [ -e "$PORT" ] && break
+  sleep 0.5
+done
+echo "writing over the cable (no pairing code, no Developer Mode) ..."
+# ONE esptool invocation for the write, not two. A first run that leaves the
+# chip in the bootloader (--after no_reset) makes the second run's --before
+# usb_reset fail: the ROM is already there and does not answer a reset request
+# the same way. So otadata is written as blank bytes in the same write_flash as
+# the app. (The table read above is a separate run for that reason too: it ends
+# in hard_reset, never in the bootloader.)
+OTABLANK="${TMPDIR:-/tmp}/xteink-otadata-blank.bin"
+python3 -c "import sys; open(sys.argv[1],'wb').write(b'\xff' * 0x2000)" "$OTABLANK"
 if "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud "$BAUD" \
      --before "$BEFORE" --after hard_reset write_flash 0xe000 "$OTABLANK" 0x10000 "$IMAGE"; then
   echo "flashed $MAC"
