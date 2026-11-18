@@ -256,6 +256,40 @@ The same clamp applies to a **left- or right-aligned** run: alignment is
 horizontal, the clamp is vertical, and a left-aligned score in a short box is
 exactly as low as a centred one. Audit by box height, never by alignment.
 
+**Stack by ink, not by line boxes.** The same leading bites a whole page as
+much as one label. A screen that stacks lines by adding each font's line height
+plus a gap gets a visible gap of that gap PLUS both faces' leading, and Jersey,
+the reading serif and the small cuts all carry different leading: equal
+offsets in the code come out as unequal gaps on the panel. The first Weather
+screen measured 47.5, 25.5, 19.5, 17.5, 14.5, 17.5 and 20.5 px between its
+sections that way, no two alike, and nothing in the code looked uneven.
+
+[`ui/ToyboxInk.h`](../src/apps_local/ui/ToyboxInk.h) is the cure, and it is
+three pieces: `inkBand()` (where a cut's capitals sit in its line box, from the
+same table `inkCentred` reads), `inkRect()` (the line box that puts a cap top on
+a given y) and `InkColumn` (blocks added with the gap their ink keeps from the
+ink above, laid out as a whole and centred in a span, so the space a screen
+does not need is placed rather than left to whichever element came last).
+`iconInk()` measures an icon's drawn shape, whose padding differs from icon to
+icon, so an icon can be centred on a line of text and kept a gutter from it.
+Choose the gaps from one scale by relationship (lines of one group a gutter
+apart, groups further) and measure them in a test by ink: the ui suite's
+`mainInkFollowsOneScale` is the pattern, and `menuAndSearchFollowTheSameScale`
+holds the rest of an app to the same one (Weather: 12 within a block, 24
+between rows, 36 between groups, on every screen).
+
+**A fitting ladder is only as good as its lowest rung.** `fittedTitle()` walks
+every slot bound at or below the style's size, whatever face is in it. Weather's
+menu bound Jersey's button cut in its small slot for the captions, so a long
+city name stepped down into a face with no accents and printed "So Bernardo do
+Campo" with a hole where the a-tilde was. Somebody else's text gets a pass of
+its own, with every rung a face that carries its letters (and, for a name, its
+weight: Weather's place pass binds the bold reading cut in both sizes, so a long
+name gets smaller and never lighter). The host suite can check this when the
+screen binds its own faces: Weather's builders take a `Rebind` and bind each
+pass themselves, so the test binds exactly what the device does and fails on a
+letter drawn in a face without it.
+
 The rest of the cuts this fork ships, for the apps that do not speak Jersey and
 for the reading face a prose app binds to its body slot:
 

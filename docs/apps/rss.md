@@ -194,10 +194,10 @@ nothing else is sampling.
 **The simulator cannot show this screen.** It presents frames on its main
 thread, which is the thread the refresh holds, so a scripted run never
 photographs REFRESHING: the next frame it shows is the list. Its network shim
-also ignores the abort poll, so in the simulator STOP takes effect when the
-feed in hand answers rather than at once (the tap is seen; the run logs the
-feed as stopped). The screen is covered by `host-tests/ui` instead, and needs
-eyes and a finger on hardware.
+asks the abort poll while curl runs (since 2026-11-18, `sim_catchup.py`, "a
+hung host can be left"), so STOP ends the feed in hand at once there too. The
+screen is covered by `host-tests/ui` instead, and needs eyes and a finger on
+hardware.
 
 ## Known limits
 

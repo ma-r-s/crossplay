@@ -1,6 +1,7 @@
 #include "WikipediaActivity.h"
 
 #include <Arduino.h>
+#include <Epub/hyphenation/Hyphenator.h>
 #include <FontCacheManager.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -20,6 +21,7 @@
 #include "../../fontIds.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
+#include "../ui/ToyboxKeyboard.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace fui = freeink::ui;
@@ -27,9 +29,12 @@ namespace fui = freeink::ui;
 namespace {
 
 constexpr const char* kTag = "WIKI";
+// The root pack's article cache, where it has always been; every other pack's
+// is a folder inside it, "lang-<code>", which no numbered article and no file
+// of the root's can be, so switching language keeps both.
 constexpr const char* kCacheRoot = "/.crosspoint/wikipedia";
-constexpr const char* kCacheMarker = "/.crosspoint/wikipedia/pack";
-constexpr const char* kLruPath = "/.crosspoint/wikipedia/lru";
+// Which pack was opened last: its folder name, empty for the root's.
+constexpr const char* kChosenPath = "/.crosspoint/wikipedia/chosen";
 constexpr const char* kInstallUrl = "https://crossplay.ma-r-s.com/wikipedia";
 constexpr const char* kInstallUrlShown = "crossplay.ma-r-s.com/wikipedia";
 constexpr int kCachedArticles = 32;
@@ -56,14 +61,11 @@ void withCommas(char* out, const size_t cap, const uint32_t n) {
 // "2026-05-13" -> "MAY 2026". Caps, because the line is set in Jersey, which
 // has no lowercase voice anywhere else in the fork.
 void snapshotWords(char* out, const size_t cap, const std::string& snapshot) {
-  static const char* const kMonths[] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
-                                        "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
-  int year = 0, month = 0;
-  if (sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
-    snprintf(out, cap, "%s %d", kMonths[month - 1], year);
-  } else {
-    snprintf(out, cap, "%s", snapshot.c_str());
+  std::string words = wikipedia::snapshotMonth(snapshot);
+  for (char& c : words) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
   }
+  snprintf(out, cap, "%s", words.c_str());
 }
 
 bool ensureDir(const char* path) { return Storage.exists(path) || Storage.mkdir(path); }
@@ -118,54 +120,191 @@ void WikipediaActivity::onEnter() {
   // Jersey string on the home was missing, the serif prose intact.
   toybox::ensureFonts(renderer);
   keyboardShown_ = false;
-  packOpen_ = pack_.open();
-  if (packOpen_) {
-    pack_.loadState(state_);
-    char count[16];
-    withCommas(count, sizeof(count), pack_.manifest().articles);
-    char when[32];
-    snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    footer_ = std::string(count) + " ARTICLES, " + when;
-    if (pack_.shardsPresent() < pack_.shardsTotal()) {
-      char line[64];
-      snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
-      partsLine_ = line;
-    }
-    // A cache laid out from another pack must not answer for this one: the
-    // build too, since one snapshot was built three times in one evening and
-    // the article behind a locator moved each time.
-    const std::string marker = pack_.manifest().pack + " " + pack_.manifest().snapshot + " " + pack_.manifest().built;
-    if (readSmallFile(kCacheMarker) != marker) {
-      const std::string lru = readSmallFile(kLruPath);
-      size_t pos = 0;
-      while (pos < lru.size()) {
-        const size_t nl = lru.find('\n', pos);
-        const std::string id = lru.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-        if (!id.empty()) removeArticleCache(std::string(kCacheRoot) + "/" + id);
-        if (nl == std::string::npos) break;
-        pos = nl + 1;
-      }
-      ensureDir("/.crosspoint");
-      ensureDir(kCacheRoot);
-      writeFile(kLruPath, "");
-      writeFile(kCacheMarker, marker);
-    }
-    go(View::Search);
-  } else {
-    enterInstall();
+  // No pack: the install screen. One: it opens as it always has, no chooser
+  // for a choice of one. More: the chooser.
+  showChooser();
+}
+
+bool WikipediaActivity::openPack(const int index) {
+  if (index < 0 || index >= static_cast<int>(packs_.size())) return false;
+  // The render task reads the pack, the state and the strings below.
+  RenderLock lock;
+  closePack();
+  const wikipedia::PackSummary& summary = packs_[index];
+  packOpen_ = pack_.open(summary.dir);
+  if (!packOpen_) {
+    LOG_ERR(kTag, "pack in %s did not open", wikipedia::packPath(summary.dir).c_str());
+    return false;
   }
+  packIndex_ = index;
+  state_ = wikipedia::State{};
+  pack_.loadState(state_);
+  const wikipedia::Manifest& m = pack_.manifest();
+  char count[16];
+  withCommas(count, sizeof(count), m.articles);
+  char when[32];
+  snapshotWords(when, sizeof(when), m.snapshot);
+  footer_ = std::string(count) + " ARTICLES, " + when;
+  partsLine_.clear();
+  if (pack_.shardsPresent() < pack_.shardsTotal()) {
+    char line[64];
+    snprintf(line, sizeof(line), "%d OF %d PARTS ON THE CARD", pack_.shardsPresent(), pack_.shardsTotal());
+    partsLine_ = line;
+  }
+  factsHeading_ = wikipedia::factsHeading(m);
+  // The search keyboard types the pack's letters: a German pack's titles
+  // have umlauts and an eszett, which the English keys cannot reach.
+  const std::string lang = wikipedia::packLanguage(m);
+  lang_ = lang;
+  keyboard_ = lang == "de"   ? fui::KeyboardLayoutId::QwertzDe
+              : lang == "fr" ? fui::KeyboardLayoutId::AzertyFr
+              : lang == "es" ? fui::KeyboardLayoutId::SpanishEs
+                             : fui::KeyboardLayoutId::QwertyEn;
+  shifted_ = false;
+  symbols_ = false;
+  if (packs_.size() > 1) {
+    std::string code = m.pack;
+    for (char& c : code) {
+      if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    }
+    bandTitle_ = "WIKIPEDIA " + code;
+  } else {
+    bandTitle_ = "WIKIPEDIA";
+  }
+  // The root pack's cache is where it always was; every other pack's is a
+  // folder of it that no numbered article and no file of the root's can be.
+  cacheRoot_ = summary.dir.empty() ? std::string(kCacheRoot) : std::string(kCacheRoot) + "/lang-" + summary.dir;
+  // A cache laid out from another pack must not answer for this one: the
+  // build too, since one snapshot was built three times in one evening and
+  // the article behind a locator moved each time.
+  const std::string markerPath = cacheRoot_ + "/pack";
+  const std::string lruPath = cacheRoot_ + "/lru";
+  const std::string marker = m.pack + " " + m.snapshot + " " + m.built;
+  if (readSmallFile(markerPath.c_str()) != marker) {
+    const std::string lru = readSmallFile(lruPath.c_str());
+    size_t pos = 0;
+    while (pos < lru.size()) {
+      const size_t nl = lru.find('\n', pos);
+      const std::string id = lru.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+      if (!id.empty()) removeArticleCache(cacheRoot_ + "/" + id);
+      if (nl == std::string::npos) break;
+      pos = nl + 1;
+    }
+    ensureDir("/.crosspoint");
+    ensureDir(kCacheRoot);
+    ensureDir(cacheRoot_.c_str());
+    writeFile(lruPath.c_str(), "");
+    writeFile(markerPath.c_str(), marker);
+  }
+  if (packs_.size() > 1) {
+    ensureDir("/.crosspoint");
+    ensureDir(kCacheRoot);
+    writeFile(kChosenPath, "dir:" + summary.dir);
+  }
+  LOG_INF(kTag, "opened %s, %d pack(s) on the card", wikipedia::packPath(summary.dir).c_str(),
+          static_cast<int>(packs_.size()));
+  lock.unlock();
+  go(View::Search);
+  return true;
+}
+
+void WikipediaActivity::closePack() {
+  if (packOpen_) saveState();
+  closeArticle();
+  history_.clear();
+  query_.clear();
+  results_.clear();
+  keyboardShown_ = false;
+  // the last pack's keyboard may have had other keys in other places
+  kbInteractions_.beginPublishCycle();
+  kbInteractions_.publish();
+  pack_.close();
+  packOpen_ = false;
+  packIndex_ = -1;
+  state_ = wikipedia::State{};
+}
+
+void WikipediaActivity::showChooser() {
+  RenderLock lock;
+  closePack();
+  partsLine_.clear();
+  // What the cards say: the continue titles were read with the manifests,
+  // and a pack left a moment ago has a newer one on the card.
+  packs_ = wikipedia::Pack::discover();
+  if (packs_.size() <= 1) {
+    lock.unlock();
+    if (packs_.empty()) {
+      enterInstall();
+    } else if (!openPack(0)) {
+      enterInstall(packs_[0].pack);
+    }
+    return;
+  }
+  packDetails_.clear();
+  packCodes_.clear();
+  const std::string chosen = readSmallFile(kChosenPath);
+  chosenRow_ = -1;
+  for (const auto& p : packs_) {
+    if (chosen == "dir:" + p.dir) chosenRow_ = static_cast<int>(packDetails_.size());
+    char count[16];
+    withCommas(count, sizeof(count), p.articles);
+    char when[32];
+    snapshotWords(when, sizeof(when), p.snapshot);
+    packDetails_.push_back(std::string(count) + " ARTICLES, " + when);
+    std::string code = p.pack;
+    for (char& c : code) {
+      if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    }
+    packCodes_.push_back(code);
+  }
+  LOG_INF(kTag, "chooser: %d packs, last opened row %d", static_cast<int>(packs_.size()), chosenRow_);
+  lock.unlock();
+  go(View::Chooser);
 }
 
 void WikipediaActivity::onExit() {
   if (usbActive_) leaveInstall();
-  if (packOpen_) saveState();
-  closeArticle();
-  pack_.close();
+  closePack();
   Activity::onExit();
 }
 
 bool WikipediaActivity::skipLoopDelay() {
   return view_ == View::Article && section_ && section_->isBuilding() && !section_->isBuildComplete();
+}
+
+std::string WikipediaActivity::hyphenated(const std::string& title, const std::string& lang) {
+  Hyphenator::setPreferredLanguage(lang);
+  std::string out;
+  out.reserve(title.size() + 24);
+  size_t start = 0;
+  while (start <= title.size()) {
+    size_t end = title.find(' ', start);
+    if (end == std::string::npos) end = title.size();
+    // Each run between a hyphen or a slash is a word of its own to the
+    // patterns: "Aufmerksamkeitsdefizit-/Hyperaktivitaetsstoerung" whole got
+    // no break at all, and the screens split it between two letters. A break
+    // after the hyphen or the slash is the screens' own to take.
+    size_t seg = start;
+    while (seg < end) {
+      size_t cut = title.find_first_of("-/", seg);
+      if (cut == std::string::npos || cut > end) cut = end;
+      const std::string word = title.substr(seg, cut - seg);
+      size_t taken = 0;
+      for (const auto& at : Hyphenator::breakOffsets(word, false)) {
+        if (!at.requiresInsertedHyphen || at.byteOffset <= taken || at.byteOffset >= word.size()) continue;
+        out.append(word, taken, at.byteOffset - taken);
+        out += "\xC2\xAD";
+        taken = at.byteOffset;
+      }
+      out.append(word, taken, std::string::npos);
+      if (cut < end) out += title[cut];
+      seg = cut + 1;
+    }
+    if (end == title.size()) break;
+    out += ' ';
+    start = end + 1;
+  }
+  return out;
 }
 
 void WikipediaActivity::go(const View next) {
@@ -194,8 +333,7 @@ void WikipediaActivity::refreshResults() {
 }
 
 void WikipediaActivity::handleKey(const int value) {
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
+  const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false);
   switch (value) {
     case fui::QWERTY_KEY_SHIFT:
       shifted_ = !shifted_;
@@ -264,51 +402,15 @@ void WikipediaActivity::openRandom() {
 }
 
 fui::Rect WikipediaActivity::keyboardRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  const int rows = layout.rowCount;
-  const int gap = metrics.keyboardKeySpacing;
-  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
-  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
-  const int x = (pageWidth - width) / 2;
-  const int y = pageHeight - 8 - height;
-  return fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
-                   static_cast<int16_t>(height)};
+  return toybox::searchKeyboardRect(renderer, fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false));
 }
 
 // The keyboard has its own table: it registers more hit rects than a toybox
-// screen holds, and it is routed first.
+// screen holds, and it is routed first. Weather draws the same one
+// (ui/ToyboxKeyboard.h).
 void WikipediaActivity::drawKeyboard() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  kbInteractions_.beginPublishCycle();
-  fui::GfxRendererTarget target(renderer);
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
-  const fui::DeviceContext device = target.deviceContext();
-  const fui::InputSnapshot noInput{};
-  fui::Frame<56> frame(target, device, noInput, kbInteractions_);
-
-  fui::KeyboardProps props;
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  props.layout = &layout;
-  props.keyAction = wikiui::ActionKey;
-  props.okLabel = "GO";
-  props.shiftLabel = tr(STR_KEY_SHIFT);
-  props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
-  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
-  props.selectedIndex = -1;
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
-  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-  props.padding = fui::Insets{0, 0, 0, 0};
-  const fui::Rect kb = keyboardRect();
-  props.bottomHitOverflow = static_cast<int16_t>(renderer.getScreenHeight() - kb.bottom());
-  fui::keyboard(frame, kb, props);
-  kbInteractions_.publish();
+  toybox::drawSearchKeyboard(renderer, fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false), symbols_,
+                             wikiui::ActionKey, kbInteractions_);
   kbGate_.markBuilt();
 }
 
@@ -338,8 +440,9 @@ void WikipediaActivity::paintOpeningCue(const std::string& title) {
   toybox::Interactions untouched;
   toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
   toybox::Screen screen(frame);
+  const std::string shown = hyphenated(title, lang_);
   wikiui::ArticleChromeModel chrome;
-  chrome.title = title.c_str();
+  chrome.title = shown.c_str();
   chrome.contents = false;  // nothing to jump to until the layout exists
   // The same builder render() uses, so the rect it returns is the viewport the
   // page will be laid out for; the contents icon does not move it.
@@ -360,14 +463,17 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   // Everything from here is proportional to the article: the staging write,
   // then the parse and layout in render(). That is what the cue hides, and
   // only when the last open says there is enough of it to hide.
-  cacheDir_ = std::string(kCacheRoot) + "/" + std::to_string(locator);
-  if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheDir_.c_str())) return false;
+  cacheDir_ = cacheRoot_ + "/" + std::to_string(locator);
+  if (!ensureDir("/.crosspoint") || !ensureDir(kCacheRoot) || !ensureDir(cacheRoot_.c_str()) ||
+      !ensureDir(cacheDir_.c_str())) {
+    return false;
+  }
   const std::string html = cacheDir_ + "/article.html";
   // The band carries the title, so the h1 inside the page would say it twice;
-  // it stays only for a title the band cannot hold whole (two lines of the
-  // reader's 12, about 56 characters), which is the running head's one
-  // permitted cut.
-  const bool keepH1 = article_.title.size() > kBandTitleBytes;
+  // it stays only for a title the band cannot hold whole, which is the running
+  // head's one permitted cut. Measured, not counted: "Hochleistungsfluessig-
+  // keitschromatographie" is 41 bytes and was cut on one line with the h1 gone.
+  const bool keepH1 = !bandHoldsTitle();
   const size_t h1 = keepH1 ? std::string::npos : article_.xhtml.find("<h1>");
   const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
   const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
@@ -387,7 +493,8 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
     if (!writeFile(html.c_str(), staged)) return false;
   }
   // Most recently used first; the tail is pruned.
-  std::string lru = readSmallFile(kLruPath);
+  const std::string lruPath = cacheRoot_ + "/lru";
+  std::string lru = readSmallFile(lruPath.c_str());
   const std::string id = std::to_string(locator);
   std::string rebuilt = id + "\n";
   int kept = 1;
@@ -400,14 +507,32 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
         rebuilt += entry + "\n";
         ++kept;
       } else {
-        removeArticleCache(std::string(kCacheRoot) + "/" + entry);
+        removeArticleCache(cacheRoot_ + "/" + entry);
       }
     }
     if (nl == std::string::npos) break;
     pos = nl + 1;
   }
-  writeFile(kLruPath, rebuilt);
+  writeFile(lruPath.c_str(), rebuilt);
   return true;
+}
+
+bool WikipediaActivity::bandHoldsTitle() {
+  // The faces render() binds for an article, and a screen that draws nothing.
+  const int readerFont = SETTINGS.getReaderFontId();
+  fui::GfxRendererTarget target =
+      toybox::makeTarget(renderer, toybox::Faces{NOTOSANS_12_FONT_ID, readerFont, readerFont});
+  const fui::InputSnapshot noInput{};
+  toybox::Interactions untouched;
+  toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
+  toybox::Screen screen(frame);
+  const std::string title = hyphenated(article_.title, lang_);
+  wikiui::ArticleChromeModel model;
+  model.title = title.c_str();
+  model.contents = !article_.headings.empty();
+  const bool whole = wikiui::articleTitleWhole(screen, model);
+  if (!whole) LOG_INF(kTag, "the band cuts \"%s\"; the page keeps its h1", article_.title.c_str());
+  return whole;
 }
 
 bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor,
@@ -424,7 +549,7 @@ bool WikipediaActivity::openLocator(const uint32_t locator, const int page, cons
   // is not how big the article is, it is whether this device has ever laid it
   // out: the cache file is the answer, and it is right on the FIRST open,
   // which is the one a prediction can never be.
-  const std::string staged = std::string(kCacheRoot) + "/" + std::to_string(locator) + "/article.html";
+  const std::string staged = cacheRoot_ + "/" + std::to_string(locator) + "/article.html";
   const bool cached = Storage.exists(staged.c_str());
   if (!cached) paintOpeningCue(title);
   const uint32_t stageStart = millis();
@@ -559,11 +684,12 @@ void WikipediaActivity::ensureSection(const fui::Rect& body) {
   if (article_.xhtml.size() > kFreshPageBytes) {
     anchors.reserve(article_.headings.size());
     for (size_t i = 0; i < article_.headings.size(); ++i) {
-      if (article_.headings[i] == "Quick facts") continue;
+      if (article_.headings[i] == factsHeading_) continue;
       anchors.push_back("s" + std::to_string(i + 1));
     }
   }
   section_ = makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
+  if (section_) section_->setStandaloneLanguage(wikipedia::packLanguage(pack_.manifest()));
   if (!section_) {
     LOG_ERR(kTag, "OOM: Section");
     buildFailed_ = true;
@@ -590,8 +716,9 @@ void WikipediaActivity::layOutUnderCue() {
 }
 
 void WikipediaActivity::renderArticle(toybox::Screen& screen) {
+  const std::string title = hyphenated(article_.title, lang_);
   wikiui::ArticleChromeModel model;
-  model.title = article_.title.c_str();
+  model.title = title.c_str();
   model.contents = !article_.headings.empty();
   const fui::Rect body = wikiui::buildArticleChrome(screen, model);
 
@@ -667,17 +794,33 @@ void WikipediaActivity::pruneCache() {}
 
 // --------------------------------------------------------------- install
 
-void WikipediaActivity::enterInstall() {
+void WikipediaActivity::enterInstall(const std::string& failedPack) {
   // Everything the page needs to know, written before the card changes hands;
   // then no file of ours stays open while the host owns the card. Not the
   // free space: counting it walks the whole FAT (seven seconds on a 16 GB
   // card, before this screen could draw a thing), and the page sizes the copy
   // from the manifest and never reads the number.
-  pack_.writeInstallJson(-1, CROSSPOINT_VERSION, "X4 Pro");
-  closeArticle();
-  if (packOpen_) saveState();
-  pack_.close();
-  packOpen_ = false;
+  // "want" is the pack whose door opened this screen, or the one that would
+  // not open, so the page offers it first; from the chooser or an empty card
+  // the page asks.
+  std::string want = packOpen_ ? pack_.manifest().pack : failedPack;
+  const bool known = packOpen_ && packIndex_ >= 0 && packIndex_ < static_cast<int>(packs_.size());
+  std::string line = wikipedia::installLine(packs_, known ? &packs_[packIndex_] : nullptr, packOpen_ ? "" : failedPack);
+  wikipedia::Pack::writeInstallJson(wikipedia::installJson(packs_, want.c_str(), CROSSPOINT_VERSION, "X4 Pro"));
+  LOG_INF(kTag, "install screen: want \"%s\", %d pack(s) on the card", want.c_str(), static_cast<int>(packs_.size()));
+  {
+    RenderLock lock;
+    closePack();
+    installLine_ = std::move(line);
+    installWant_ = std::move(want);
+  }
+  startUsbDrive();
+}
+
+// Retry keeps what the screen and install.json already say: the pack is
+// closed by now, so recomputing them would forget which one was asked for.
+void WikipediaActivity::startUsbDrive() {
+  LOG_INF(kTag, "USB drive for the page, asking for \"%s\"", installWant_.c_str());
   view_ = View::Install;
   interactionsReady_ = false;
   requestUpdateAndWait();
@@ -752,6 +895,18 @@ void WikipediaActivity::routeAction(const int action, const int value) {
     case wikiui::ActionInstall:
       enterInstall();
       return;
+    case wikiui::ActionPack:
+      // A language that will not open is a pack the page can repair, as it
+      // is when it is the only one on the card: the install screen names it
+      // and the page copies what is missing.
+      if (value >= 0 && value < static_cast<int>(packs_.size()) && !openPack(value)) {
+        LOG_INF(kTag, "chooser: %s did not open, to the install screen", packs_[value].pack.c_str());
+        enterInstall(packs_[value].pack);
+      }
+      return;
+    case wikiui::ActionLanguages:
+      showChooser();
+      return;
     case wikiui::ActionContents:
       if (view_ == View::Article && !article_.headings.empty()) {
         refreshHeadingPages();
@@ -793,11 +948,13 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       popHistory();
       return;
     case wikiui::ActionRetry:
-      enterInstall();
+      startUsbDrive();
       return;
     case wikiui::ActionBack:
       if (section_) {
         go(View::Article);
+      } else if (!packOpen_ && packs_.size() > 1) {
+        go(View::Chooser);
       } else {
         go(View::Search);
       }
@@ -900,9 +1057,14 @@ void WikipediaActivity::loop() {
         } else if (keyboardShown_) {
           keyboardShown_ = false;
           requestUpdate();
+        } else if (packs_.size() > 1) {
+          showChooser();
         } else {
           shelf::leave(renderer, mappedInput);
         }
+        return;
+      case View::Chooser:
+        shelf::leave(renderer, mappedInput);
         return;
       case View::Article:
         // The edge swipe leaves the article for the main page; the band's
@@ -1080,28 +1242,39 @@ void WikipediaActivity::render(RenderLock&&) {
 
   switch (view_) {
     case View::Search: {
+      // Every title as the screens break it: with soft hyphens where the
+      // pack's language breaks words. Reserved whole, so the pointers the
+      // model holds stay put.
+      std::vector<std::string> titles;
+      titles.reserve(wikiui::kMaxResults + wikiui::kMaxRecent + 1);
+      const auto shown = [&](const std::string& title) {
+        titles.push_back(hyphenated(title, lang_));
+        return titles.back().c_str();
+      };
       wikiui::SearchModel model;
       model.query = query_.c_str();
       model.resultCount = static_cast<int>(std::min<size_t>(results_.size(), wikiui::kMaxResults));
       for (int i = 0; i < model.resultCount; ++i) {
-        model.results[i].title = results_[i].title.c_str();
+        model.results[i].title = shown(results_[i].title);
         model.results[i].redirect = results_[i].redirect;
       }
       model.noMatch = !query_.empty() && results_.empty();
       model.moreResults = results_.size() > static_cast<size_t>(wikiui::kMaxResults);
-      model.continueTitle = state_.current.title.empty() ? nullptr : state_.current.title.c_str();
+      model.continueTitle = state_.current.title.empty() ? nullptr : shown(state_.current.title);
       model.continuePage = state_.current.title.empty() ? 0 : state_.currentPage + 1;
       // The trail leaves out the article CONTINUE already names; VALUE is the
       // row in state_.recent, so the activity keeps the map.
       model.recentCount = 0;
       for (size_t i = 0; i < state_.recent.size() && model.recentCount < wikiui::kMaxRecent; ++i) {
         if (!state_.current.title.empty() && state_.recent[i].locator == state_.current.locator) continue;
-        model.recent[model.recentCount].title = state_.recent[i].title.c_str();
+        model.recent[model.recentCount].title = shown(state_.recent[i].title);
         recentRows_[model.recentCount] = static_cast<int>(i);
         ++model.recentCount;
       }
       model.footer = footer_.c_str();
       model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
+      model.bandTitle = bandTitle_.c_str();
+      model.languagesBack = packs_.size() > 1;
       if (keyboardShown_) {
         const fui::Rect kb = keyboardRect();
         model.keyboardHeight = static_cast<int16_t>(renderer.getScreenHeight() - kb.y + 8);
@@ -1115,18 +1288,22 @@ void WikipediaActivity::render(RenderLock&&) {
     case View::Contents: {
       // TOP first (page 1), then every section with its page once the layout
       // has reached it.
+      std::vector<std::string> broken;
       std::vector<const char*> names;
       std::vector<int> pages;
+      broken.reserve(article_.headings.size() + 1);
       names.reserve(article_.headings.size() + 1);
       pages.reserve(article_.headings.size() + 1);
       names.push_back("Top");
       pages.push_back(0);
       for (size_t i = 0; i < article_.headings.size(); ++i) {
-        names.push_back(article_.headings[i].c_str());
+        broken.push_back(hyphenated(article_.headings[i], lang_));
+        names.push_back(broken.back().c_str());
         pages.push_back(i < headingPages_.size() ? headingPages_[i] : -1);
       }
+      broken.push_back(hyphenated(article_.title, lang_));
       wikiui::ContentsModel model;
-      model.title = article_.title.c_str();
+      model.title = broken.back().c_str();
       model.headings = names.data();
       model.pages = pages.data();
       model.count = static_cast<int>(names.size());
@@ -1140,8 +1317,25 @@ void WikipediaActivity::render(RenderLock&&) {
       model.stage = stage_;
       model.url = kInstallUrlShown;
       model.partsLine = partsLine_.empty() ? nullptr : partsLine_.c_str();
+      model.languageLine = installLine_.empty() ? nullptr : installLine_.c_str();
       const fui::Rect qr = wikiui::buildInstall(screen, model);
       QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, kInstallUrl);
+      break;
+    }
+    case View::Chooser: {
+      wikiui::ChooserModel model;
+      model.last = chosenRow_;
+      model.count = static_cast<int>(std::min<size_t>(packs_.size(), wikiui::kMaxPacks));
+      std::vector<std::string> waits;
+      waits.reserve(wikiui::kMaxPacks);
+      for (int i = 0; i < model.count; ++i) {
+        model.rows[i].name = packs_[i].name.c_str();
+        model.rows[i].code = packCodes_[i].c_str();
+        model.rows[i].detail = packDetails_[i].c_str();
+        waits.push_back(hyphenated(packs_[i].continueTitle, packs_[i].pack));
+        model.rows[i].continueTitle = packs_[i].continueTitle.empty() ? nullptr : waits.back().c_str();
+      }
+      wikiui::buildChooser(screen, model);
       break;
     }
     case View::Notice: {

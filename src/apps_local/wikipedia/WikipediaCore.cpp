@@ -1,6 +1,7 @@
 #include "WikipediaCore.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "WikipediaFold.h"
@@ -267,6 +268,9 @@ bool parseManifest(const char* json, const size_t len, Manifest& out) {
   if (const auto* f = root.get("format")) out.format = f->asInt();
   if (out.format != 1) return false;
   if (const auto* v = root.get("pack")) out.pack = v->asStr();
+  if (const auto* v = root.get("lang")) out.lang = v->asStr();
+  if (const auto* v = root.get("name")) out.name = v->asStr();
+  if (const auto* v = root.get("facts")) out.facts = v->asStr();
   if (const auto* v = root.get("snapshot")) out.snapshot = v->asStr();
   if (const auto* v = root.get("built")) out.built = v->asStr();
   if (const auto* v = root.get("articles")) out.articles = static_cast<uint32_t>(v->asU64());
@@ -300,6 +304,113 @@ bool parseManifest(const char* json, const size_t len, Manifest& out) {
   }
   out.valid = !out.dict.file.empty() && !out.blocksdir.file.empty() && !out.titles.empty() && !out.shards.empty();
   return out.valid;
+}
+
+std::string packName(const Manifest& manifest) {
+  if (!manifest.name.empty()) return manifest.name;
+  if (manifest.pack == "en" || manifest.pack.empty()) return "English";
+  std::string code = manifest.pack;
+  for (char& c : code) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+  }
+  return code;
+}
+
+std::string factsHeading(const Manifest& manifest) {
+  return manifest.facts.empty() ? std::string("Quick facts") : manifest.facts;
+}
+
+std::string packLanguage(const Manifest& manifest) { return manifest.lang.empty() ? manifest.pack : manifest.lang; }
+
+// ------------------------------------------------------------ many packs
+
+std::string packPath(const std::string& dir) { return dir.empty() ? std::string("/wikipedia") : "/wikipedia/" + dir; }
+
+bool isPackDirName(const char* name) {
+  if (!name || !*name) return false;
+  if (std::strcmp(name, "shards") == 0 || std::strcmp(name, "overlay") == 0) return false;
+  // a letter first: the root pack's cache names its articles by number
+  if (name[0] < 'a' || name[0] > 'z') return false;
+  size_t n = 0;
+  for (const char* p = name; *p; ++p, ++n) {
+    const char c = *p;
+    if (n >= 15) return false;
+    if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
+  }
+  return true;
+}
+
+std::string snapshotMonth(const std::string& snapshot) {
+  static const char* const kMonths[] = {"January", "February", "March",     "April",   "May",      "June",
+                                        "July",    "August",   "September", "October", "November", "December"};
+  int year = 0;
+  int month = 0;
+  if (std::sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
+    return std::string(kMonths[month - 1]) + " " + std::to_string(year);
+  }
+  return snapshot;
+}
+
+std::string installLine(const std::vector<PackSummary>& packs, const PackSummary* open, const std::string& failed) {
+  if (open) return "On the card: " + open->name + ", " + snapshotMonth(open->snapshot) + ".";
+  if (!failed.empty()) {
+    std::string name = failed;
+    for (const auto& p : packs) {
+      if (p.pack == failed) name = p.name;
+    }
+    return name + " on the card is not complete. The page copies what is missing.";
+  }
+  if (!packs.empty()) {
+    std::string line = "On the card:";
+    for (size_t i = 0; i < packs.size(); ++i) line += (i ? ", " : " ") + packs[i].name;
+    return line + ". The page lists the languages you can add.";
+  }
+  return "Choose the language on the page.";
+}
+
+std::string installJson(const std::vector<PackSummary>& packs, const char* want, const char* firmware,
+                        const char* device) {
+  std::string s = "{\"device\":\"";
+  jsonEscape(s, device ? device : "");
+  s += "\",\"firmware\":\"";
+  jsonEscape(s, firmware ? firmware : "");
+  s += "\",\"free\":null,";
+  const PackSummary* root = nullptr;
+  for (const auto& p : packs) {
+    if (p.dir.empty()) root = &p;
+  }
+  if (root) {
+    s += "\"pack\":\"";
+    jsonEscape(s, root->pack);
+    s += "\",\"snapshot\":\"";
+    jsonEscape(s, root->snapshot);
+    s += "\",\"shardsPresent\":" + std::to_string(root->shardsPresent) +
+         ",\"shardsTotal\":" + std::to_string(root->shardsTotal) + ",";
+  } else {
+    s += "\"pack\":null,\"snapshot\":null,\"shardsPresent\":0,\"shardsTotal\":0,";
+  }
+  s += "\"want\":";
+  if (want && *want) {
+    s += '"';
+    jsonEscape(s, want);
+    s += '"';
+  } else {
+    s += "null";
+  }
+  s += ",\"packs\":[";
+  for (size_t i = 0; i < packs.size(); ++i) {
+    if (i) s += ',';
+    s += "{\"pack\":\"";
+    jsonEscape(s, packs[i].pack);
+    s += "\",\"dir\":\"";
+    jsonEscape(s, packs[i].dir);
+    s += "\",\"snapshot\":\"";
+    jsonEscape(s, packs[i].snapshot);
+    s += "\",\"shardsPresent\":" + std::to_string(packs[i].shardsPresent) +
+         ",\"shardsTotal\":" + std::to_string(packs[i].shardsTotal) + "}";
+  }
+  s += "]}\n";
+  return s;
 }
 
 // ------------------------------------------------------------- blocks.dir
@@ -466,6 +577,23 @@ bool TitleIndex::entryAt(const uint32_t block, const uint32_t ordinal, IndexEntr
     return true;
   });
   return found;
+}
+
+void oneRowPerArticle(std::vector<IndexEntry>& entries, const size_t max) {
+  std::vector<IndexEntry> kept;
+  kept.reserve(std::min(entries.size(), max));
+  for (auto& e : entries) {
+    bool merged = false;
+    for (auto& k : kept) {
+      if (k.locator != e.locator) continue;
+      // the article's own title wins over a redirect's, in the redirect's place
+      if (k.redirect && !e.redirect) k = e;
+      merged = true;
+      break;
+    }
+    if (!merged && kept.size() < max) kept.push_back(std::move(e));
+  }
+  entries = std::move(kept);
 }
 
 // ------------------------------------------------------- a decoded block

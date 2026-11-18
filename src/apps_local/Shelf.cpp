@@ -33,6 +33,7 @@
 #include "notes/NotesActivity.h"
 #include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
+#include "readingstats/ReadingStatsActivity.h"
 #include "rss/RssActivity.h"
 #include "seasalt/SeaSaltActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -44,6 +45,7 @@
 #include "underhand/UnderhandActivity.h"
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
+#include "weather/WeatherActivity.h"
 #include "wikipedia/WikipediaActivity.h"
 #include "wordle/WordleActivity.h"
 #include "xkcd/XkcdActivity.h"
@@ -95,6 +97,10 @@ constexpr shelf::Item kApps[] = {
     // Appended rather than placed beside Hacker News: a row inserted above
     // others moves every one of them under a thumb that knows where they were.
     {"RSS", &icon_rss_32, &RssActivity::create},
+    // Card #763. Appended, like RSS, so no row above it moves.
+    {"WEATHER", &icon_weather_32, &WeatherActivity::create},
+    // Card #762. Appended, for the same reason RSS was.
+    {"READING STATS", &icon_readingstats_32, &ReadingStatsActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

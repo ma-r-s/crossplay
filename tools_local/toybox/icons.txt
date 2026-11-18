@@ -470,3 +470,14 @@ wordle_delete = delete
 # `newspaper` was the literal choice and Hacker News already wears it. Spliced
 # in by hand (see the warning at the top of this file).
 rss           = rss
+# WEATHER is a sun behind a cloud, the mark every forecast wears. `cloud` alone
+# reads as storage and `thermometer` as a medical app. Spliced in by hand (see
+# the warning at the top of this file); the forecast's own skies are generated
+# into src/apps_local/weather/WeatherIcons.h from tools_local/weather/icons.txt.
+weather       = cloud-sun
+
+# READING STATS: three rising columns, the chart the app opens on. Spliced into
+# ToyboxIcons.h by hand per the warning at the top of this file. `book-open-check`
+# was the literal pick and reads as Study's sibling at 32px; `chart-column`
+# carries axes that fill in at one bit.
+readingstats = chart-no-axes-column-increasing

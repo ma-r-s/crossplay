@@ -10,6 +10,8 @@
 // a square left for the QR code, and the cable's status). CONTENTS is an
 // overlay list; NOTICE is one sentence and a way out.
 
+#include <string>
+
 #include "../ui/ToyboxScreen.h"
 
 namespace wikiui {
@@ -28,13 +30,16 @@ enum : fui::ActionId {
   ActionInstall = 9,   // the search screen's "get Wikipedia" row
   ActionRetry = 10,
   ActionBack = 11,
-  ActionClear = 12,     // clear the query
-  ActionField = 13,     // the field itself: raises the keyboard where it is hidden
-  ActionMore = 14,      // the contents list's next window
-  ActionPrevious = 15,  // the article band's way back: the previous article, or the search
+  ActionClear = 12,      // clear the query
+  ActionField = 13,      // the field itself: raises the keyboard where it is hidden
+  ActionMore = 14,       // the contents list's next window
+  ActionPrevious = 15,   // the article band's way back: the previous article, or the search
+  ActionPack = 16,       // a language on the chooser; VALUE is the row
+  ActionLanguages = 17,  // the home band's way back to the chooser, with more than one pack
 };
 
 constexpr int kMaxResults = 8;
+constexpr int kMaxPacks = 6;
 constexpr int kMaxRecent = 10;
 // The contents list draws as many rows as fit; this is the step the activity
 // pages by before a first render has told it how many that was.
@@ -62,6 +67,10 @@ struct SearchModel {
   // Height the activity reserves at the bottom for the keyboard; 0 when it is
   // not showing.
   int16_t keyboardHeight = 0;
+  // With more than one pack on the card the band names this one ("WIKIPEDIA
+  // DE") and its chevron goes back to the chooser.
+  const char* bandTitle = "WIKIPEDIA";
+  bool languagesBack = false;
 };
 
 void buildSearch(toybox::Screen& screen, const SearchModel& model);
@@ -74,6 +83,17 @@ struct ArticleChromeModel {
 
 // Draws the band; returns the rect the page is rendered into, above the footer.
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model);
+
+// Whether that band draws the title whole. When it cannot, the page keeps its
+// own h1, so the whole title is always somewhere on the first page.
+bool articleTitleWhole(toybox::Screen& screen, const ArticleChromeModel& model);
+
+// A title as the drawing call should be given it for `width`: soft hyphens
+// (U+00AD, the activity's hyphenation points) taken at the break they make,
+// as "- ", and dropped everywhere else; a word with no break that fits split
+// between letters with a hyphen. Unchanged apart from its soft hyphens when it
+// fits. Every title on these screens is drawn through it.
+std::string breakTitle(const fui::DrawTarget& target, const fui::TextStyle& style, const char* text, int16_t width);
 
 struct ArticleFooterModel {
   const char* left = "";   // "page 12" while building, "12 of 87" once complete
@@ -104,10 +124,31 @@ struct InstallModel {
   const char* url = "";
   // "3 of 46 parts on the card" when a pack is already there; null on first install.
   const char* partsLine = nullptr;
+  // Which language this is about, in the reading face: "On the card: Deutsch,
+  // October 2026." from a pack's door, the list of them from the chooser,
+  // "Choose the language on the page." with nothing on the card yet.
+  const char* languageLine = nullptr;
 };
 
 // Draws everything but the QR code; returns the square left for it.
 fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model);
+
+// The languages on the card, when there is more than one. Each row opens its
+// pack's home; the last opened is marked; the foot adds another.
+struct PackRow {
+  const char* name = "";                // "Deutsch", in the reading face
+  const char* code = "";                // "DE"
+  const char* detail = "";              // "50,000 ARTICLES, OCTOBER 2026"
+  const char* continueTitle = nullptr;  // the article its CONTINUE names
+};
+
+struct ChooserModel {
+  PackRow rows[kMaxPacks];
+  int count = 0;
+  int last = -1;  // the row opened last time, -1 when none
+};
+
+void buildChooser(toybox::Screen& screen, const ChooserModel& model);
 
 struct NoticeModel {
   const char* headline = "";

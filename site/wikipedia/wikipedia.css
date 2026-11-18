@@ -34,6 +34,50 @@
   line-height: 1.55;
 }
 
+/* --- the languages --------------------------------------------------------- */
+
+/* The same control as a route, smaller: one pill per language, the chosen
+   one in ink. Only shown when the host publishes more than one. */
+.wk-langs {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.wk-langs legend {
+  padding: 0;
+  margin-bottom: 0.8rem;
+  width: 100%;
+}
+.wk-lang {
+  position: relative;
+  border: 3px solid var(--ink);
+  border-radius: 4px;
+  padding: 0.45rem 1.1rem 0.5rem;
+  background: var(--paper-2);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--serif);
+  font-size: 1.25rem;
+}
+.wk-lang input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+.wk-lang:has(input:checked) {
+  background: var(--ink);
+  color: var(--paper);
+}
+.wk-lang:has(input:focus-visible) {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
 /* --- the two routes ------------------------------------------------------ */
 
 .wk-routes {
@@ -85,6 +129,22 @@
 .wk-route:has(input:focus-visible) {
   outline: 3px solid var(--ink);
   outline-offset: 3px;
+}
+/* A route this language does not publish: not a choice, so it does not look
+   like one. A dashed edge in the muted rule colour, the words faded, and no
+   pointer. Its own line still says why ("Not published for this language
+   yet"). */
+.wk-route:has(input:disabled) {
+  border-style: dashed;
+  border-color: var(--edge);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.wk-route:has(input:disabled) .wk-route-art,
+.wk-route:has(input:disabled) .wk-route-title,
+.wk-route:has(input:disabled) .wk-route-how {
+  opacity: 0.55;
 }
 .wk-route-art {
   display: block;

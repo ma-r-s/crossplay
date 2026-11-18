@@ -2,6 +2,9 @@
 
 #include <cstdio>
 #include <cstring>
+#include <deque>
+#include <string>
+#include <vector>
 
 #include "../ui/ToyboxIcons.h"
 
@@ -18,8 +21,10 @@ constexpr int16_t kMargin = 16;
 // A row is a thumb's height at least; a title that wraps makes its row taller.
 constexpr int16_t kRowMin = 48;
 constexpr int16_t kRowPad = 6;
-// No title reaches this: three lines of the reading cut hold 120 characters.
-constexpr int16_t kMaxTitleLines = 3;
+// As many lines as a title takes. Three were said to hold any title, and the
+// 100-byte "Borat - Kulturelle Lernung von Amerika, ..." needs four at the
+// reading cut (titles run to 255 bytes); this is the wrap's own ceiling.
+constexpr int16_t kMaxTitleLines = 16;
 constexpr int16_t kFieldHeight = 52;
 constexpr int16_t kCaptionHeight = 28;
 // The footer's words sit kFooterPad under the page; under them the progress
@@ -69,6 +74,155 @@ void drawProse(toybox::Screen& screen, const fui::Rect& box, const char* text,
   screen.target().text(box, text, style);
 }
 
+// U+00AD, the soft hyphen: where the activity says a word may break.
+constexpr char kShy0 = '\xC2';
+constexpr char kShy1 = '\xAD';
+
+std::string withoutSoftHyphens(const char* text) {
+  std::string out;
+  for (const char* p = text ? text : ""; *p; ++p) {
+    if (p[0] == kShy0 && p[1] == kShy1) {
+      ++p;
+      continue;
+    }
+    out += *p;
+  }
+  return out;
+}
+
+// What joins a piece of a title to the one before it, and so what a break
+// there costs: a space goes, a soft hyphen becomes "-", and after a hyphen or
+// a slash already in the title nothing is added.
+enum class Glue : uint8_t { None, Space, Shy, After };
+
+struct Piece {
+  std::string text;
+  Glue before;
+};
+
+std::deque<Piece> titlePieces(const char* text) {
+  std::deque<Piece> out;
+  std::string cur;
+  Glue glue = Glue::None;
+  const auto flush = [&](const Glue next) {
+    if (!cur.empty()) {
+      out.push_back(Piece{cur, out.empty() ? Glue::None : glue});
+      cur.clear();
+      glue = next;
+    } else if (next == Glue::Space) {
+      glue = Glue::Space;
+    }
+  };
+  for (const char* p = text ? text : ""; *p; ++p) {
+    if (*p == ' ') {
+      flush(Glue::Space);
+      continue;
+    }
+    if (p[0] == kShy0 && p[1] == kShy1) {
+      flush(Glue::Shy);
+      ++p;
+      continue;
+    }
+    cur += *p;
+    // After a run of them, never inside one: "defizit-/Hyper" breaks after
+    // "-/", never before the "/", which would start a line with it.
+    const auto breaks = [](const char c) { return c == '-' || c == '/'; };
+    if (breaks(*p) && p[1] != '\0' && p[1] != ' ' && !breaks(p[1])) flush(Glue::After);
+  }
+  flush(Glue::None);
+  return out;
+}
+
+std::string joinPieces(const std::vector<Piece>& line, const Glue next) {
+  std::string s;
+  for (size_t i = 0; i < line.size(); ++i) {
+    if (i > 0 && line[i].before == Glue::Space) s += ' ';
+    s += line[i].text;
+  }
+  if (next == Glue::Shy) s += '-';
+  return s;
+}
+
+}  // namespace
+
+// The device and the component wrap at spaces only, and a word wider than the
+// line they split between any two letters with nothing to say so
+// ("Hochleistungsfluessigkeitschrom" over "atographie"). So the breaks are
+// chosen here, where the pack's language is known through the soft hyphens
+// (U+00AD) the activity put in at its hyphenation points, the same patterns
+// the article's own text breaks with, and handed over as spaces: a break at
+// a soft hyphen becomes "- ", a break after a hyphen or a slash in the title
+// a space after it, and every other soft hyphen goes. A word with no break
+// that fits is split between letters, with a hyphen. Greedy, so the wrap that
+// draws the result breaks exactly where this did: every line it is given
+// fits, and no line can take the next piece, which would also bring a space
+// this measure did not count.
+std::string breakTitle(const fui::DrawTarget& target, const fui::TextStyle& style, const char* text,
+                       const int16_t width) {
+  const std::string plain = withoutSoftHyphens(text);
+  const auto fits = [&](const std::string& run) {
+    return target.measureText(style.font, run.c_str(), style).width <= width;
+  };
+  if (width <= 0 || fits(plain)) return plain;
+  std::deque<Piece> todo = titlePieces(text);
+  std::vector<std::string> lines;
+  std::vector<Piece> line;
+  // A piece alone wider than the line: the widest run of whole letters that
+  // fits beside a hyphen, at least one, and the rest goes on.
+  const auto splitLetters = [&](Piece piece) {
+    size_t cut = 0;
+    size_t next = 0;
+    while (next < piece.text.size()) {
+      size_t after = next + 1;
+      while (after < piece.text.size() && (static_cast<uint8_t>(piece.text[after]) & 0xC0) == 0x80) ++after;
+      if (cut > 0 && !fits(piece.text.substr(0, after) + "-")) break;
+      cut = after;
+      next = after;
+    }
+    lines.push_back(piece.text.substr(0, cut) + (cut < piece.text.size() ? "-" : ""));
+    if (cut < piece.text.size()) todo.push_front(Piece{piece.text.substr(cut), Glue::Shy});
+  };
+  while (!todo.empty()) {
+    Piece piece = todo.front();
+    todo.pop_front();
+    if (line.empty()) {
+      if (fits(piece.text)) {
+        line.push_back(piece);
+      } else {
+        splitLetters(piece);
+      }
+      continue;
+    }
+    line.push_back(piece);
+    if (fits(joinPieces(line, Glue::None))) continue;
+    line.pop_back();
+    // Break before this piece; at a soft hyphen the line must hold its "-"
+    // too, and when it cannot the break moves back a piece.
+    std::vector<Piece> carried{piece};
+    while (!fits(joinPieces(line, carried.front().before)) && line.size() > 1) {
+      carried.insert(carried.begin(), line.back());
+      line.pop_back();
+    }
+    const bool closes = fits(joinPieces(line, carried.front().before));
+    if (closes) lines.push_back(joinPieces(line, carried.front().before));
+    const Piece alone = line.front();
+    line.clear();
+    for (auto it = carried.rbegin(); it != carried.rend(); ++it) todo.push_front(*it);
+    // One piece whose "-" does not fit beside it: split it between letters,
+    // its rest going on before what was carried.
+    if (!closes) splitLetters(alone);
+  }
+  if (!line.empty()) lines.push_back(joinPieces(line, Glue::None));
+  std::string out;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    if (i > 0) out += ' ';
+    out += lines[i];
+  }
+  return out;
+}
+
+namespace {
+
 void hairline(toybox::Screen& screen, const int16_t y) {
   const fui::Rect body = screen.body();
   screen.target().fill(fui::makeRect(static_cast<int16_t>(body.x + kMargin), y,
@@ -92,17 +246,12 @@ fui::StyleSet bandOutlineStyles() {
   return styles;
 }
 
-// The band. `reading` marks a band that carries an article's title, bold in
-// the reader's face: one line at the reading size when it fits, otherwise two
-// lines of the reader's 12, which is the most the band's 66 visible rows can
-// hold (two lines at the reading size are 80). A title longer than two such
-// lines is the running head's one permitted cut, and the page then keeps its
-// own h1 (see stageArticle). On those screens the pill is set in the small
-// reader cut rather than Jersey: the activity binds the reader's faces so the
-// title has real cuts to step through, and three slots is all there are.
-void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel = nullptr,
-            const fui::ActionId trailingAction = 0, const bool back = false, const bool reading = false,
-            const freeink::Icon* trailingIcon = nullptr) {
+// The band's props: the title, the chevron that goes back, and a trailing
+// button that is a word or an icon. Shared by chrome() and articleTitleWhole(),
+// so the width a title is measured against is the width it gets.
+fui::HeaderProps bandProps(toybox::Screen& screen, const char* title, const char* trailingLabel,
+                           const fui::ActionId trailingAction, const fui::ActionId backAction,
+                           const freeink::Icon* trailingIcon) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
@@ -115,9 +264,9 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
     header.trailingStyles = bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
   }
-  if (back) {
+  if (backAction != 0) {
     header.leadingIcon = fui::bitmapFromIcon(icon_wiki_back_32);
-    header.leadingAction = ActionPrevious;
+    header.leadingAction = backAction;
     header.leadingStyles = bandOutlineStyles();
     header.leadingRadius = toybox::kPillRadius / 2;
   }
@@ -133,15 +282,53 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
     header.trailingText.color = fui::Color::White;
     header.trailingRadius = toybox::kPillRadius / 2;
   }
+  return header;
+}
+
+// An article's title in the band, bold in the reader's face: one line at the
+// reading size when it fits, otherwise two lines of the reader's 12 (the most
+// the band's 66 visible rows hold; two at the reading size are 80), broken
+// where its language breaks words. `whole` is false when even that cuts it,
+// the running head's one permitted cut, and the page then keeps its own h1
+// (WikipediaActivity::stageArticle asks articleTitleWhole()). On these
+// screens the pill is set in the small reader cut rather than Jersey: the
+// activity binds the reader's faces so the title has real cuts to step
+// through, and three slots is all there are.
+struct BandTitle {
+  fui::TextStyle style;
+  std::string text;
+  bool whole;
+};
+
+BandTitle bandTitle(toybox::Screen& screen, const fui::HeaderProps& header) {
+  BandTitle out{screen.theme().titleText, std::string(), true};
+  out.style.align = screen.theme().headerTitleAlign;
+  out.style.bold = true;
+  const int16_t width = toybox::bandTitleWidth(screen, header);
+  out.text = withoutSoftHyphens(header.title);
+  if (screen.target().measureText(out.style.font, out.text.c_str(), out.style).width <= width) return out;
+  out.style.font = toybox::kSmallFont;
+  out.style.maxLines = 2;
+  out.text = breakTitle(screen.target(), out.style, header.title, width);
+  fui::TextStyle all = out.style;
+  all.maxLines = 16;
+  const int16_t lineHeight = screen.target().lineHeight(out.style.font);
+  const int16_t height = fui::measureWrappedText(screen.target(), out.text.c_str(), all, width).height;
+  out.whole = lineHeight > 0 && height <= lineHeight * out.style.maxLines;
+  return out;
+}
+
+// The band. `reading` marks a band that carries an article's title (see
+// bandTitle); the others are the app's own words, in Jersey.
+void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel = nullptr,
+            const fui::ActionId trailingAction = 0, const fui::ActionId backAction = 0, const bool reading = false,
+            const freeink::Icon* trailingIcon = nullptr) {
+  fui::HeaderProps header = bandProps(screen, title, trailingLabel, trailingAction, backAction, trailingIcon);
+  BandTitle band;
   if (reading) {
-    header.titleText = screen.theme().titleText;
-    header.titleText.align = screen.theme().headerTitleAlign;
-    header.titleText.bold = true;
-    const int16_t width = toybox::headerTitleWidth(screen, toybox::headerInkRect(screen), header);
-    if (screen.target().measureText(header.titleText.font, title, header.titleText).width > width) {
-      header.titleText.font = toybox::kSmallFont;
-      header.titleText.maxLines = 2;
-    }
+    band = bandTitle(screen, header);
+    header.titleText = band.style;
+    header.title = band.text.c_str();
   }
   toybox::headerBand(screen, header);
 }
@@ -150,31 +337,33 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
 // and its row grows to hold it.
 struct TitleFit {
   int16_t lines;
-  int16_t height;  // the row's, kRowMin at least
+  int16_t height;    // the row's, kRowMin at least
+  std::string text;  // as drawn: broken for the width (breakTitle)
 };
 
-TitleFit fitTitle(toybox::Screen& screen, const int16_t width, const char* text, const fui::FontId font) {
+TitleFit fitTitle(toybox::Screen& screen, const int16_t width, const char* title, const fui::FontId font) {
   fui::TextStyle style = textStyle(font, fui::TextAlign::Left);
   const int16_t lineHeight = screen.target().lineHeight(font);
+  std::string text = breakTitle(screen.target(), style, title, width);
   int16_t lines = 1;
-  if (screen.target().measureText(font, text, style).width > width) {
+  if (screen.target().measureText(font, text.c_str(), style).width > width) {
     style.maxLines = kMaxTitleLines;
-    const fui::Size size = fui::measureWrappedText(screen.target(), text, style, width);
+    const fui::Size size = fui::measureWrappedText(screen.target(), text.c_str(), style, width);
     lines = lineHeight > 0 ? static_cast<int16_t>((size.height + lineHeight - 1) / lineHeight) : 1;
     if (lines < 1) lines = 1;
     if (lines > kMaxTitleLines) lines = kMaxTitleLines;
   }
   const int16_t height = static_cast<int16_t>(lines * lineHeight + kRowPad * 2);
-  return TitleFit{lines, height < kRowMin ? kRowMin : height};
+  return TitleFit{lines, height < kRowMin ? kRowMin : height, std::move(text)};
 }
 
-void drawTitle(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
-               const TitleFit& fit, const fui::Color colour = fui::Color::Black) {
+void drawTitle(toybox::Screen& screen, const fui::Rect& box, const fui::FontId font, const TitleFit& fit,
+               const fui::Color colour = fui::Color::Black) {
   fui::TextStyle style = textStyle(font, fui::TextAlign::Left, colour);
   style.maxLines = static_cast<uint8_t>(fit.lines);
   const int16_t textHeight = static_cast<int16_t>(fit.lines * screen.target().lineHeight(font));
   const int16_t top = static_cast<int16_t>(box.y + (box.height > textHeight ? (box.height - textHeight) / 2 : 0));
-  screen.target().text(fui::Rect{box.x, top, box.width, textHeight}, text, style);
+  screen.target().text(fui::Rect{box.x, top, box.width, textHeight}, fit.text.c_str(), style);
 }
 
 // A row of a title list, its whole width tappable. Returns the row's height,
@@ -187,7 +376,7 @@ int16_t drawTitleRow(toybox::Screen& screen, const int16_t y, const int16_t bott
   const TitleFit fit = fitTitle(screen, static_cast<int16_t>(body.width - kMargin * 2), title, font);
   if (y + fit.height > bottom) return 0;
   const fui::Rect row{body.x, y, body.width, fit.height};
-  drawTitle(screen, row.inset(fui::Insets{0, kMargin, 0, kMargin}), title, font, fit);
+  drawTitle(screen, row.inset(fui::Insets{0, kMargin, 0, kMargin}), font, fit);
   if (rule) hairline(screen, static_cast<int16_t>(row.bottom() - 1));
   screen.frame().hit(row, action, static_cast<int16_t>(value));
   return fit.height;
@@ -283,8 +472,14 @@ int16_t drawPartsRow(toybox::Screen& screen, const SearchModel& model, const int
 // The recent trail: as many as fit above `bottom`. The activity leaves out the
 // article you are in, which CONTINUE already names.
 int16_t drawRecent(toybox::Screen& screen, const SearchModel& model, int16_t y, const int16_t bottom) {
-  if (model.recentCount == 0 || y + kCaptionHeight + kRowMin > bottom) return y;
+  if (model.recentCount == 0) return y;
   const fui::Rect body = screen.body();
+  // The caption only with a row under it, so the first title is measured: a
+  // two-line German compound is taller than one row, and a bare RECENT reads
+  // as a list that failed to load.
+  const TitleFit first =
+      fitTitle(screen, static_cast<int16_t>(body.width - kMargin * 2), model.recent[0].title, toybox::kBodyFont);
+  if (y + kCaptionHeight + first.height > bottom) return y;
   drawCaption(screen, fui::Rect{body.x, y, body.width, kCaptionHeight}, "RECENT");
   y = static_cast<int16_t>(y + kCaptionHeight);
   // Divided, not underlined: a rule goes between two rows, never under the
@@ -338,7 +533,8 @@ int16_t footerHeight(toybox::Screen& screen) {
 // trail) above the count line, and above the keyboard when that is up. With
 // a query: the matches.
 void buildSearch(toybox::Screen& screen, const SearchModel& model) {
-  chrome(screen, "WIKIPEDIA");
+  chrome(screen, model.bandTitle ? model.bandTitle : "WIKIPEDIA", nullptr, 0,
+         model.languagesBack ? ActionLanguages : 0);
   const fui::Rect body = screen.body();
   const int16_t bottom = static_cast<int16_t>(body.bottom() - model.keyboardHeight);
   const bool empty = model.query == nullptr || model.query[0] == '\0';
@@ -381,7 +577,7 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
       drawTitle(screen,
                 fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + 42),
                           static_cast<int16_t>(inner - 28), textHeight},
-                title, toybox::kBodyFont, fit, ink);
+                toybox::kBodyFont, fit, ink);
       if (live) screen.frame().hit(card, ActionContinue);
       y = static_cast<int16_t>(card.bottom() + toybox::kGutter);
     }
@@ -398,8 +594,14 @@ void buildSearch(toybox::Screen& screen, const SearchModel& model) {
   drawRecent(screen, model, y, list);
 }
 
+bool articleTitleWhole(toybox::Screen& screen, const ArticleChromeModel& model) {
+  return bandTitle(screen, bandProps(screen, model.title, nullptr, ActionContents, model.back ? ActionPrevious : 0,
+                                     model.contents ? &icon_wiki_contents_32 : nullptr))
+      .whole;
+}
+
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model) {
-  chrome(screen, model.title, nullptr, ActionContents, model.back, true,
+  chrome(screen, model.title, nullptr, ActionContents, model.back ? ActionPrevious : 0, true,
          model.contents ? &icon_wiki_contents_32 : nullptr);
   const fui::Rect body = screen.body();
   return fui::Rect{body.x, body.y, body.width, static_cast<int16_t>(body.height - footerHeight(screen))};
@@ -433,7 +635,7 @@ void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model)
 }
 
 int buildContents(toybox::Screen& screen, const ContentsModel& model) {
-  chrome(screen, model.title, "CLOSE", ActionClose, false, true);
+  chrome(screen, model.title, "CLOSE", ActionClose, 0, true);
   const fui::Rect body = screen.body();
   int16_t y = static_cast<int16_t>(body.y + 8);
   // Room for the window line under the rows.
@@ -454,7 +656,7 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
                                      static_cast<int16_t>(fit.height - 16)},
                            fui::Paint::solid(fui::Color::Black));
     }
-    drawTitle(screen, fui::Rect{textX, y, textWidth, fit.height}, model.headings[i], font, fit);
+    drawTitle(screen, fui::Rect{textX, y, textWidth, fit.height}, font, fit);
     if (model.pages && model.pages[i] >= 0) {
       char number[16];
       snprintf(number, sizeof(number), "%d", model.pages[i] + 1);
@@ -481,64 +683,195 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
   return shown;
 }
 
-// The first-open screen. The address first, the sentence, then the square
-// the activity fills with the QR code, then what the cable is doing. Every
-// box is sized from the body face's line height: the panel showed the
-// address and both sentences cut when a 72 px box met a 40 px line. The
-// body face here is the built-in reading cut (WikipediaActivity::render).
+// The first-open screen, top to bottom: the address, the sentence, the
+// square the activity fills with the QR code, what the cable is doing, which
+// language this is about, the parts on the card, and TRY AGAIN at the foot
+// when the card could not be shared. Every block is as tall as its own words
+// measure in the body face (the built-in reading cut, WikipediaActivity::
+// render), and the square takes what the words leave, between a code a phone
+// still reads and the size it has always had. Fixed boxes are what cut the
+// language line at two lines and put the parts line under the button.
+namespace {
+
+constexpr int16_t kInstallTop = 20;
+constexpr int16_t kAfterAddress = 10;
+constexpr int16_t kAfterOpen = 12;
+constexpr int16_t kAfterQr = 20;
+constexpr int16_t kAfterStatus = 8;
+constexpr int16_t kAfterLanguage = 4;
+// The square: the code has 33 modules (QrUtils picks version 4), so 132 is
+// four pixels a module and 232 seven.
+constexpr int16_t kQrMin = 132;
+constexpr int16_t kQrMax = 232;
+constexpr int16_t kActionHeight = 56;
+// TRY AGAIN's foot, and the air between it and the words above.
+constexpr int16_t kActionFoot = 24;
+constexpr int16_t kActionAir = 16;
+
+// The height `text` wraps to at `width` in the body face, one line at least.
+int16_t proseHeight(toybox::Screen& screen, const char* text, const int16_t width) {
+  fui::TextStyle style = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
+  style.maxLines = 16;
+  const int16_t lineHeight = screen.target().lineHeight(toybox::kBodyFont);
+  const int16_t height = fui::measureWrappedText(screen.target(), text, style, width).height;
+  return height > lineHeight ? height : lineHeight;
+}
+
+}  // namespace
+
 fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   chrome(screen, "GET WIKIPEDIA");
   const fui::Rect body = screen.body();
+  const int16_t x = static_cast<int16_t>(body.x + kMargin);
   const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
   const int16_t lineHeight = screen.target().lineHeight(toybox::kBodyFont);
-  const int16_t twoLines = static_cast<int16_t>(lineHeight * 2);
-  int16_t y = static_cast<int16_t>(body.y + 20);
+  const bool failed = model.stage == InstallModel::Stage::Failed;
 
   // The one string that has to be read off the glass and typed: the reading
-  // face, bold. The install screen's built-in reading cut has no bold, so there
-  // the flag draws regular. It has no space to wrap at, so one line of it
-  // ended in an ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the
-  // host goes on one line and the path on the next, each whole.
+  // face, bold (the built-in reading cut has no bold, so there it draws
+  // regular). It has no space to wrap at, so one line of it ended in an
+  // ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the host goes
+  // on one line and the path on the next, each whole.
+  const char* url = model.url ? model.url : "";
+  const char* slash = strchr(url, '/');
+  const bool split = slash != nullptr && slash != url;
+  // No time here. It depends on the language and the route, which the page
+  // knows and this screen does not, and the page states it beside the choice.
+  const char* open = "Open this in Chrome or Edge on a computer.";
+  const char* status = "Then plug the reader into the computer with its cable.";
+  if (model.stage == InstallModel::Stage::Connected) status = "Connected. Follow the page on the computer.";
+  if (failed) status = "The card could not be shared. Try again.";
+
+  const int16_t addressHeight = static_cast<int16_t>(lineHeight * (split ? 2 : 1));
+  const int16_t openHeight = proseHeight(screen, open, inner);
+  const int16_t statusHeight = proseHeight(screen, status, inner);
+  const int16_t languageHeight = model.languageLine ? proseHeight(screen, model.languageLine, inner) : 0;
+  const int16_t partsHeight = model.partsLine ? kCaptionHeight : 0;
+  const int16_t lowest = static_cast<int16_t>(failed ? body.bottom() - kActionFoot - kActionHeight - kActionAir
+                                                     : body.bottom() - kActionAir);
+  const int16_t words = static_cast<int16_t>(
+      kInstallTop + addressHeight + kAfterAddress + openHeight + kAfterOpen + kAfterQr + statusHeight +
+      (languageHeight ? kAfterStatus + languageHeight : 0) + (partsHeight ? kAfterLanguage + partsHeight : 0));
+  int16_t side = static_cast<int16_t>(lowest - body.y - words);
+  if (side > kQrMax) side = kQrMax;
+  if (side < kQrMin) side = kQrMin;
+
+  int16_t y = static_cast<int16_t>(body.y + kInstallTop);
   fui::TextStyle address = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
   address.bold = true;
   address.maxLines = 1;
-  const char* slash = model.url == nullptr ? nullptr : strchr(model.url, '/');
-  if (slash != nullptr && slash != model.url) {
+  if (split) {
     char host[64];
-    const size_t n = static_cast<size_t>(slash - model.url) < sizeof(host) - 1 ? static_cast<size_t>(slash - model.url)
-                                                                               : sizeof(host) - 1;
-    memcpy(host, model.url, n);
+    const size_t n =
+        static_cast<size_t>(slash - url) < sizeof(host) - 1 ? static_cast<size_t>(slash - url) : sizeof(host) - 1;
+    memcpy(host, url, n);
     host[n] = '\0';
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, host, address);
-    y = static_cast<int16_t>(y + lineHeight);
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, slash, address);
+    screen.target().text(fui::Rect{x, y, inner, lineHeight}, host, address);
+    screen.target().text(fui::Rect{x, static_cast<int16_t>(y + lineHeight), inner, lineHeight}, slash, address);
   } else {
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
+    screen.target().text(fui::Rect{x, y, inner, lineHeight}, url, address);
   }
-  y = static_cast<int16_t>(y + lineHeight + 10);
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
-            "Open this in Chrome or Edge on a computer. About ten minutes.", fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + twoLines + 12);
+  y = static_cast<int16_t>(y + addressHeight + kAfterAddress);
+  drawProse(screen, fui::Rect{x, y, inner, openHeight}, open, fui::TextAlign::Center);
+  y = static_cast<int16_t>(y + openHeight + kAfterOpen);
 
-  const int16_t side = 232;
   const fui::Rect qr{static_cast<int16_t>(body.x + (body.width - side) / 2), y, side, side};
-  y = static_cast<int16_t>(qr.bottom() + 20);
+  y = static_cast<int16_t>(qr.bottom() + kAfterQr);
 
-  const char* status = "Then plug the reader into the computer with its cable.";
-  if (model.stage == InstallModel::Stage::Connected) status = "Connected. Follow the page on the computer.";
-  if (model.stage == InstallModel::Stage::Failed) status = "The card could not be shared. Try again.";
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, status,
-            fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + twoLines + 8);
-  if (model.partsLine) {
-    drawLabel(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 28}, model.partsLine,
-              toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  drawProse(screen, fui::Rect{x, y, inner, statusHeight}, status, fui::TextAlign::Center);
+  y = static_cast<int16_t>(y + statusHeight);
+  if (model.languageLine) {
+    y = static_cast<int16_t>(y + kAfterStatus);
+    drawProse(screen, fui::Rect{x, y, inner, languageHeight}, model.languageLine, fui::TextAlign::Center);
+    y = static_cast<int16_t>(y + languageHeight);
   }
-  if (model.stage == InstallModel::Stage::Failed) {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 80), inner, 56};
+  if (model.partsLine) {
+    y = static_cast<int16_t>(y + kAfterLanguage);
+    drawLabel(screen, fui::Rect{x, y, inner, partsHeight}, model.partsLine, toybox::kSmallFont, fui::TextAlign::Center,
+              toybox::kButtonCut);
+  }
+  if (failed) {
+    const fui::Rect box{x, static_cast<int16_t>(body.bottom() - kActionFoot - kActionHeight), inner, kActionHeight};
     drawAction(screen, box, "TRY AGAIN", ActionRetry, true);
   }
   return qr;
+}
+
+// The languages on the card, as cards in the home's own idiom: the one opened
+// last is filled like CONTINUE, the loudest thing on the page, and every card
+// names the article its language was left on, so the choice is made by what
+// you were reading as much as by the language's name. Chosen over a plain
+// list and a grid of language codes, rendered side by side (the commit that
+// added it says why).
+namespace {
+
+constexpr int16_t kAddLanguage = 52;
+constexpr int16_t kCardPad = 12;
+constexpr int16_t kCardDetail = 24;
+
+}  // namespace
+
+void buildChooser(toybox::Screen& screen, const ChooserModel& model) {
+  chrome(screen, "WIKIPEDIA");
+  const fui::Rect body = screen.body();
+  const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
+  const int16_t textWidth = static_cast<int16_t>(inner - 28);
+  const int16_t addTop = static_cast<int16_t>(body.bottom() - toybox::kGutter - kAddLanguage);
+  const int16_t bottom = static_cast<int16_t>(addTop - toybox::kGutter);
+  const int16_t top = static_cast<int16_t>(body.y + toybox::kGutter + 2);
+  const int16_t bodyLine = screen.target().lineHeight(toybox::kBodyFont);
+  const int count = model.count < kMaxPacks ? model.count : kMaxPacks;
+  // A card is its name, its count and the article it was left on; when that
+  // many cards do not fit above ADD A LANGUAGE, every card drops the article
+  // rather than any language dropping off the panel.
+  const int16_t compact = static_cast<int16_t>(kCardPad + bodyLine + 4 + kCardDetail + kCardPad);
+  bool withTitle = true;
+  {
+    int32_t need = 0;
+    for (int i = 0; i < count; ++i) {
+      const char* waits = model.rows[i].continueTitle ? model.rows[i].continueTitle : "Nothing opened yet.";
+      const TitleFit fit = fitTitle(screen, textWidth, waits, toybox::kBodyFont);
+      need += compact + 6 + fit.lines * bodyLine + (i ? toybox::kGutter : 0);
+    }
+    withTitle = need <= bottom - top;
+  }
+  int16_t y = top;
+  for (int i = 0; i < count; ++i) {
+    const PackRow& row = model.rows[i];
+    const bool live = i == model.last;
+    const char* waits = row.continueTitle ? row.continueTitle : "Nothing opened yet.";
+    const TitleFit fit = fitTitle(screen, textWidth, waits, toybox::kBodyFont);
+    const int16_t textHeight = static_cast<int16_t>(fit.lines * bodyLine);
+    const fui::Rect card{static_cast<int16_t>(body.x + kMargin), y, inner,
+                         static_cast<int16_t>(compact + (withTitle ? 6 + textHeight : 0))};
+    if (card.bottom() > bottom) break;
+    const fui::Color ink = live ? fui::Color::White : fui::Color::Black;
+    if (live) {
+      screen.target().fill(card, fui::Paint::solid(fui::Color::Black));
+    } else {
+      screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), 2);
+    }
+    // The language's own name, in the reading face: a name like "Français"
+    // is not in the app's caps cut.
+    fui::TextStyle name = textStyle(toybox::kBodyFont, fui::TextAlign::Left, ink);
+    name.maxLines = 1;
+    name.bold = true;
+    screen.target().text(
+        fui::Rect{static_cast<int16_t>(card.x + 14), static_cast<int16_t>(card.y + kCardPad), textWidth, bodyLine},
+        row.name, name);
+    int16_t ty = static_cast<int16_t>(card.y + kCardPad + bodyLine + 4);
+    drawLabel(screen, fui::Rect{static_cast<int16_t>(card.x + 14), ty, textWidth, kCardDetail}, row.detail,
+              toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut, ink);
+    if (withTitle) {
+      ty = static_cast<int16_t>(ty + kCardDetail + 6);
+      drawTitle(screen, fui::Rect{static_cast<int16_t>(card.x + 14), ty, textWidth, textHeight}, toybox::kBodyFont, fit,
+                ink);
+    }
+    screen.frame().hit(card, ActionPack, static_cast<int16_t>(i));
+    y = static_cast<int16_t>(card.bottom() + toybox::kGutter);
+  }
+  drawAction(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), addTop, inner, kAddLanguage}, "ADD A LANGUAGE",
+             ActionInstall, false);
 }
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model) {

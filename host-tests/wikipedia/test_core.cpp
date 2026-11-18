@@ -460,6 +460,115 @@ void testState() {
   CHECK(!bad.fromJson("{", 1));
 }
 
+// A second language is a pack beside the first: its manifest names itself,
+// its folder is its code, install.json lists every pack and still describes
+// the root one at the top level, the way the page that predates the list
+// reads it.
+void testLanguages() {
+  const char* german =
+      "{\"format\":1,\"pack\":\"de\",\"lang\":\"de\",\"name\":\"Deutsch\",\"facts\":\"Kurzinfo\","
+      "\"snapshot\":\"2026-10-10\",\"articles\":50000,"
+      "\"dict\":{\"file\":\"dict.zst\",\"bytes\":1},\"blocksdir\":{\"file\":\"blocks.dir\",\"bytes\":1},"
+      "\"titles\":[{\"file\":\"titles.0.idx\",\"tier\":0,\"bytes\":1}],"
+      "\"shards\":[{\"file\":\"shards/000.blk\",\"tier\":0,\"bytes\":1,\"firstBlock\":0,\"blocks\":1}]}";
+  Manifest de;
+  CHECK(parseManifest(german, strlen(german), de));
+  CHECK(de.lang == "de" && de.name == "Deutsch" && de.facts == "Kurzinfo");
+  CHECK(packName(de) == "Deutsch");
+  CHECK(factsHeading(de) == "Kurzinfo");
+  CHECK(packLanguage(de) == "de");
+  // The English packs on people's cards have none of the three fields.
+  Manifest en;
+  en.pack = "en";
+  CHECK(packName(en) == "English");
+  CHECK(factsHeading(en) == "Quick facts");
+  CHECK(packLanguage(en) == "en");
+  Manifest fr;
+  fr.pack = "fr";
+  CHECK(packName(fr) == "FR");
+
+  CHECK(packPath("") == "/wikipedia");
+  CHECK(packPath("de") == "/wikipedia/de");
+  CHECK(isPackDirName("de"));
+  CHECK(isPackDirName("pt-br"));
+  CHECK(!isPackDirName("shards"));
+  CHECK(!isPackDirName("overlay"));
+  CHECK(!isPackDirName("DE"));
+  CHECK(!isPackDirName(".hidden"));
+  CHECK(!isPackDirName(""));
+  CHECK(!isPackDirName("a-name-far-too-long"));
+  CHECK(!isPackDirName("2026"));
+  CHECK(!isPackDirName("-de"));
+
+  PackSummary root;
+  root.pack = "en";
+  root.snapshot = "2026-05-13";
+  root.shardsPresent = 2;
+  root.shardsTotal = 39;
+  PackSummary sub;
+  sub.dir = "de";
+  sub.pack = "de";
+  sub.snapshot = "2026-10-10";
+  sub.shardsPresent = 2;
+  sub.shardsTotal = 2;
+  const std::string both = installJson({root, sub}, "de", "1.15.0", "X4 Pro");
+  CHECK(both.find("\"pack\":\"en\",\"snapshot\":\"2026-05-13\",\"shardsPresent\":2,\"shardsTotal\":39") !=
+        std::string::npos);
+  CHECK(both.find("\"want\":\"de\"") != std::string::npos);
+  CHECK(both.find("{\"pack\":\"de\",\"dir\":\"de\",\"snapshot\":\"2026-10-10\"") != std::string::npos);
+  // German alone: nothing at the root, so the old fields say no pack
+  const std::string alone = installJson({sub}, "", "1.15.0", "X4 Pro");
+  CHECK(alone.find("\"pack\":null") != std::string::npos);
+  CHECK(alone.find("\"want\":null") != std::string::npos);
+  CHECK(alone.find("\"dir\":\"de\"") != std::string::npos);
+  const std::string none = installJson({}, nullptr, "1.15.0", "X4 Pro");
+  CHECK(none.find("\"packs\":[]") != std::string::npos);
+
+  // The install screen's line about the card.
+  root.name = "English";
+  sub.name = "Deutsch";
+  CHECK(snapshotMonth("2026-10-10") == "October 2026");
+  CHECK(snapshotMonth("someday") == "someday");
+  CHECK(installLine({root, sub}, &sub, "") == "On the card: Deutsch, October 2026.");
+  // a pack that would not open names itself and the repair
+  CHECK(installLine({root, sub}, nullptr, "de") ==
+        "Deutsch on the card is not complete. The page copies what is missing.");
+  CHECK(installLine({}, nullptr, "") == "Choose the language on the page.");
+  // From the chooser: what is on the card, and what the page does, which is
+  // list what it publishes. "The page adds another." promised a language the
+  // host may not have (with English and German on the card it had none).
+  const std::string both2 = installLine({root, sub}, nullptr, "");
+  CHECK(both2 == "On the card: English, Deutsch. The page lists the languages you can add.");
+  CHECK(both2.find("adds another") == std::string::npos);
+}
+
+// "stra" on the German pack listed STRABAG, Strabag, Strabag CR, Strabag Rail
+// and STRABAG SE: five of the eight rows one article. One row per article,
+// in the article's own name when it matched.
+void testOneRowPerArticle() {
+  std::vector<IndexEntry> list = {
+      {"STRABAG", 7, true},      {"Strabag", 7, false}, {"Strabag CR", 7, true},
+      {"Strabag Rail", 7, true}, {"Straße", 9, false},  {"Straßenmaut", 11, true},
+  };
+  oneRowPerArticle(list, 8);
+  CHECK(list.size() == 3);
+  CHECK(list.size() == 3 && list[0].title == "Strabag" && !list[0].redirect && list[0].locator == 7);
+  CHECK(list.size() == 3 && list[1].title == "Straße" && list[2].title == "Straßenmaut");
+  // only a redirect matched: it stands for the article under its own name
+  std::vector<IndexEntry> only = {{"Strabag Rail", 7, true}, {"Strabag CR", 7, true}};
+  oneRowPerArticle(only, 8);
+  CHECK(only.size() == 1 && only[0].title == "Strabag Rail");
+  // the cap counts rows, not entries
+  std::vector<IndexEntry> many;
+  for (uint32_t i = 0; i < 20; ++i) {
+    many.push_back({"A" + std::to_string(i), i, false});
+    many.push_back({"A" + std::to_string(i) + " alias", i, true});
+  }
+  oneRowPerArticle(many, 9);
+  CHECK(many.size() == 9);
+  CHECK(many.size() == 9 && many[8].title == "A8");
+}
+
 }  // namespace
 
 int main(const int argc, char** argv) {
@@ -469,6 +578,8 @@ int main(const int argc, char** argv) {
   testBlock();
   testIndex();
   testState();
+  testLanguages();
+  testOneRowPerArticle();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }

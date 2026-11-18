@@ -51,6 +51,12 @@ struct ManifestTier {
 struct Manifest {
   int format = 0;
   std::string pack;
+  // A pack in a language after the first says what it is: its language
+  // code, its own name for itself ("Deutsch") and the heading the builder
+  // put over the infobox ("Kurzinfo"). The English packs predate the fields.
+  std::string lang;
+  std::string name;
+  std::string facts;
   std::string snapshot;
   std::string built;  // the build, not the data: two builds of one snapshot differ
   uint32_t articles = 0;
@@ -68,6 +74,57 @@ struct Manifest {
 // find the fields above. Anything it cannot find leaves the default. Returns
 // false when the text is not a format-1 manifest at all.
 bool parseManifest(const char* json, size_t len, Manifest& out);
+
+// What the chooser and the install screen call a pack: its own name when
+// the manifest has one, "English" for the first pack, which has none, else
+// its code in capitals.
+std::string packName(const Manifest& manifest);
+// The heading over the infobox's grid, which is not a section anchor.
+std::string factsHeading(const Manifest& manifest);
+// The language the search keyboard should type: the manifest's, else the
+// pack code.
+std::string packLanguage(const Manifest& manifest);
+
+// ------------------------------------------------------------ many packs
+//
+// One pack is the card's /wikipedia/ (where the first, English one has always
+// lived, and where it stays); every other is a folder inside it named by its
+// code, /wikipedia/de/. A folder holding a manifest is a pack.
+
+// "/wikipedia" for the root pack (dir ""), "/wikipedia/de" for "de".
+std::string packPath(const std::string& dir);
+// A folder name that may be a pack: a lowercase letter, then lowercase
+// letters, digits and '-', at most 15, and never one of the pack's own
+// folders ("shards", "overlay").
+bool isPackDirName(const char* name);
+
+struct PackSummary {
+  std::string dir;  // "" for the root pack
+  std::string pack;
+  std::string name;
+  std::string snapshot;
+  uint32_t articles = 0;
+  int shardsPresent = 0;
+  int shardsTotal = 0;
+  std::string continueTitle;  // the article its CONTINUE names; empty when none
+};
+
+// install.json: what the page reads before it copies. The top-level pack
+// fields describe the root pack, as before, so a page that predates the list
+// still says the right thing about English; "packs" lists every pack and
+// "want" is the code the device asked about (the pack whose door opened the
+// install screen), or null.
+std::string installJson(const std::vector<PackSummary>& packs, const char* want, const char* firmware,
+                        const char* device);
+
+// "2026-10-10" -> "October 2026"; anything else as it came.
+std::string snapshotMonth(const std::string& snapshot);
+
+// The install screen's line about the card, in the reading face: the pack
+// whose door opened the screen ("On the card: Deutsch, October 2026."), the
+// one that would not open (`failed`, its code), every pack when the chooser
+// opened it, or what to do on an empty card. `open` is null unless a pack is.
+std::string installLine(const std::vector<PackSummary>& packs, const PackSummary* open, const std::string& failed);
 
 // ------------------------------------------------------------- blocks.dir
 
@@ -143,6 +200,12 @@ class TitleIndex {
   uint32_t blockBytes_ = 4096;
   std::vector<std::string> sampler_;  // folded first key of every block
 };
+
+// One row per article: an article and its redirects that all match a query
+// ("STRABAG", "Strabag", "Strabag Rail") are one article on the panel, shown
+// by its own title when that matched, else by the first name that did.
+// Order is kept; at most `max` stay.
+void oneRowPerArticle(std::vector<IndexEntry>& entries, size_t max);
 
 // ------------------------------------------------------- a decoded block
 

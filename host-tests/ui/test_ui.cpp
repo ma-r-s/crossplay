@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,8 @@
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/readingstats/ReadingStatsScreens.h"
+#include "../../src/apps_local/readingstats/ReadingStatsTitles.h"
 #include "../../src/apps_local/rss/RssScreens.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/solitaire/SolitaireScreens.h"
@@ -51,11 +54,13 @@
 #include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxFormat.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
+#include "../../src/apps_local/ui/ToyboxInk.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/ui/ToyboxWrappedText.h"
 #include "../../src/apps_local/wallpapers/WallpapersCore.h"
 #include "../../src/apps_local/wallpapers/WallpapersScreens.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/weather/WeatherScreens.h"
 #include "../../src/apps_local/wikipedia/WikipediaScreens.h"
 #include "../../src/apps_local/wordle/WordleScreens.h"
 #include "../../src/apps_local/xkcd/XkcdScreens.h"
@@ -92,6 +97,12 @@ class FakeTarget final : public fui::DrawTarget {
     // the terrain card for as long as the card existed. It is only assertable
     // if the assertion can see maxLines.
     fui::TextStyle style;
+    // The line height the run's font had WHEN it was drawn. A screen that
+    // rebinds its slots between passes draws two runs in one slot at two
+    // sizes, and only this says which size a run was.
+    int16_t line = 0;
+    // And its measured width at that moment, for the same reason.
+    int16_t width = 0;
   };
 
   // An avatar is four stacked 1-bpp masks and no text at all, so without
@@ -177,6 +188,11 @@ class FakeTarget final : public fui::DrawTarget {
   // one paragraph gaining a line while another loses one -- that a check
   // counting lines cannot see at all.
   std::vector<std::pair<std::string, int16_t>> kerns;
+  // One cell per CHARACTER rather than per byte. Off by default like the two
+  // above. The keyboard test needs it: a key cap is one letter, and at a byte
+  // a cell an "ü" or a "й" would read as two letters wide and fail a key it
+  // fits on the panel.
+  bool perCodePoint = false;
 
   fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
     ++measureCalls;
@@ -189,7 +205,14 @@ class FakeTarget final : public fui::DrawTarget {
       }
     }
     if (style.bold) cell = static_cast<int16_t>(cell + boldBonus);
-    int32_t w = static_cast<int32_t>(std::strlen(text)) * cell;
+    int32_t chars = static_cast<int32_t>(std::strlen(text));
+    if (perCodePoint) {
+      chars = 0;
+      for (const char* c = text; *c != 0; ++c) {
+        if ((static_cast<unsigned char>(*c) & 0xC0) != 0x80) ++chars;
+      }
+    }
+    int32_t w = chars * cell;
     if ((kernBonus != 0 && !kernSeq.empty()) || !kerns.empty()) {
       const std::string run(text);
       if (kernBonus != 0 && !kernSeq.empty()) {
@@ -205,7 +228,16 @@ class FakeTarget final : public fui::DrawTarget {
     if (w < 0) w = 0;
     return fui::Size{static_cast<int16_t>(w), lineH};
   }
-  int16_t lineHeight(const fui::FontId) const override { return lineH; }
+  // Per-font line heights, OFF by default like fontWidths below. A screen that
+  // places text by its ink needs a target whose slots answer the real cuts'
+  // line heights, so ToyboxTokens' cut table finds their metrics.
+  std::vector<std::pair<fui::FontId, int16_t>> fontLines;
+  int16_t lineHeight(const fui::FontId font) const override {
+    for (const auto& entry : fontLines) {
+      if (entry.first == font) return entry.second;
+    }
+    return lineH;
+  }
 
   void fill(const fui::Rect rect, const fui::Paint paint, const uint8_t = 0, const uint8_t = 0xFF) override {
     if (paint.kind != fui::PaintKind::None) {
@@ -224,7 +256,10 @@ class FakeTarget final : public fui::DrawTarget {
     triangles.push_back(Triangle{a, b, c, paint.color});
   }
   void text(const fui::Rect rect, const char* text, const fui::TextStyle style) override {
-    if (text != nullptr) texts.push_back(TextRun{rect, text, style.color, style});
+    if (text != nullptr) {
+      texts.push_back(
+          TextRun{rect, text, style.color, style, lineHeight(style.font), measureText(style.font, text, style).width});
+    }
   }
   void bitmap(const fui::Rect rect, const fui::BitmapRef bitmap, const fui::BitmapMode, const fui::Paint paint = {},
               const fui::Rotation = fui::Rotation::None) override {
@@ -5542,6 +5577,64 @@ void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
     CHECK(out.target.drew("WRONG DATE"));
     CHECK(!out.target.drew("3 WAITING IN YOUR OTHER DECK"));
     CHECK(!out.target.drew("REVIEW ANOTHER DECK"));
+  }
+}
+
+// The ornament's top bracket stands as far below the words above it as the
+// bottom bracket stands above its caption, ink to ink. With a deck name and a
+// scope line it stood 5px under the scope line against the caption's 16
+// (#340 review). Every state the door has above the ornament, and every door
+// count below it.
+void testStudyDeckBracketsClearTheWordsAboveThem() {
+  int forecast[studyui::kForecastDays] = {289, 4, 0, 12, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0};
+  for (int state = 0; state < 4; ++state) {
+    for (const bool paired : {false, true}) {
+      studyui::DeckModel model = deckWithWork(forecast);
+      model.paired = paired;
+      if (state >= 1) {
+        model.lifetimeReviews = 40;
+        model.retention = 85;
+        model.streak = 3;
+      }
+      if (state >= 2) {
+        model.deckCount = 3;
+        model.deckIndex = 1;
+        model.otherWaiting = 2293;
+      }
+      if (state == 3) model.writeFailed = true;
+      Rendered out;
+      buildStudyDeck(out, model);
+      int armTop = 800;
+      int armBottom = -1;
+      for (const auto& fill : out.target.fills) {
+        const bool arm =
+            (fill.width == 32 && fill.height == toybox::kFrame) || (fill.width == toybox::kFrame && fill.height == 32);
+        if (!arm) continue;
+        armTop = std::min<int>(armTop, fill.y);
+        armBottom = std::max<int>(armBottom, fill.bottom());
+      }
+      // The words above: the lowest ink above the top arm. The caption: the
+      // first ink below the bottom arm.
+      int above = -1;
+      int below = 800;
+      for (const auto& run : out.target.texts) {
+        if (run.text.empty()) continue;
+        const fui::Rect ink = inkBandOf(run);
+        if (ink.bottom() <= armTop && run.rect.y > toybox::kHeaderHeight) above = std::max<int>(above, ink.bottom());
+        if (ink.y >= armBottom) below = std::min<int>(below, ink.y);
+      }
+      CHECK(armBottom > 0 && above > 0 && below < 800);
+      const int topAir = armTop - above;
+      const int bottomAir = below - armBottom;
+      if (topAir < bottomAir) {
+        ++checksFailed;
+        std::printf(
+            "FAIL study door (state %d%s): top bracket %dpx under the words above it, caption %dpx under "
+            "the bottom bracket\n",
+            state, paired ? ", paired" : "", topAir, bottomAir);
+      }
+      ++checksRun;
+    }
   }
 }
 
@@ -14511,6 +14604,57 @@ void testWikipediaRecentTrailIsDivided() {
   for (size_t i = 1; i < rules.size(); ++i) CHECK(rules[i] - rules[i - 1] >= toybox::kGutter);
 }
 
+// The article band's title is chosen -- one line of the display cut, or two of
+// the small one -- against the room the band will really give it. The choice
+// was made before toybox::headerBand() moved the back chip 12px in, so it
+// counted 8px the title never got: a title in that 8px was sent to one line,
+// found too wide there, and drawn shortened and marked instead of wrapping
+// whole (#340 review).
+void testWikipediaArticleTitleFitsTheRoomItGets() {
+  int windows = 0;
+  for (int16_t charW = 7; charW <= 13; ++charW) {
+    for (int n = 20; n <= 60; ++n) {
+      // Words, so a title too wide for one line has somewhere to wrap.
+      std::string title;
+      for (int i = 0; i < n; ++i) title += (i % 5 == 4) ? ' ' : 'x';
+      wikiui::ArticleChromeModel model;
+      model.title = title.c_str();
+      model.back = true;
+      model.contents = true;
+      wikiui::ArticleFooterModel footer;
+      Rendered out;
+      out.target.charW = charW;
+      buildWikiArticleChrome(out, model, footer);
+      const FakeTarget::TextRun* run = nullptr;
+      for (const auto& text : out.target.texts) {
+        if (text.rect.bottom() <= toybox::kHeaderHeight && text.text.find('x') != std::string::npos) run = &text;
+      }
+      if (run == nullptr) {
+        ++checksFailed;
+        std::printf("FAIL wiki title: %d chars at %dpx drew no title\n", n, charW);
+        continue;
+      }
+      ++checksRun;
+      const int16_t width = out.target.measureText(run->style.font, title.c_str(), run->style).width;
+      if (run->style.maxLines <= 1 && width > run->rect.width - 8 && width <= run->rect.width + 8) ++windows;
+      // One line only when the whole title fits it. A title the band's room
+      // cannot hold on one line goes to the two-line cut -- where a title
+      // past two lines takes the running head's one permitted cut, which is
+      // the rule above and not this one.
+      const bool oneLine = run->style.maxLines <= 1;
+      if (oneLine && (run->text != title || width > run->rect.width)) {
+        ++checksFailed;
+        std::printf("FAIL wiki title: %d chars at %dpx drew %d chars in font %d (%d lines, %dpx in %dpx)\n", n, charW,
+                    static_cast<int>(run->text.size()), static_cast<int>(run->style.font), run->style.maxLines, width,
+                    run->rect.width);
+      }
+    }
+  }
+  // The sweep reaches titles within 8px either side of the room, or it proves
+  // nothing about the 8px it is here for.
+  CHECK(windows > 0);
+}
+
 void testWikipediaContentsRowsCarryTheHeading() {
   static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
                                     "Carbon fixation", "History",     "Evolution",
@@ -14592,12 +14736,18 @@ void testWikipediaInstallSaysTheAddressFirst() {
     CHECK(url->style.maxLines == 1 && path->style.maxLines == 1);
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
-  // Each sentence has two lines of the reader's face, whatever its height.
-  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer. About ten minutes.");
+  // Each sentence is as tall as its words wrap to, in lines of the face.
+  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer.");
   CHECK(open != nullptr);
   if (open != nullptr) {
-    CHECK(open->style.maxLines == 2);
-    CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+    CHECK(open->rect.height == open->style.maxLines * out.target.lineHeight(toybox::kBodyFont));
+  }
+  // No time on the device: it was "About ten minutes" for every language and
+  // route, and the page now works one out per language (14 minutes for
+  // English by cable, 12 for German) and shows it beside the choice.
+  for (const auto& run : out.target.texts) {
+    check(run.text.find("minute") == std::string::npos && run.text.find("hour") == std::string::npos,
+          "the install screen states no time", __LINE__);
   }
   CHECK(!out.target.drew("TRY AGAIN"));
   model.stage = wikiui::InstallModel::Stage::Failed;
@@ -14605,6 +14755,668 @@ void testWikipediaInstallSaysTheAddressFirst() {
   buildWikiInstall(failed, model);
   const FakeTarget::TextRun* retry = failed.target.find("TRY AGAIN");
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
+}
+
+// --- Wikipedia in more than one language ------------------------------------
+
+void buildWikiChooser(Rendered& out, const wikiui::ChooserModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildChooser(screen, model);
+}
+
+// Two packs on the card: a card each, the one opened last filled, each card
+// naming its language and the article it was left on, a tap on a card
+// opening that pack and ADD A LANGUAGE opening the install screen.
+void testWikipediaChooserCardsOpenTheirPack() {
+  wikiui::ChooserModel model;
+  model.count = 2;
+  model.rows[0] = {"English", "EN", "50,034 ARTICLES, MAY 2026", "Photosynthesis"};
+  model.rows[1] = {"Deutsch", "DE", "50,000 ARTICLES, OCTOBER 2026", "Johann Wolfgang von Goethe"};
+  model.last = 1;
+  Rendered out;
+  buildWikiChooser(out, model);
+  CHECK(out.target.drew("WIKIPEDIA"));
+  for (int i = 0; i < 2; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(model.rows[i].name);
+    const FakeTarget::TextRun* waits = out.target.find(model.rows[i].continueTitle);
+    CHECK(name != nullptr && waits != nullptr && out.target.drew(model.rows[i].detail));
+    if (name == nullptr || waits == nullptr) continue;
+    // the language's own name is in the reading face, whose letters reach
+    // past ASCII; the app's caps cut does not
+    CHECK(name->style.font == toybox::kBodyFont && name->style.bold);
+    const fui::ActionEvent byName = tapRun(out, name);
+    const fui::ActionEvent byTitle = tapRun(out, waits);
+    CHECK(byName.action == wikiui::ActionPack && byName.value == i);
+    CHECK(byTitle.action == wikiui::ActionPack && byTitle.value == i);
+    CHECK(waits->rect.y > name->rect.y);
+    // paper ink on the filled card, black on the outlined one
+    CHECK((name->style.color == fui::Color::White) == (i == model.last));
+  }
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  CHECK(add != nullptr && tapRun(out, add).action == wikiui::ActionInstall);
+  // nothing tappable reaches under the glass
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    CHECK(out.interactions.data()[i].rect.bottom() <= 800);
+  }
+  // a card never opened says so instead of naming nothing
+  wikiui::ChooserModel fresh = model;
+  fresh.rows[1].continueTitle = nullptr;
+  fresh.last = -1;
+  Rendered blank;
+  buildWikiChooser(blank, fresh);
+  CHECK(blank.target.drew("Nothing opened yet."));
+}
+
+// The most packs the chooser lists all fit: with no room for every card's
+// article, the cards drop the article line, never a language.
+void testWikipediaChooserFitsEveryPack() {
+  wikiui::ChooserModel model;
+  static const char* kNames[wikiui::kMaxPacks] = {"English", "Deutsch",  "Français",
+                                                  "Español", "Italiano", "Nederlands"};
+  model.count = wikiui::kMaxPacks;
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    model.rows[i] = {kNames[i], "XX", "50,000 ARTICLES, OCTOBER 2026",
+                     "A long title that wraps onto a second line of the reading face"};
+  }
+  model.last = 0;
+  Rendered out;
+  buildWikiChooser(out, model);
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(kNames[i]);
+    CHECK(name != nullptr);
+    if (name != nullptr) CHECK(tapRun(out, name).action == wikiui::ActionPack && tapRun(out, name).value == i);
+  }
+  CHECK(!out.target.drew("A long title that wraps onto a second line of the reading face"));
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  const FakeTarget::TextRun* lastName = out.target.find(kNames[wikiui::kMaxPacks - 1]);
+  CHECK(add != nullptr && lastName != nullptr);
+  if (add != nullptr && lastName != nullptr) CHECK(lastName->rect.bottom() < add->rect.y);
+  // two packs keep their articles
+  model.count = 2;
+  Rendered two;
+  buildWikiChooser(two, model);
+  CHECK(two.target.drew("A long title that wraps onto a second line of the reading face"));
+}
+
+// With more than one pack the home's band names the language and its chevron
+// goes back to the chooser; with one, the band is the one it always was.
+void testWikipediaHomeBandNamesTheLanguage() {
+  wikiui::SearchModel model;
+  model.footer = "50,000 ARTICLES, OCTOBER 2026";
+  model.bandTitle = "WIKIPEDIA DE";
+  model.languagesBack = true;
+  Rendered out;
+  buildWikiSearch(out, model);
+  CHECK(out.target.drew("WIKIPEDIA DE"));
+  CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionLanguages);
+  wikiui::SearchModel one;
+  one.footer = "50,034 ARTICLES, MAY 2026";
+  Rendered single;
+  buildWikiSearch(single, one);
+  CHECK(single.target.drew("WIKIPEDIA"));
+  CHECK(!single.has(wikiui::ActionLanguages));
+}
+
+// The install screen says which language it is about, in the reading face,
+// between the cable's status and the parts line, inside the panel.
+void testWikipediaInstallNamesTheLanguage() {
+  wikiui::InstallModel model;
+  model.url = "crossplay.ma-r-s.com/wikipedia";
+  model.languageLine = "On the card: Deutsch, October 2026.";
+  model.partsLine = "1 OF 2 PARTS ON THE CARD";
+  Rendered out;
+  buildWikiInstall(out, model);
+  const FakeTarget::TextRun* line = out.target.find("On the card: Deutsch, October 2026.");
+  const FakeTarget::TextRun* status = out.target.find("Then plug the reader into the computer with its cable.");
+  const FakeTarget::TextRun* parts = out.target.find("1 OF 2 PARTS ON THE CARD");
+  CHECK(line != nullptr && status != nullptr && parts != nullptr);
+  if (line != nullptr && status != nullptr && parts != nullptr) {
+    CHECK(line->style.font == toybox::kBodyFont);
+    CHECK(line->rect.y >= status->rect.bottom());
+    CHECK(parts->rect.y >= line->rect.bottom());
+    CHECK(parts->rect.bottom() <= 800);
+  }
+  wikiui::InstallModel first;
+  first.url = "crossplay.ma-r-s.com/wikipedia";
+  first.languageLine = "Choose the language on the page.";
+  Rendered blank;
+  buildWikiInstall(blank, first);
+  CHECK(blank.target.drew("Choose the language on the page."));
+}
+
+// --- The Wikipedia keyboard's Shift reads one way everywhere ------------------
+//
+// Card #651's review: German letters drew an arrow, English letters the word
+// "Shift" (filling the key edge to edge in Classic) or the arrow (RoundedRaff),
+// and both symbol pages "Shift", the second one not saying which page it was.
+// The search keyboard passes no Shift word now (test_keyboard_props.py holds
+// it to that), so this pins what the component draws without one: the arrow
+// on every letter page, at both theme gaps and every cell, and on the symbol
+// pages the two different labels the layouts carry.
+void testWikipediaShiftReadsOneWayEverywhere() {
+  using Id = fui::KeyboardLayoutId;
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  static const Id kIds[] = {Id::QwertyEn, Id::QwertzDe, Id::AzertyFr, Id::SpanishEs};
+  for (const Id id : kIds) {
+    for (const int16_t gap : {static_cast<int16_t>(0), static_cast<int16_t>(10)}) {
+      for (const int16_t cell : {static_cast<int16_t>(10), static_cast<int16_t>(12), static_cast<int16_t>(14)}) {
+        std::string symbolPage[2];
+        for (int layer = 0; layer < 4; ++layer) {
+          const bool shifted = (layer & 1) != 0;
+          const bool symbols = (layer & 2) != 0;
+          FakeTarget target;
+          target.charW = cell;
+          target.perCodePoint = true;
+          fui::InteractionBuffer<56> table;
+          const fui::DeviceContext ctx = device();
+          const fui::InputSnapshot noInput{};
+          fui::Frame<56> frame(target, ctx, noInput, table);
+          fui::KeyboardProps props;
+          const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, true, false);
+          props.layout = &layout;
+          props.keyAction = 1;
+          props.okLabel = "GO";
+          props.modeLabel = symbols ? "abc" : "?123";
+          props.labelText.font = toybox::kBodyFont;
+          props.altText.font = toybox::kSmallFont;
+          props.gap = gap;
+          props.padding = fui::Insets{0, 0, 0, 0};
+          const int16_t height = static_cast<int16_t>(layout.rowCount * 56 + (layout.rowCount - 1) * gap);
+          fui::keyboard(frame, fui::Rect{14, static_cast<int16_t>(792 - height), 451, height}, props);
+          bool drewArrow = false;
+          for (const auto& blit : target.blits) drewArrow |= blit.data == arrow.data;
+          CHECK(!target.drew("Shift"));
+          if (!symbols) {
+            CHECK(drewArrow);
+          } else {
+            CHECK(!drewArrow);
+            symbolPage[shifted ? 1 : 0] = target.drew("#+=") ? "#+=" : (target.drew("123") ? "123" : "");
+          }
+        }
+        // each symbol page names the other, so the key says which page this is
+        CHECK(symbolPage[0] == "#+=" && symbolPage[1] == "123");
+      }
+    }
+  }
+}
+
+// --- Titles break where their language breaks words -------------------------
+//
+// Card #651's review: the home's RECENT row split "Hochleistungsflüssigkeits-
+// chromatographie" between "chrom" and "atographie" with nothing to say so,
+// while the article's own text hyphenates German correctly. The device and the
+// component wrap at spaces only and split a word that is wider than the line
+// anywhere, so the screens break titles themselves (wikiui::breakTitle) at the
+// soft hyphens the activity puts in from the pack's patterns. Here the soft
+// hyphens are written by hand, as the activity's would be.
+
+// The lines a run is drawn in: the component's own wrap (fui::layoutText,
+// which the device's wrap matches at spaces), over the run's rect.
+std::vector<std::string> wrappedLines(const FakeTarget& target, const FakeTarget::TextRun& run) {
+  std::vector<std::string> lines;
+  fui::layoutText(target, run.rect, run.text.c_str(), run.style,
+                  [&](const char* line, const fui::Rect) { lines.push_back(line); });
+  return lines;
+}
+
+bool hasSoftHyphen(const std::string& s) { return s.find("\xC2\xAD") != std::string::npos; }
+
+// "Aufmerksamkeitsdefizit-/Hyperaktivitaetsstoerung" with the pack's soft
+// hyphens. At every width it breaks, no line starts with the "/": the break
+// goes after "-/" or at a soft hyphen, never between the two.
+void testWikipediaTitleNeverStartsALineWithASlash() {
+  static const char* kAdhs =
+      "Auf\xC2\xAD"
+      "merk\xC2\xAD"
+      "sam\xC2\xAD"
+      "keits\xC2\xAD"
+      "de\xC2\xAD"
+      "fi\xC2\xAD"
+      "zit-/Hy\xC2\xAD"
+      "per\xC2\xAD"
+      "ak\xC2\xAD"
+      "ti\xC2\xAD"
+      "vi\xC2\xAD"
+      "t\xC3\xA4ts\xC2\xAD"
+      "st\xC3\xB6"
+      "rung";
+  FakeTarget t;
+  t.charW = 10;
+  fui::TextStyle style;
+  int breaks = 0;
+  for (int16_t width = 60; width <= 320; width = static_cast<int16_t>(width + 10)) {
+    const std::string out = wikiui::breakTitle(t, style, kAdhs, width);
+    size_t start = 0;
+    while (start <= out.size()) {
+      size_t end = out.find(' ', start);
+      if (end == std::string::npos) end = out.size();
+      const std::string line = out.substr(start, end - start);
+      check(line.empty() || line[0] != '/', line.c_str(), __LINE__);
+      if (end != out.size()) ++breaks;
+      start = end + 1;
+    }
+  }
+  CHECK(breaks > 0);  // the sweep really broke the title
+}
+
+// RECENT is drawn only with a row under it. The guard assumed a one-line
+// first row; a two-line German compound in the last row's worth of room above
+// the keyboard left the caption alone (RoundedRaff, keyboard up).
+void testWikipediaRecentCaptionNeverStandsAlone() {
+  static const char* kLong = "Hochleistungsfl\xC3\xBCssigkeitschromatographie und mehr";
+  int alone = 0;
+  int withRows = 0;
+  int without = 0;
+  for (int16_t keyboard = 0; keyboard <= 640; keyboard = static_cast<int16_t>(keyboard + 4)) {
+    wikiui::SearchModel home;
+    home.footer = "50,000 ARTICLES, OCTOBER 2026";
+    home.recent[0].title = kLong;
+    home.recent[1].title = "Hauptbahnhof";
+    home.recentCount = 2;
+    home.keyboardHeight = keyboard;
+    Rendered out;
+    out.target.charW = 12;
+    out.target.perCodePoint = true;
+    buildWikiSearch(out, home);
+    bool row = false;
+    for (const auto& run : out.target.texts) {
+      if (run.text.rfind("Hoch", 0) == 0) row = true;
+    }
+    const bool caption = out.target.drew("RECENT");
+    if (caption && !row) ++alone;
+    if (caption && row) ++withRows;
+    if (!caption) ++without;
+  }
+  CHECK(alone == 0);
+  CHECK(withRows > 0 && without > 0);  // the sweep crossed the edge both ways
+}
+
+void testWikipediaTitlesBreakWhereTheirLanguageDoes() {
+  static const char* kHplc =
+      "Hoch\xC2\xAD"
+      "leis\xC2\xAD"
+      "tungs\xC2\xAD"
+      "fl\xC3\xBC"
+      "s\xC2\xAD"
+      "sig\xC2\xAD"
+      "keits\xC2\xAD"
+      "chro\xC2\xAD"
+      "ma\xC2\xAD"
+      "to\xC2\xAD"
+      "gra\xC2\xAD"
+      "phie";
+  static const char* kPlain = "Hochleistungsfl\xC3\xBCssigkeitschromatographie";
+  wikiui::SearchModel home;
+  home.footer = "50,000 ARTICLES, OCTOBER 2026";
+  home.recent[0].title = kHplc;
+  home.recent[1].title = "Hauptbahnhof";
+  home.recent[2].title = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  home.recentCount = 3;
+  Rendered out;
+  out.target.charW = 12;
+  out.target.perCodePoint = true;
+  buildWikiSearch(out, home);
+  const FakeTarget::TextRun* hplc = nullptr;
+  const FakeTarget::TextRun* forced = nullptr;
+  for (const auto& run : out.target.texts) {
+    CHECK(!hasSoftHyphen(run.text));  // a soft hyphen never reaches the panel
+    if (run.text.rfind("Hochleistungs", 0) == 0) hplc = &run;
+    if (run.text.rfind("Aaaa", 0) == 0) forced = &run;
+  }
+  CHECK(out.target.drew("Hauptbahnhof"));  // a title that fits is untouched
+  CHECK(hplc != nullptr && forced != nullptr);
+  if (hplc != nullptr) {
+    const std::vector<std::string> lines = wrappedLines(out.target, *hplc);
+    CHECK(lines.size() == 2 && static_cast<int>(lines.size()) <= hplc->style.maxLines);
+    if (lines.size() == 2) {
+      // broken at a soft hyphen, with the hyphen drawn
+      CHECK(lines[0].back() == '-');
+      CHECK(lines[0].substr(0, lines[0].size() - 1) + lines[1] == kPlain);
+      // and at one of the soft hyphens, not between two other letters
+      bool atPoint = false;
+      const std::string marked(kHplc);
+      std::string prefix;
+      for (size_t at = 0; at < marked.size(); ++at) {
+        if (marked.compare(at, 2, "\xC2\xAD") == 0) {
+          atPoint = atPoint || prefix + "-" == lines[0];
+          ++at;
+          continue;
+        }
+        prefix += marked[at];
+      }
+      check(atPoint, lines[0].c_str(), __LINE__);
+    }
+    for (const auto& line : lines) {
+      CHECK(out.target.measureText(hplc->style.font, line.c_str(), hplc->style).width <= hplc->rect.width);
+    }
+  }
+  if (forced != nullptr) {
+    // no break point at all: split between letters, still with a hyphen
+    const std::vector<std::string> lines = wrappedLines(out.target, *forced);
+    CHECK(lines.size() == 2 && !lines.empty() && lines[0].back() == '-');
+  }
+  // breakTitle itself, at a 10px letter in an 80px line.
+  {
+    FakeTarget t;
+    t.charW = 10;
+    fui::TextStyle style;
+    // fits: unchanged but for its soft hyphens
+    CHECK(wikiui::breakTitle(t, style,
+                             "ab\xC2\xAD"
+                             "cd",
+                             80) == "abcd");
+    // at a soft hyphen, drawn as "-"; where the line holds the piece but not
+    // its "-", at the soft hyphen before it
+    CHECK(wikiui::breakTitle(t, style,
+                             "abc\xC2\xAD"
+                             "defg\xC2\xAD"
+                             "hij",
+                             80) == "abcdefg- hij");
+    CHECK(wikiui::breakTitle(t, style,
+                             "abcd\xC2\xAD"
+                             "efgh\xC2\xAD"
+                             "ij",
+                             80) == "abcd- efghij");
+    // a piece that fits only without its "-": split between letters, and the
+    // rest of it comes before the piece after it
+    CHECK(wikiui::breakTitle(t, style,
+                             "abcdefgh\xC2\xAD"
+                             "ijk",
+                             80) == "abcdefg- hijk");
+    // after a hyphen or a slash already there, nothing added
+    CHECK(wikiui::breakTitle(t, style, "abcdef-/ghij", 80) == "abcdef-/ ghij");
+    // spaces stay spaces
+    CHECK(wikiui::breakTitle(t, style, "abc defg hij", 80) == "abc defg hij");
+  }
+  // A title of more lines than three is drawn whole too: the row grows. The
+  // 100-byte Borat title was cut at "...Kasachstan zu ..." by a three-line cap.
+  wikiui::SearchModel borat;
+  borat.footer = "50,000 ARTICLES, OCTOBER 2026";
+  borat.recent[0].title =
+      "Borat \xE2\x80\x93 Kulturelle Lernung von Amerika, um Benefiz f\xC3\xBCr glorreiche Nation von Kasachstan "
+      "zu machen";
+  borat.recentCount = 1;
+  Rendered tall;
+  tall.target.charW = 16;
+  tall.target.perCodePoint = true;
+  buildWikiSearch(tall, borat);
+  const FakeTarget::TextRun* row = nullptr;
+  for (const auto& run : tall.target.texts) {
+    if (run.text.rfind("Borat", 0) == 0) row = &run;
+  }
+  CHECK(row != nullptr);
+  if (row != nullptr) {
+    const std::vector<std::string> lines = wrappedLines(tall.target, *row);
+    CHECK(lines.size() > 3);
+    std::string joined;
+    for (const auto& line : lines) joined += (joined.empty() ? "" : " ") + line;
+    CHECK(joined == borat.recent[0].title);
+  }
+}
+
+// The article band holds a long one-word title on its two lines when it is
+// broken where German breaks it, and says when it cannot hold one at all: the
+// page keeps its h1 exactly then. It used to keep it only past 56 bytes, so
+// the 41-byte "Hochleistungs..." was cut in the band and appeared nowhere whole.
+void testWikipediaArticleBandSaysWhenItCutsTheTitle() {
+  static const char* kHplc =
+      "Hoch\xC2\xAD"
+      "leis\xC2\xAD"
+      "tungs\xC2\xAD"
+      "fl\xC3\xBC"
+      "s\xC2\xAD"
+      "sig\xC2\xAD"
+      "keits\xC2\xAD"
+      "chro\xC2\xAD"
+      "ma\xC2\xAD"
+      "to\xC2\xAD"
+      "gra\xC2\xAD"
+      "phie";
+  const auto band = [](Rendered& out, const char* title, bool* whole) {
+    out.target.charW = 12;
+    out.target.perCodePoint = true;
+    wikiui::ArticleChromeModel model;
+    model.title = title;
+    wikiui::ArticleFooterModel footer;
+    {
+      const fui::DeviceContext ctx = device();
+      const fui::InputSnapshot noInput{};
+      toybox::Interactions scratch;
+      toybox::Frame frame(out.target, ctx, noInput, scratch);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      *whole = wikiui::articleTitleWhole(screen, model);
+    }
+    buildWikiArticleChrome(out, model, footer);
+    for (const auto& run : out.target.texts) {
+      if (run.rect.y < toybox::kHeaderHeight && run.rect.height > 0 && run.text.rfind("Hoch", 0) == 0) return &run;
+      if (run.rect.y < toybox::kHeaderHeight && run.text.rfind("A ", 0) == 0) return &run;
+    }
+    return static_cast<const FakeTarget::TextRun*>(nullptr);
+  };
+  bool whole = false;
+  Rendered out;
+  const FakeTarget::TextRun* run = band(out, kHplc, &whole);
+  CHECK(whole);
+  CHECK(run != nullptr);
+  if (run != nullptr) {
+    CHECK(!hasSoftHyphen(run->text));
+    CHECK(run->style.maxLines == 2);
+    const std::vector<std::string> lines = wrappedLines(out.target, *run);
+    CHECK(lines.size() == 2 && lines[0].back() == '-');
+    for (const auto& line : lines) CHECK(line.find("...") == std::string::npos);
+  }
+  // Far more than two lines hold: the band cuts it and says so.
+  bool longWhole = true;
+  Rendered longOut;
+  band(longOut,
+       "A title of very many words that two lines of the band could never hold whole however it is broken across them",
+       &longWhole);
+  CHECK(!longWhole);
+  // One line at the reading size: whole, and nothing broken.
+  bool shortWhole = false;
+  Rendered shortOut;
+  band(shortOut, "Wien", &shortWhole);
+  CHECK(shortWhole);
+}
+
+// --- The install screen: every state, nothing cut, nothing on anything ------
+//
+// Card #651's review: in the "could not be shared" state the parts line was
+// drawn under TRY AGAIN (the language line pushed it down; the button sat at a
+// fixed spot), and a two-line box cut "Deutsch on the card is not complete.
+// The page copies wh...". Both came from fixed boxes, so this asks every
+// state for the two properties that make either impossible, at the reading
+// cut's real line height (40px, reading_serif_14) and about its width per
+// letter: every run holds its words, and no run, the button or the code's
+// square lands on another.
+void testWikipediaInstallFitsEveryState() {
+  using Stage = wikiui::InstallModel::Stage;
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+  };
+  static const Stage kStages[] = {Stage::Waiting, Stage::Connected, Stage::Failed};
+  static const char* const kLines[] = {
+      nullptr,
+      "Choose the language on the page.",
+      "On the card: Deutsch, October 2026.",
+      "Deutsch on the card is not complete. The page copies what is missing.",
+      // the most the chooser lists, and the sentence after them
+      "On the card: English, Deutsch, Fran\xC3\xA7"
+      "ais, Espa\xC3\xB1ol, Italiano, Nederlands. The page lists "
+      "the languages you can add.",
+  };
+  static const char* const kParts[] = {nullptr, "1 OF 2 PARTS ON THE CARD", "38 OF 41 PARTS ON THE CARD"};
+  int cases = 0;
+  for (const Stage stage : kStages) {
+    for (const char* line : kLines) {
+      for (const char* parts : kParts) {
+        wikiui::InstallModel model;
+        model.stage = stage;
+        model.url = "crossplay.ma-r-s.com/wikipedia";
+        model.languageLine = line;
+        model.partsLine = parts;
+        Rendered out;
+        out.target.lineH = 40;
+        out.target.charW = 11;
+        out.target.perCodePoint = true;
+        const fui::Rect qr = buildWikiInstall(out, model);
+        ++cases;
+        char where[96];
+        std::snprintf(where, sizeof where, "stage %d, line \"%.24s\", parts %s", static_cast<int>(stage),
+                      line ? line : "-", parts ? parts : "-");
+        check(qr.width == qr.height && qr.width >= 132, where, __LINE__);
+        // the button's fill, when there is one
+        fui::Rect button{};
+        const FakeTarget::TextRun* retry = out.target.find("TRY AGAIN");
+        check((retry != nullptr) == (stage == Stage::Failed), where, __LINE__);
+        if (retry != nullptr) {
+          for (const fui::Rect& f : out.target.fills) {
+            if (f.x <= retry->rect.x && f.right() >= retry->rect.right() && f.y <= retry->rect.y + 20 &&
+                f.bottom() >= retry->rect.y + 20) {
+              button = f;
+            }
+          }
+          check(button.width > 0 && button.bottom() <= 800, where, __LINE__);
+        }
+        for (size_t i = 0; i < out.target.texts.size(); ++i) {
+          const FakeTarget::TextRun& run = out.target.texts[i];
+          if (run.rect.y < toybox::kHeaderHeight) continue;  // the band
+          // holds its words: one line wide enough, or as many lines as they wrap to
+          fui::TextStyle all = run.style;
+          all.maxLines = 16;
+          const int16_t need = fui::measureWrappedText(out.target, run.text.c_str(), all, run.rect.width).height;
+          const int lines = need / out.target.lineH;
+          if (run.style.maxLines <= 1) {
+            check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width, where,
+                  __LINE__);
+          } else {
+            check(lines <= run.style.maxLines && need <= run.rect.height, where, __LINE__);
+          }
+          check(run.rect.bottom() <= 800, where, __LINE__);
+          check(!overlaps(run.rect, qr), where, __LINE__);
+          if (button.width > 0 && &run != retry) check(!overlaps(run.rect, button), where, __LINE__);
+          for (size_t j = i + 1; j < out.target.texts.size(); ++j) {
+            const FakeTarget::TextRun& other = out.target.texts[j];
+            if (other.rect.y < toybox::kHeaderHeight) continue;
+            if (overlaps(run.rect, other.rect)) {
+              std::printf("  %s: \"%s\" lands on \"%s\"\n", where, run.text.c_str(), other.text.c_str());
+              check(false, where, __LINE__);
+            }
+          }
+        }
+        if (button.width > 0) check(!overlaps(qr, button), where, __LINE__);
+      }
+    }
+  }
+  check(cases == 3 * 5 * 3, "every stage, language line and parts line was drawn", __LINE__);
+}
+
+// --- The keyboard draws every key label whole -------------------------------
+//
+// German search drew its Shift key as "Sh..." (card #651). "Shift" is 53.6px in
+// the body face, and an eleven-key row leaves its one-and-a-half-unit shift
+// key 53.5px inside the button's padding, so the renderer cut it. Nothing
+// asserted anything about it: the label was handed over whole, and it is the
+// renderer that shortens a run wider than its rect, so every "did it draw"
+// check passed.
+//
+// The keyboard decides its own labels, so this drives the component itself
+// rather than one app: every built-in layout and every layer, both theme gaps
+// (0 for Base and Lyra, 10 for RoundedRaff), the Shift label in each of its
+// translations, and glyph cells from narrower to wider than the panel's face.
+// Wikipedia's search and Weather's city search pass exactly these props.
+void testNoKeyboardLabelIsElided() {
+  using Id = fui::KeyboardLayoutId;
+  static const Id kIds[] = {Id::QwertyEn,   Id::AzertyFr,   Id::QwertzDe, Id::SpanishEs, Id::CyrillicRu, Id::CyrillicUk,
+                            Id::CyrillicBe, Id::CyrillicKk, Id::HebrewIl, Id::ArabicAr,  Id::GreekEl};
+  // Every distinct STR_KEY_SHIFT in lib/I18n/translations.
+  static const char* const kShift[] = {"Shift", "Maj", "Mayús", "Posuň", "OOk!", "Maiúsculas"};
+  static const int16_t kGaps[] = {0, 10};
+  static const int16_t kCells[] = {8, 10, 12, 14};
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  int elided = 0;
+  int boards = 0;
+  bool englishSaysShift = false;
+  bool germanSaysShift = false;
+  bool germanCutShift = false;
+  bool germanArrow = false;
+  std::string firstCut;
+  for (const Id id : kIds) {
+    for (int layer = 0; layer < 16; ++layer) {
+      const bool shifted = (layer & 1) != 0;
+      const bool symbols = (layer & 2) != 0;
+      const bool numberRow = (layer & 4) != 0;
+      const bool langKey = (layer & 8) != 0;
+      const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, numberRow, langKey);
+      for (const int16_t gap : kGaps) {
+        for (const int16_t cell : kCells) {
+          for (const char* shift : kShift) {
+            FakeTarget target;
+            target.charW = cell;
+            target.perCodePoint = true;
+            // A face's W is wider than its average letter: 23.2px in the
+            // panel's body face, which an eleven-key row at RoundedRaff's gap
+            // cut to "..." while every uniform cell here fitted.
+            target.kerns = {{"W", static_cast<int16_t>(cell * 3 / 4)}};
+            fui::InteractionBuffer<56> table;
+            const fui::DeviceContext ctx = device();
+            const fui::InputSnapshot noInput{};
+            fui::Frame<56> frame(target, ctx, noInput, table);
+            fui::KeyboardProps props;
+            props.layout = &layout;
+            props.keyAction = 1;
+            props.okLabel = "GO";
+            props.shiftLabel = shift;
+            props.modeLabel = symbols ? "abc" : "?123";
+            props.inputMask = static_cast<uint16_t>(fui::InputTouch);
+            props.labelText.font = toybox::kBodyFont;
+            props.altText.font = toybox::kSmallFont;
+            props.gap = gap;
+            props.padding = fui::Insets{0, 0, 0, 0};
+            // WikipediaActivity::keyboardRect(): 94% of the panel, 56px rows.
+            const int16_t rows = layout.rowCount;
+            const int16_t height = static_cast<int16_t>(rows * 56 + (rows - 1) * gap);
+            const fui::Rect kb{14, static_cast<int16_t>(800 - 8 - height), 451, height};
+            fui::keyboard(frame, kb, props);
+            ++boards;
+            for (const auto& run : target.texts) {
+              const int16_t wide = target.measureText(run.style.font, run.text.c_str(), run.style).width;
+              if (run.style.maxLines == 1 && wide > run.rect.width) {
+                if (firstCut.empty()) {
+                  char where[160];
+                  std::snprintf(where, sizeof where, "layout %d layer %d gap %d cell %d: \"%s\" %dpx in %dpx",
+                                static_cast<int>(id), layer, gap, cell, run.text.c_str(), wide, run.rect.width);
+                  firstCut = where;
+                }
+                ++elided;
+                if (id == Id::QwertzDe && run.text == "Shift") germanCutShift = true;
+              }
+            }
+            // Where the label fits it stays: English at the panel's own gap,
+            // and German once its cell is narrow enough.
+            const bool letters = !symbols && std::strcmp(shift, "Shift") == 0;
+            if (letters && gap == 0 && cell == 10 && id == Id::QwertyEn) englishSaysShift = target.drew("Shift");
+            if (letters && gap == 0 && cell == 8 && id == Id::QwertzDe) germanSaysShift = target.drew("Shift");
+            // Where it does not, the key carries the arrow the system keyboard
+            // draws, never a cut word.
+            if (letters && gap == 0 && cell == 12 && id == Id::QwertzDe) {
+              for (const auto& blit : target.blits) germanArrow |= blit.data == arrow.data;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!firstCut.empty()) std::printf("  first elided key label: %s\n", firstCut.c_str());
+  check(elided == 0, "no key label on any built-in keyboard is cut short", __LINE__);
+  check(!germanCutShift, "the German Shift key is never drawn as a cut word", __LINE__);
+  check(boards == 11 * 16 * 2 * 4 * 6, "every layout, layer, gap, cell and Shift label was drawn", __LINE__);
+  check(englishSaysShift, "English still says Shift where it fits", __LINE__);
+  check(germanSaysShift, "German says Shift too where its key is wide enough", __LINE__);
+  check(germanArrow, "a German Shift key too narrow for the word draws the shift arrow", __LINE__);
 }
 
 // --- Notes: every line of a long item is drawn, fits, and is struck --------
@@ -15477,6 +16289,85 @@ void testRssScrollTrackHasItsAir() {
   CHECK(trackX + toybox::themeTokens().listScrollWidth <= band.x + band.width);
 }
 
+// A Toybox list's scroll track spans its rows, not the rect they sit in. The
+// rect is taller than the rows whenever its height is not a whole number of
+// rows, and the track ran on past the last row into empty paper: 29px under
+// RSS's posts and Hacker News's saved shelf, 65px under the RSS feeds (#340
+// review).
+void testToyboxScrollTrackEndsWithTheRows() {
+  const auto measure = [](const Rendered& out, const fui::Rect& band, int& rowsBottom, int& trackBottom) {
+    rowsBottom = -1;
+    trackBottom = -1;
+    for (const auto& stroke : out.target.strokes) {
+      if (stroke.rect.y >= band.y && stroke.rect.width > band.width / 2)
+        rowsBottom = std::max<int>(rowsBottom, stroke.rect.bottom());
+    }
+    for (const auto& fill : out.target.fills) {
+      if (fill.width == toybox::themeTokens().listScrollWidth && fill.height > 20 && fill.y >= band.y)
+        trackBottom = std::max<int>(trackBottom, fill.bottom());
+    }
+  };
+  struct Case {
+    const char* name;
+    bool feeds;
+  };
+  for (const Case& c : {Case{"rss posts", false}, Case{"rss feeds", true}}) {
+    FakeTarget sizing;
+    const fui::Rect band = c.feeds ? rssui::feedsBand(device()) : rssui::postsBand(device());
+    const int perPage = c.feeds ? fui::listVisibleRows(band, rssui::feedRowHeight(sizing, toybox::themeTokens()),
+                                                       toybox::themeTokens().listRowGap)
+                                : rssVisibleRows();
+    RssRows rows(0, perPage, !c.feeds);
+    rssui::ListModel model;
+    model.tab = c.feeds ? rssui::Tab::Feeds : rssui::Tab::All;
+    model.items = rows.items.data();
+    model.count = perPage * 3;
+    model.windowCount = perPage;
+    Rendered out;
+    if (c.feeds) {
+      buildRssFeeds(out, model);
+    } else {
+      buildRssPosts(out, model);
+    }
+    int rowsBottom = 0;
+    int trackBottom = 0;
+    measure(out, band, rowsBottom, trackBottom);
+    CHECK(rowsBottom > 0 && trackBottom > 0);
+    if (trackBottom != rowsBottom) {
+      ++checksFailed;
+      std::printf("FAIL %s: the scroll track ends at %d, the rows at %d\n", c.name, trackBottom, rowsBottom);
+    }
+    ++checksRun;
+  }
+  // Hacker News, a front page longer than its screen.
+  std::vector<std::string> labels;
+  std::vector<fui::ListItem> items(40);
+  labels.reserve(40);
+  for (int i = 0; i < 40; ++i) labels.push_back("Story number " + std::to_string(i));
+  for (int i = 0; i < 40; ++i) {
+    items[static_cast<size_t>(i)].label = labels[static_cast<size_t>(i)].c_str();
+    items[static_cast<size_t>(i)].actionValue = static_cast<int16_t>(i);
+  }
+  hnui::ListModel model;
+  model.items = items.data();
+  model.count = 40;
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildList(screen, model);
+  int rowsBottom = 0;
+  int trackBottom = 0;
+  measure(out, hnui::listBand(device()), rowsBottom, trackBottom);
+  CHECK(rowsBottom > 0 && trackBottom > 0);
+  if (trackBottom != rowsBottom) {
+    ++checksFailed;
+    std::printf("FAIL hacker news: the scroll track ends at %d, the rows at %d\n", trackBottom, rowsBottom);
+  }
+  ++checksRun;
+}
+
 void testRssSegments() {
   RssRows rows(0, 2, true);
   const fui::DeviceContext ctx = device();
@@ -15681,7 +16572,1562 @@ void testRssHeadlineRoomFollowsTheSite() {
   CHECK(none < rssui::postsBand(ctx).width);
 }
 
+// --- Weather ---------------------------------------------------------------
+//
+// Every weather screen is built the way the device builds it: through the
+// screen's own draw function, which binds its faces pass by pass through the
+// Rebind it is handed. The fake binds each face's real line height (so the cut
+// table finds its metrics) and roughly its width, so a run's line height says
+// which face drew it and a test can ask whether that face has its letters.
+
+namespace weathertest {
+
+struct FaceMetrics {
+  int16_t line;
+  int16_t width;
+};
+
+FaceMetrics metricsOf(const weatherui::Face face) {
+  switch (face) {
+    case weatherui::Face::ReadingSmall:
+      return {toybox::kReadingSmallCut.lineHeight, 9};
+    case weatherui::Face::Reading:
+      return {toybox::kReadingCut.lineHeight, 11};
+    case weatherui::Face::ReadingBoldSmall:
+      return {toybox::kReadingBoldSmallCut.lineHeight, 10};
+    case weatherui::Face::ReadingBold:
+      return {toybox::kReadingBoldCut.lineHeight, 12};
+    case weatherui::Face::Button:
+      return {toybox::kButtonCut.lineHeight, 13};
+    case weatherui::Face::Ui:
+      return {toybox::kUiCut.lineHeight, 24};
+    case weatherui::Face::Display:
+      return {toybox::kDisplayCut.lineHeight, 26};
+    case weatherui::Face::Huge:
+      return {toybox::kHugeCut.lineHeight, 46};
+  }
+  return {20, 10};
+}
+
+constexpr weatherui::Face kFaces[] = {weatherui::Face::ReadingSmall,     weatherui::Face::Reading,
+                                      weatherui::Face::ReadingBoldSmall, weatherui::Face::ReadingBold,
+                                      weatherui::Face::Button,           weatherui::Face::Ui,
+                                      weatherui::Face::Display,          weatherui::Face::Huge};
+
+// The face a run was drawn in, from the line height it had: every face here
+// has its own.
+bool faceOf(const FakeTarget::TextRun& run, weatherui::Face& face) {
+  for (const weatherui::Face f : kFaces) {
+    if (metricsOf(f).line == run.line) {
+      face = f;
+      return true;
+    }
+  }
+  return false;
+}
+
+void bindFaces(void* context, const weatherui::Pass& pass) {
+  FakeTarget& t = *static_cast<FakeTarget*>(context);
+  t.fontLines = {{fui::FONT_SLOT_SMALL, metricsOf(pass.small).line},
+                 {fui::FONT_SLOT_BODY, metricsOf(pass.body).line},
+                 {fui::FONT_SLOT_TITLE, metricsOf(pass.title).line}};
+  t.fontWidths = {{fui::FONT_SLOT_SMALL, metricsOf(pass.small).width},
+                  {fui::FONT_SLOT_BODY, metricsOf(pass.body).width},
+                  {fui::FONT_SLOT_TITLE, metricsOf(pass.title).width}};
+}
+
+void buildMain(Rendered& out, const weatherui::MainModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  weatherui::drawMain(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
+weatherui::SearchLayout buildSearch(Rendered& out, const weatherui::SearchModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return weatherui::drawSearch(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
+void buildMenu(Rendered& out, const weatherui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  weatherui::drawMenu(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
+weatherui::MainModel fullWeek() {
+  weatherui::MainModel m;
+  m.place = "Z\xC3\xBCrich, Switzerland";
+  m.hasForecast = true;
+  m.now = 7;
+  m.hasNow = true;
+  m.nowIcon = weather::Icon::CloudSun;
+  m.sky = "PARTLY CLOUDY";
+  m.today.name = "TUE";
+  m.today.icon = weather::Icon::CloudSun;
+  m.today.high = 9;
+  m.today.low = 3;
+  m.today.hasHigh = true;
+  m.today.hasLow = true;
+  m.today.rain = 20;
+  m.chance = "RAIN";
+  static const char* const kNames[] = {"WED", "THU", "FRI", "SAT", "SUN", "MON"};
+  for (int i = 0; i < weatherui::kRows; ++i) {
+    weatherui::DayRow& d = m.days[i];
+    d.name = kNames[i];
+    d.icon = i % 2 ? weather::Icon::Rain : weather::Icon::Snow;
+    d.high = 8 - i * 3;
+    d.low = -1 - i * 2;
+    d.hasHigh = true;
+    d.hasLow = true;
+    d.rain = i * 15;
+  }
+  m.dayCount = weatherui::kRows;
+  m.updated = "UPDATED 14:07";
+  return m;
+}
+
+// Whether a tap anywhere on the panel reaches `action` (with `value`, when
+// one is asked for), and the first place it does.
+bool reaches(Rendered& out, const fui::ActionId action, int value = -1, fui::Point* where = nullptr) {
+  for (int y = 0; y < 800; y += 3) {
+    for (int x = 0; x < 480; x += 6) {
+      const fui::ActionEvent e = out.tap(x, y);
+      if (e.action == action && (value < 0 || e.value == value)) {
+        if (where) *where = fui::Point{static_cast<int16_t>(x), static_cast<int16_t>(y)};
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool drewExactly(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text) return true;
+  }
+  return false;
+}
+
+// A run's ink: cap top of its first line to the baseline of its last, as wide
+// as it measured when it was drawn, placed by its alignment.
+fui::Rect inkOf(const FakeTarget::TextRun& run) {
+  const toybox::CutMetrics* cut = toybox::cutForLineHeight(run.line);
+  const int16_t capTop =
+      cut ? static_cast<int16_t>(cut->ascender - cut->inkHeight) : static_cast<int16_t>(run.line / 5);
+  const int16_t capH = cut ? cut->inkHeight : static_cast<int16_t>(run.line * 3 / 5);
+  const int lines = run.line > 0 ? std::max(1, std::min<int>(run.style.maxLines, run.rect.height / run.line)) : 1;
+  const int16_t width = lines > 1 ? run.rect.width : std::min(run.width, run.rect.width);
+  const int16_t blockH = static_cast<int16_t>(lines * run.line);
+  int16_t x = run.rect.x;
+  if (run.style.align == fui::TextAlign::Center) x = static_cast<int16_t>(run.rect.x + (run.rect.width - width) / 2);
+  if (run.style.align == fui::TextAlign::Right) x = static_cast<int16_t>(run.rect.right() - width);
+  const int16_t y = static_cast<int16_t>(run.rect.y + std::max(0, (run.rect.height - blockH) / 2) + capTop);
+  return fui::makeRect(x, y, width, static_cast<int16_t>((lines - 1) * run.line + capH));
+}
+
+// The ink of a 1-bpp icon as blitted at its own size (bit 0 = ink).
+fui::Rect inkOf(const FakeTarget::Blit& blit) {
+  const int w = blit.rect.width, h = blit.rect.height, stride = (w + 7) / 8;
+  int x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      if ((blit.data[y * stride + x / 8] >> (7 - x % 8)) & 1) continue;
+      x0 = std::min(x0, x);
+      x1 = std::max(x1, x);
+      y0 = std::min(y0, y);
+      y1 = std::max(y1, y);
+    }
+  }
+  if (x1 < 0) return fui::makeRect(blit.rect.x, blit.rect.y, 0, 0);
+  return fui::makeRect(static_cast<int16_t>(blit.rect.x + x0), static_cast<int16_t>(blit.rect.y + y0),
+                       static_cast<int16_t>(x1 - x0 + 1), static_cast<int16_t>(y1 - y0 + 1));
+}
+
+const FakeTarget::TextRun* runAt(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text && run.rect.y >= toybox::kHeaderHeight) return &run;
+  }
+  return nullptr;
+}
+
+bool overlapsVertically(const fui::Rect& a, const fui::Rect& b) { return a.y < b.bottom() && b.y < a.bottom(); }
+bool overlapsHorizontally(const fui::Rect& a, const fui::Rect& b) { return a.x < b.right() && b.x < a.right(); }
+bool contains(const fui::Rect& outer, const fui::Rect& inner) {
+  return outer.x <= inner.x && outer.y <= inner.y && outer.right() >= inner.right() && outer.bottom() >= inner.bottom();
+}
+
+// Every run below the band: inside the panel's margins, never cut by the
+// renderer (a single-line run wider than its rect is ellipsized in silence),
+// never ending in an ellipsis this file did not mean, and no two inks
+// sharing pixels.
+bool laidOutCleanly(const Rendered& out, std::string& why) {
+  const int top = toybox::kHeaderHeight;
+  std::vector<const FakeTarget::TextRun*> runs;
+  for (const auto& run : out.target.texts) {
+    if (run.rect.y < top || run.text.empty()) continue;
+    runs.push_back(&run);
+    if (run.rect.x < 0 || run.rect.right() > 480 || run.rect.bottom() > 800) {
+      why = "off the panel: " + run.text;
+      return false;
+    }
+    if (run.style.maxLines <= 1 && run.width > run.rect.width) {
+      why = "wider than its box: " + run.text;
+      return false;
+    }
+  }
+  for (size_t i = 0; i < runs.size(); ++i) {
+    for (size_t j = i + 1; j < runs.size(); ++j) {
+      const fui::Rect a = inkOf(*runs[i]);
+      const fui::Rect b = inkOf(*runs[j]);
+      if (a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()) {
+        why = "\"" + runs[i]->text + "\" through \"" + runs[j]->text + "\"";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool clean(const Rendered& out, const char* screen) {
+  std::string why;
+  const bool ok = laidOutCleanly(out, why);
+  if (!ok) std::printf("  weather %s: %s\n", screen, why.c_str());
+  return ok;
+}
+
+// Every letter of every run is one its face can draw: Jersey carries ASCII,
+// the reading cuts Latin-1. A letter outside its face prints as a hole.
+std::vector<std::string> missingGlyphs(const Rendered& out) {
+  std::vector<std::string> found;
+  for (const auto& run : out.target.texts) {
+    weatherui::Face face{};
+    if (!faceOf(run, face)) {
+      found.push_back("\"" + run.text + "\" in a face no pass binds");
+      continue;
+    }
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(run.text.c_str());
+    while (*p) {
+      uint32_t cp = *p;
+      int extra = 0;
+      if (cp >= 0xF0) {
+        cp &= 0x07;
+        extra = 3;
+      } else if (cp >= 0xE0) {
+        cp &= 0x0F;
+        extra = 2;
+      } else if (cp >= 0xC0) {
+        cp &= 0x1F;
+        extra = 1;
+      }
+      ++p;
+      for (int i = 0; i < extra && *p; ++i, ++p) cp = (cp << 6) | (*p & 0x3F);
+      const bool drawable = weatherui::carriesAccents(face) ? cp <= 0xFF : cp < 0x80;
+      if (!drawable) {
+        char hex[16];
+        std::snprintf(hex, sizeof(hex), "U+%04X", static_cast<unsigned>(cp));
+        found.push_back(std::string(hex) + " in \"" + run.text + "\", drawn in a face without it");
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+bool allDrawable(const Rendered& out, const char* screen) {
+  const std::vector<std::string> found = missingGlyphs(out);
+  for (size_t i = 0; i < found.size() && i < 3; ++i) std::printf("  weather %s: %s\n", screen, found[i].c_str());
+  return found.empty();
+}
+
+// Every collision on a weather screen, by ink: text through text is
+// laidOutCleanly's job; this one is text against everything that is not text.
+// An icon keeps a full gutter from any text beside or above it, and a filled
+// shape (a bar, a disc, a minus) may not cross text unless it is the ground
+// the text is printed on.
+std::vector<std::string> weatherCollisions(const Rendered& out) {
+  std::vector<std::string> found;
+  const int top = toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule;
+  std::vector<std::pair<fui::Rect, std::string>> inks;
+  for (const auto& run : out.target.texts) {
+    if (run.rect.y < top || run.text.empty()) continue;
+    inks.push_back({inkOf(run), run.text});
+  }
+  for (const auto& blit : out.target.blits) {
+    if (blit.rect.y < top) continue;
+    const fui::Rect icon = inkOf(blit);
+    for (const auto& ink : inks) {
+      const bool sideBySide = overlapsVertically(icon, ink.first);
+      const bool stacked = overlapsHorizontally(icon, ink.first);
+      const int dx = std::max(icon.x - ink.first.right(), ink.first.x - icon.right());
+      const int dy = std::max(icon.y - ink.first.bottom(), ink.first.y - icon.bottom());
+      if ((sideBySide && dx < toybox::kGutter) || (stacked && dy < toybox::kGutter) || (sideBySide && stacked)) {
+        found.push_back("icon at x=" + std::to_string(icon.x) + " within a gutter of \"" + ink.second + "\"");
+      }
+    }
+  }
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Rect& fill = out.target.fills[i];
+    if (fill.y < top || fill.width <= 0 || fill.height <= 0) continue;
+    for (const auto& ink : inks) {
+      if (overlapsVertically(fill, ink.first) && overlapsHorizontally(fill, ink.first) && !contains(fill, ink.first)) {
+        found.push_back("a fill at x=" + std::to_string(fill.x) + " y=" + std::to_string(fill.y) + " crosses \"" +
+                        ink.second + "\"");
+      }
+    }
+  }
+  return found;
+}
+
+bool collisionFree(const Rendered& out, const char* screen) {
+  const std::vector<std::string> found = weatherCollisions(out);
+  for (size_t i = 0; i < found.size() && i < 4; ++i) std::printf("  weather %s: %s\n", screen, found[i].c_str());
+  return found.empty();
+}
+
+weatherui::SearchModel results(const int count) {
+  static const char* const kRegions[] = {"Illinois, United States", "Missouri, United States", "Ohio, United States"};
+  weatherui::SearchModel m;
+  m.query = "Springfield";
+  m.state = weatherui::SearchModel::State::Results;
+  m.rowCount = count;
+  for (int i = 0; i < count; ++i) {
+    m.rows[i].name = "Springfield";
+    m.rows[i].region = kRegions[i % 3];
+  }
+  return m;
+}
+
+// Every state every weather screen can be in, built: what the no-provider,
+// no-hole and no-collision checks run over.
+struct Shot {
+  std::string name;
+  Rendered out;
+};
+
+std::vector<std::unique_ptr<Shot>> everyScreen() {
+  std::vector<std::unique_ptr<Shot>> shots;
+  const auto add = [&shots](const std::string& name) {
+    shots.push_back(std::make_unique<Shot>());
+    shots.back()->name = name;
+    return &shots.back()->out;
+  };
+  static const weatherui::Status kStatuses[] = {weatherui::Status::Current, weatherui::Status::Updating,
+                                                weatherui::Status::Offline, weatherui::Status::Failed};
+  static const char* const kStatusNames[] = {"current", "updating", "offline", "failed"};
+  for (int s = 0; s < 4; ++s) {
+    weatherui::MainModel week = fullWeek();
+    week.status = kStatuses[s];
+    week.updated = "UPDATED YESTERDAY 12:59 PM";
+    buildMain(*add(std::string("main, ") + kStatusNames[s]), week);
+    weatherui::MainModel empty;
+    empty.place = "Z\xC3\xBCrich, Switzerland";
+    empty.status = kStatuses[s];
+    buildMain(*add(std::string("main with nothing, ") + kStatusNames[s]), empty);
+    weatherui::MainModel stale = empty;
+    stale.stale = true;
+    stale.updated = "UPDATED 8 NOV";
+    buildMain(*add(std::string("main, stale, ") + kStatusNames[s]), stale);
+  }
+  for (const bool firstRun : {false, true}) {
+    for (const int16_t keyboard : {int16_t{0}, int16_t{360}}) {
+      const std::string how = std::string(firstRun ? "first run" : "changing") + (keyboard ? ", keyboard up" : "");
+      weatherui::SearchModel m;
+      m.firstRun = firstRun;
+      m.keyboardHeight = keyboard;
+      buildSearch(*add("search typing, " + how), m);
+      m.query = "Springfield";
+      m.state = weatherui::SearchModel::State::Searching;
+      buildSearch(*add("search searching, " + how), m);
+      m.state = weatherui::SearchModel::State::NoMatch;
+      buildSearch(*add("search no match, " + how), m);
+      m.state = weatherui::SearchModel::State::Failed;
+      m.offline = false;
+      buildSearch(*add("search failed, " + how), m);
+      m.offline = true;
+      buildSearch(*add("search offline, " + how), m);
+      weatherui::SearchModel found = results(weather::kMaxMatches);
+      found.firstRun = firstRun;
+      found.keyboardHeight = keyboard;
+      for (int page = 0; page < 3; ++page) {
+        found.page = page;
+        buildSearch(*add("search results page " + std::to_string(page) + ", " + how), found);
+      }
+    }
+  }
+  for (const bool fahrenheit : {false, true}) {
+    weatherui::MenuModel m;
+    m.place = "Z\xC3\xBCrich, Switzerland";
+    m.fahrenheit = fahrenheit;
+    m.updated = "UPDATED 14:07";
+    buildMenu(*add(fahrenheit ? "menu, F" : "menu, C"), m);
+  }
+  return shots;
+}
+
+// --- The main screen ----------------------------------------------------------
+
+void mainDrawsTheWeekAndOnlyTheGearIsTappable() {
+  Rendered out;
+  buildMain(out, fullWeek());
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewExactly(out, "Z\xC3\xBCrich, Switzerland"));
+  CHECK(drewText(out, "PARTLY CLOUDY"));
+  CHECK(drewExactly(out, "UPDATED 14:07"));
+  for (const char* day : {"WED", "THU", "FRI", "SAT", "SUN", "MON"}) CHECK(drewText(out, day));
+  CHECK(drewExactly(out, "RAIN"));
+  CHECK(drewExactly(out, "20%"));
+  CHECK(clean(out, "main"));
+  CHECK(reaches(out, weatherui::ActionMenu));
+  // The gear is the only control: the forecast itself is not a button.
+  bool bodyInert = true;
+  for (int y = toybox::kBodyTop; y < 800; y += 5) {
+    for (int x = 0; x < 480; x += 20) bodyInert = bodyInert && out.tap(x, y).action == fui::NO_ACTION;
+  }
+  CHECK(bodyInert);
+}
+
+// The radio's state and the time the forecast was read are two lines, so the
+// longest of either is drawn whole: "COULD NOT UPDATE. UPDATED YESTERDAY
+// 2:07 PM" on one line was cut to "...UPDATED YESTER..." on the panel.
+void mainSaysWhatTheRadioDidAndWhenInFull() {
+  const struct {
+    weatherui::Status status;
+    const char* words;
+  } kStates[] = {{weatherui::Status::Updating, "UPDATING..."},
+                 {weatherui::Status::Offline, "OFFLINE"},
+                 {weatherui::Status::Failed, "COULD NOT UPDATE"}};
+  for (const auto& state : kStates) {
+    for (const char* updated : {"UPDATED YESTERDAY 12:59 PM", "UPDATED YESTERDAY 23:59", "UPDATED WED 12:59 AM"}) {
+      weatherui::MainModel m = fullWeek();
+      m.status = state.status;
+      m.updated = updated;
+      Rendered out;
+      buildMain(out, m);
+      CHECK(drewExactly(out, state.words));
+      CHECK(drewExactly(out, updated));
+      CHECK(clean(out, "main, status"));
+    }
+  }
+  // Nothing to say when the forecast is the latest.
+  Rendered current;
+  buildMain(current, fullWeek());
+  CHECK(!drewText(current, "UPDATING"));
+  CHECK(!drewText(current, "OFFLINE"));
+}
+
+// The forecast on the card was read on an earlier day and the update failed:
+// there is no reading for now, so no number is drawn where now goes, and
+// today's sky stands in at its left edge, then today's words and range.
+void aReadingFromAnotherDayIsNeverNow() {
+  weatherui::MainModel m = fullWeek();
+  m.hasNow = false;
+  m.nowIcon = weather::Icon::Cloud;
+  m.sky = "OVERCAST";
+  m.status = weatherui::Status::Failed;
+  m.updated = "UPDATED SUN 19:03";
+  Rendered out;
+  buildMain(out, m);
+  for (const auto& run : out.target.texts) {
+    weatherui::Face face{};
+    const bool huge = faceOf(run, face) && face == weatherui::Face::Huge;
+    if (huge) std::printf("  weather: \"%s\" drawn where now goes\n", run.text.c_str());
+    CHECK(!huge);
+  }
+  // Today's sky, its ink at the left margin, a group under the place and a
+  // line over today's words.
+  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* words = runAt(out, "OVERCAST");
+  CHECK(place && words);
+  bool found = false;
+  for (const auto& blit : out.target.blits) {
+    if (blit.rect.width != 88) continue;
+    found = true;
+    const fui::Rect ink = inkOf(blit);
+    CHECK(ink.x == toybox::kMargin);
+    if (place && words) {
+      CHECK(ink.y - inkOf(*place).bottom() == 36);
+      CHECK(inkOf(*words).y - ink.bottom() == 12);
+    }
+  }
+  CHECK(found);
+  CHECK(drewExactly(out, "H"));
+  CHECK(clean(out, "main, no reading"));
+  CHECK(collisionFree(out, "main, no reading"));
+
+  // No sky for today either: the words of the range line follow the place.
+  m.nowIcon = weather::Icon::None;
+  m.sky = "";
+  Rendered bare;
+  buildMain(bare, m);
+  const FakeTarget::TextRun* place2 = runAt(bare, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* h = runAt(bare, "H");
+  CHECK(place2 && h);
+  if (place2 && h) CHECK(inkOf(*h).y - inkOf(*place2).bottom() == 36);
+  CHECK(clean(bare, "main, no reading, no sky"));
+}
+
+void mainDrawsOnlyTheDaysItHas() {
+  weatherui::MainModel m = fullWeek();
+  m.dayCount = 4;
+  m.today.hasHigh = false;
+  Rendered out;
+  buildMain(out, m);
+  CHECK(drewText(out, "SAT"));
+  CHECK(!drewText(out, "SUN"));
+  CHECK(!drewText(out, "MON"));
+  // A temperature that was not given is said to be missing, not drawn as 0.
+  CHECK(drewText(out, "--"));
+}
+
+// A day whose code was null has no sky: nothing is drawn in its place, where
+// a cloud used to be.
+void aDayWithNoSkyDrawsNoSky() {
+  weatherui::MainModel m = fullWeek();
+  Rendered all;
+  buildMain(all, m);
+  m.days[2].icon = weather::Icon::None;
+  m.nowIcon = weather::Icon::None;
+  Rendered gap;
+  buildMain(gap, m);
+  CHECK(gap.target.blits.size() + 2 == all.target.blits.size());
+  CHECK(clean(gap, "main, no sky"));
+  CHECK(collisionFree(gap, "main, no sky"));
+  // A week with no skies at all has no sky column.
+  for (int i = 0; i < m.dayCount; ++i) m.days[i].icon = weather::Icon::None;
+  Rendered none;
+  buildMain(none, m);
+  CHECK(clean(none, "main, no skies"));
+  CHECK(weatherui::skyBitmap(weather::Icon::None, 32) == nullptr);
+}
+
+// Under a snow code the chance is labelled SNOW; under anything else RAIN.
+void theChanceSaysWhatItIsAChanceOf() {
+  weatherui::MainModel m = fullWeek();
+  m.chance = "SNOW";
+  m.today.rain = 70;
+  Rendered snow;
+  buildMain(snow, m);
+  CHECK(drewExactly(snow, "SNOW"));
+  CHECK(!drewExactly(snow, "RAIN"));
+  CHECK(drewExactly(snow, "70%"));
+}
+
+// "H -28  L -40": a word space between the letter and its value, and a minus
+// that is drawn, a figure wide at the middle of the capitals, never Jersey's
+// short hyphen typed against the figures.
+void aNegativeReadingHasAMinusAndRoom() {
+  weatherui::MainModel m = fullWeek();
+  m.now = -32;
+  m.today.high = -28;
+  m.today.low = -40;
+  Rendered out;
+  buildMain(out, m);
+  for (const auto& run : out.target.texts) {
+    const bool typedMinus = run.text.size() > 1 && run.text[0] == '-' && run.text[1] >= '0' && run.text[1] <= '9';
+    if (typedMinus) std::printf("  weather: a typed minus in \"%s\"\n", run.text.c_str());
+    CHECK(!typedMinus);
+  }
+  for (const char* pair : {"H", "L"}) {
+    const FakeTarget::TextRun* letter = runAt(out, pair);
+    CHECK(letter != nullptr);
+    if (!letter) continue;
+    const fui::Rect ink = inkOf(*letter);
+    // The nearest fill to its right on its line is the minus.
+    int gap = 1000;
+    fui::Rect minus{};
+    for (const auto& fill : out.target.fills) {
+      if (fill.x >= ink.right() && overlapsVertically(fill, ink) && fill.x - ink.right() < gap) {
+        gap = fill.x - ink.right();
+        minus = fill;
+      }
+    }
+    CHECK(gap >= toybox::kGutter / 2 && gap < toybox::kGutter * 2);
+    // At the middle of the capitals, about a figure wide, thinner than tall.
+    const int middle = ink.y + ink.height / 2;
+    CHECK(minus.y <= middle && minus.bottom() >= middle);
+    CHECK(minus.width >= 8 && minus.height < minus.width);
+  }
+  CHECK(runAt(out, "28") && runAt(out, "40") && runAt(out, "32"));
+  CHECK(clean(out, "main, negative"));
+  CHECK(collisionFree(out, "main, negative"));
+}
+
+void aLongPlaceKeepsItsWeightAndBreaksAtItsHyphens() {
+  // A hyphenated name with no space in it takes its second line before
+  // anything is cut, in bold.
+  weatherui::MainModel m = fullWeek();
+  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
+  Rendered out;
+  buildMain(out, m);
+  std::vector<const FakeTarget::TextRun*> lines;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("Saint") != std::string::npos || run.text.find("Grand Est") != std::string::npos) {
+      lines.push_back(&run);
+    }
+  }
+  CHECK(lines.size() == 2);
+  std::string whole;
+  for (const auto* run : lines) {
+    whole += run->text;
+    weatherui::Face face{};
+    CHECK(faceOf(*run, face));
+    CHECK(face == weatherui::Face::ReadingBold || face == weatherui::Face::ReadingBoldSmall);
+    CHECK(run->text.find("...") == std::string::npos);
+  }
+  if (!lines.empty()) CHECK(lines[0]->text.back() == '-');
+  CHECK(whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est" ||
+        whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson,Grand Est");
+  CHECK(clean(out, "main, hyphenated place"));
+  CHECK(drewText(out, "MON"));
+
+  // Longer than two lines of the smaller cut: still bold, cut once, marked.
+  m.place = "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch Llanfairpwllgwyngyllgogerychwyrndrobwll";
+  Rendered cut;
+  buildMain(cut, m);
+  int marked = 0;
+  for (const auto& run : cut.target.texts) {
+    if (run.text.find("Llanfair") == std::string::npos) continue;
+    weatherui::Face face{};
+    CHECK(faceOf(run, face) && face == weatherui::Face::ReadingBoldSmall);
+    if (run.text.find("...") != std::string::npos) ++marked;
+  }
+  CHECK(marked == 1);
+  CHECK(clean(cut, "main, place too long"));
+}
+
+void aMainWithNoWeekSaysWhyAndOffersWhatHelps() {
+  weatherui::MainModel m;
+  m.place = "Z\xC3\xBCrich, Switzerland";
+  // Nothing on the card yet.
+  m.status = weatherui::Status::Updating;
+  Rendered getting;
+  buildMain(getting, m);
+  CHECK(drewText(getting, "GETTING THE FORECAST"));
+  CHECK(!reaches(getting, weatherui::ActionRetry));
+  m.status = weatherui::Status::Offline;
+  Rendered offline;
+  buildMain(offline, m);
+  CHECK(drewText(offline, "NO FORECAST YET"));
+  CHECK(drewText(offline, "Connect to Wi-Fi to get one."));
+  CHECK(reaches(offline, weatherui::ActionRetry));
+  CHECK(reaches(offline, weatherui::ActionMenu));
+  CHECK(clean(offline, "main, nothing yet"));
+  m.status = weatherui::Status::Failed;
+  Rendered failed;
+  buildMain(failed, m);
+  CHECK(drewText(failed, "COULD NOT GET THE FORECAST"));
+  CHECK(reaches(failed, weatherui::ActionRetry));
+  CHECK(clean(failed, "main, failed"));
+
+  // Every day on the card is past: the place, how old it is and UPDATE NOW,
+  // and no week, because a week that has happened is not the coming one.
+  weatherui::MainModel stale = fullWeek();
+  stale.hasForecast = false;
+  stale.stale = true;
+  stale.updated = "UPDATED 8 NOV";
+  stale.status = weatherui::Status::Offline;
+  Rendered old;
+  buildMain(old, stale);
+  CHECK(drewText(old, "NO FORECAST FOR TODAY"));
+  CHECK(drewExactly(old, "UPDATED 8 NOV"));
+  CHECK(drewExactly(old, "OFFLINE"));
+  CHECK(drewText(old, "UPDATE NOW"));
+  CHECK(reaches(old, weatherui::ActionRetry));
+  for (const char* day : {"WED", "THU", "MON", "PARTLY CLOUDY", "7"}) CHECK(!drewExactly(old, day));
+  CHECK(clean(old, "main, stale"));
+  stale.status = weatherui::Status::Updating;
+  Rendered updating;
+  buildMain(updating, stale);
+  CHECK(drewExactly(updating, "UPDATING..."));
+  CHECK(!reaches(updating, weatherui::ActionRetry));
+}
+
+// --- Search ------------------------------------------------------------------
+
+void searchRowsChooseTheirOwnPlace() {
+  Rendered out;
+  const weatherui::SearchLayout layout = buildSearch(out, results(3));
+  CHECK(layout.shown == 3 && layout.pageCount == 1);
+  CHECK(!out.interactions.overflowed());
+  for (int i = 0; i < 3; ++i) CHECK(reaches(out, weatherui::ActionMatch, i));
+  CHECK(!reaches(out, weatherui::ActionMatch, 3));
+  CHECK(!reaches(out, weatherui::ActionPage));
+  CHECK(reaches(out, weatherui::ActionField));
+  CHECK(drewText(out, "Missouri, United States"));
+  CHECK(clean(out, "search"));
+}
+
+// Ten places on pages: every one of them reachable, a page at a time, each
+// page's number a door to it, and no row under the page numbers.
+void everyPlaceFoundIsReachable() {
+  weatherui::SearchModel m = results(weather::kMaxMatches);
+  Rendered first;
+  const weatherui::SearchLayout one = buildSearch(first, m);
+  CHECK(one.pageCount > 1);
+  CHECK(one.first == 0 && one.shown > 0 && one.shown < weather::kMaxMatches);
+  CHECK(reaches(first, weatherui::ActionPage, 1));
+  CHECK(drewExactly(first, "1") && drewExactly(first, "2"));
+  bool reached[weather::kMaxMatches] = {};
+  for (int page = 0; page < one.pageCount; ++page) {
+    m.page = page;
+    Rendered out;
+    const weatherui::SearchLayout layout = buildSearch(out, m);
+    CHECK(layout.page == page);
+    for (int i = layout.first; i < layout.first + layout.shown; ++i)
+      reached[i] = reaches(out, weatherui::ActionMatch, i);
+    CHECK(clean(out, "search, a page"));
+    CHECK(collisionFree(out, "search, a page"));
+  }
+  bool all = true;
+  for (const bool r : reached) all = all && r;
+  CHECK(all);
+  // A page asked for past the last is the last.
+  m.page = 99;
+  Rendered past;
+  CHECK(buildSearch(past, m).page == one.pageCount - 1);
+}
+
+// With the keyboard up the field is being edited: the places found for what
+// it said before are not shown, and nothing reaches under the keyboard.
+void searchStaysAboveTheKeyboard() {
+  weatherui::SearchModel m = results(weather::kMaxMatches);
+  m.keyboardHeight = 360;
+  Rendered out;
+  const weatherui::SearchLayout layout = buildSearch(out, m);
+  CHECK(layout.shown == 0);
+  CHECK(!reaches(out, weatherui::ActionMatch));
+  CHECK(drewText(out, "Type at least two letters"));
+  for (const auto& run : out.target.texts) {
+    if (run.rect.y > toybox::kHeaderHeight) CHECK(run.rect.bottom() <= 800 - m.keyboardHeight);
+  }
+}
+
+// A place with no region is one line tall: nothing is drawn under it and the
+// next place follows a row gap after its name.
+void aPlaceWithNoRegionIsOneLine() {
+  weatherui::SearchModel m = results(3);
+  m.rows[0].name = "35.69N 139.69E";
+  m.rows[0].region = "";
+  Rendered out;
+  buildSearch(out, m);
+  const FakeTarget::TextRun* bare = runAt(out, "35.69N 139.69E");
+  CHECK(bare != nullptr);
+  const FakeTarget::TextRun* next = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (!bare || run.text != "Springfield" || run.rect.y <= bare->rect.y) continue;
+    if (!next || run.rect.y < next->rect.y) next = &run;
+  }
+  CHECK(next != nullptr);
+  if (bare && next) {
+    const int gap = inkOf(*next).y - inkOf(*bare).bottom();
+    if (gap != 24) std::printf("  weather: a place without a region is followed %d px later\n", gap);
+    CHECK(gap == 24);
+  }
+}
+
+// What was typed stays in view from its END, in the same bold throughout,
+// with the caret after its last letter.
+void theFieldShowsTheEndOfWhatWasTyped() {
+  weatherui::SearchModel m;
+  m.query = "Llanfairpwllgwyngyllgogerychwyrndrobwlll";
+  m.keyboardHeight = 360;
+  Rendered out;
+  buildSearch(out, m);
+  const FakeTarget::TextRun* typed = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("obwlll") != std::string::npos) typed = &run;
+  }
+  CHECK(typed != nullptr);
+  if (!typed) return;
+  CHECK(typed->text.rfind("...", 0) == 0);
+  CHECK(typed->text.size() > 6 && typed->text.compare(typed->text.size() - 6, 6, "obwlll") == 0);
+  weatherui::Face face{};
+  CHECK(faceOf(*typed, face) && face == weatherui::Face::ReadingBold);
+  // The caret: a thin fill just after the last letter.
+  const fui::Rect ink = inkOf(*typed);
+  bool caret = false;
+  for (const auto& fill : out.target.fills) {
+    caret = caret ||
+            (fill.width <= 4 && fill.x >= ink.right() && fill.x - ink.right() <= 6 && overlapsVertically(fill, ink));
+  }
+  CHECK(caret);
+  // Short enough to fit: whole, bold.
+  m.query = "Spr";
+  Rendered shortQuery;
+  buildSearch(shortQuery, m);
+  const FakeTarget::TextRun* spr = runAt(shortQuery, "Spr");
+  CHECK(spr && faceOf(*spr, face) && face == weatherui::Face::ReadingBold);
+}
+
+// A place's name in the list is fitted as it is everywhere else: bold 16,
+// then bold 12, two lines, and never the regular cut the regions are set in
+// ("Saint-Remy-en-Bouzemont-Saint-Genest..." was cut at bold 16 while bold 12
+// held all of it).
+void longNamesInTheListKeepTheirWeight() {
+  for (const char* longName : {"Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson",
+                               "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson-sur-la-Riviere-du-Nord-et-du-Sud"}) {
+    weatherui::SearchModel m = results(2);
+    m.rows[0].name = longName;
+    Rendered out;
+    buildSearch(out, m);
+    const std::string name = longName;
+    int lines = 0;
+    std::string whole;
+    for (const auto& run : out.target.texts) {
+      if (run.text.size() < 4 || name.find(run.text) == std::string::npos) continue;
+      ++lines;
+      whole += run.text;
+      weatherui::Face face{};
+      CHECK(faceOf(run, face) && (face == weatherui::Face::ReadingBold || face == weatherui::Face::ReadingBoldSmall));
+    }
+    CHECK(lines == 2);
+    if (whole != name) std::printf("  weather list name drawn as \"%s\"\n", whole.c_str());
+    CHECK(whole == name);
+    CHECK(clean(out, "search, long name"));
+  }
+}
+
+void searchSaysWhatHappened() {
+  weatherui::SearchModel m;
+  m.query = "Xyzzy";
+  m.state = weatherui::SearchModel::State::NoMatch;
+  Rendered none;
+  buildSearch(none, m);
+  CHECK(drewText(none, "No place called \"Xyzzy\"."));
+  CHECK(!reaches(none, weatherui::ActionMatch));
+  CHECK(reaches(none, weatherui::ActionField));
+
+  m.state = weatherui::SearchModel::State::Failed;
+  m.offline = true;
+  Rendered offline;
+  buildSearch(offline, m);
+  CHECK(drewText(offline, "Could not search."));
+  CHECK(drewText(offline, "Not connected to Wi-Fi."));
+  m.offline = false;
+  Rendered failed;
+  buildSearch(failed, m);
+  CHECK(drewText(failed, "Could not search."));
+  CHECK(!drewText(failed, "Wi-Fi"));
+  // A second line of advice, as a missed search has: what to do, not why.
+  CHECK(drewExactly(failed, "Press GO to try again."));
+  CHECK(clean(failed, "search, failed"));
+
+  m.state = weatherui::SearchModel::State::Searching;
+  Rendered busy;
+  buildSearch(busy, m);
+  CHECK(drewText(busy, "Searching"));
+
+  m.state = weatherui::SearchModel::State::Typing;
+  m.query = "";
+  m.firstRun = true;
+  Rendered first;
+  buildSearch(first, m);
+  CHECK(drewText(first, "CHOOSE A CITY"));
+  CHECK(drewText(first, "Tap here to type a city"));
+  CHECK(clean(first, "search, first run"));
+}
+
+// --- Menu --------------------------------------------------------------------------
+
+void menuDoorsGoWhereTheySay() {
+  weatherui::MenuModel m;
+  m.place = "Springfield, Illinois";
+  m.updated = "UPDATED 14:07";
+  Rendered c;
+  buildMenu(c, m);
+  CHECK(!c.interactions.overflowed());
+  CHECK(reaches(c, weatherui::ActionChangeCity));
+  CHECK(reaches(c, weatherui::ActionFahrenheit));
+  // The units in force are filled and do nothing.
+  CHECK(!reaches(c, weatherui::ActionCelsius));
+  CHECK(reaches(c, weatherui::ActionRefresh));
+  CHECK(reaches(c, weatherui::ActionCloseMenu));
+  CHECK(drewExactly(c, "Springfield, Illinois"));
+  CHECK(drewText(c, "UPDATE NOW"));
+  CHECK(clean(c, "menu"));
+  m.fahrenheit = true;
+  Rendered f;
+  buildMenu(f, m);
+  CHECK(reaches(f, weatherui::ActionCelsius));
+  CHECK(!reaches(f, weatherui::ActionFahrenheit));
+}
+
+// The menu's row takes the place as the main screen does: a second line
+// before anything is cut, and when even two lines will not hold it, a cut
+// between words, never through one ("Bouzemont-S...").
+void theMenuFitsThePlaceLikeTheMainScreen() {
+  weatherui::MenuModel m;
+  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson";
+  m.region = "Grand Est";
+  m.updated = "UPDATED 14:07";
+  Rendered two;
+  buildMenu(two, m);
+  std::string whole;
+  int lines = 0;
+  const std::string title = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
+  for (const auto& run : two.target.texts) {
+    if (run.text.size() < 4 || title.find(run.text) == std::string::npos) continue;
+    whole += run.text;
+    ++lines;
+  }
+  CHECK(lines == 2);
+  CHECK(whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson,Grand Est" ||
+        whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est");
+  CHECK(clean(two, "menu, two lines"));
+  CHECK(collisionFree(two, "menu, two lines"));
+
+  const std::string longer = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord et du Sud";
+  m.place = longer.c_str();
+  Rendered cut;
+  buildMenu(cut, m);
+  int marked = 0;
+  for (const auto& run : cut.target.texts) {
+    const size_t dots = run.text.find("...");
+    if (dots == std::string::npos) continue;
+    ++marked;
+    // What is kept is whole words: the next letter of the name is a space.
+    const std::string kept = run.text.substr(0, dots);
+    const size_t at = longer.find(kept);
+    CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+      const char next = longer[at + kept.size()];
+      if (next != ' ') std::printf("  weather menu cut a word: \"%s\"\n", run.text.c_str());
+      CHECK(next == ' ');
+    }
+  }
+  CHECK(marked == 1);
+  // And the region kept its line.
+  CHECK(drewExactly(cut, "Grand Est"));
+  CHECK(clean(cut, "menu, cut"));
+}
+
+// The region is never the first thing lost: a name too long for its lines
+// gives way and the region keeps the last line, whole. A one-word name wider
+// than a line ("Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch")
+// took "Wales" down with it while a second line stood empty.
+void theRegionIsNeverTheFirstThingLost() {
+  const char* const kName = "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch";
+  const char* const kLonger = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord et du Sud";
+  for (const char* name : {kName, kLonger}) {
+    weatherui::MainModel main = fullWeek();
+    main.place = name;
+    main.region = "Wales";
+    Rendered a;
+    buildMain(a, main);
+    weatherui::MenuModel menu;
+    menu.place = name;
+    menu.region = "Wales";
+    menu.updated = "UPDATED 14:07";
+    Rendered b;
+    buildMenu(b, menu);
+    for (Rendered* out : {&a, &b}) {
+      CHECK(drewExactly(*out, "Wales"));
+      int nameLines = 0;
+      for (const auto& run : out->target.texts) {
+        if (run.text.rfind("Llanfair", 0) == 0 || run.text.rfind("Saint", 0) == 0) ++nameLines;
+        // Nothing ends on a comma before its ellipsis.
+        const bool dangling = run.text.find(",...") != std::string::npos || run.text.find(", ...") != std::string::npos;
+        if (dangling) std::printf("  weather: \"%s\" ends on a comma\n", run.text.c_str());
+        CHECK(!dangling);
+      }
+      CHECK(nameLines == 1);
+      CHECK(clean(*out, "a name that gives way to its region"));
+    }
+  }
+}
+
+// A region line that will not fit keeps whole parts: "North Rhine-
+// Westphalia..." rather than "North Rhine-Westphalia,...".
+void aRegionIsCutAtAWholePart() {
+  weatherui::SearchModel m = results(3);
+  m.rows[0].name = "M\xC3\xBCnster";
+  m.rows[0].region = "North Rhine-Westphalia, Germany, Western Europe, Earth";
+  m.rows[1].name = "Santo Domingo";
+  m.rows[1].region = "Distrito Nacional, Dominican Republic, Caribbean Islands";
+  Rendered out;
+  buildSearch(out, m);
+  bool sawCut = false;
+  for (const auto& run : out.target.texts) {
+    const size_t dots = run.text.find("...");
+    if (dots == std::string::npos) continue;
+    sawCut = true;
+    const bool dangling = dots > 0 && (run.text[dots - 1] == ',' || run.text[dots - 1] == ' ');
+    if (dangling) std::printf("  weather: \"%s\" ends on a comma\n", run.text.c_str());
+    CHECK(!dangling);
+    // What is kept is whole parts of the region.
+    const std::string kept = run.text.substr(0, dots);
+    const std::string region = run.text.rfind("North", 0) == 0 ? m.rows[0].region : m.rows[1].region;
+    CHECK(region.rfind(kept, 0) == 0 && region.compare(kept.size(), 2, ", ") == 0);
+  }
+  CHECK(sawCut);
+  CHECK(clean(out, "search, cut regions"));
+}
+
+// --- Every screen, every state ---------------------------------------------------------
+
+// The places that printed holes: a name the menu fitted down into Jersey's
+// button cut lost every letter past ASCII ("So Bernardo do Campo"). Every
+// place a city is drawn, at every size its ladder can reach.
+void everyPlaceIsDrawnInAFaceWithItsLetters() {
+  const char* const kNames[] = {"S\xC3\xA3o Bernardo do Campo, S\xC3\xA3o Paulo",
+                                "Saint-\xC3\x89tienne-du-Rouvray, Normandy",
+                                "M\xC3\xBCnster, North Rhine-Westphalia",
+                                "Lodz, Lodz Voivodeship",
+                                "Bad M\xC3\xBCnstereifel, North Rhine-Westphalia",
+                                ("Se\xC3\xB1ora de Gu\xC3\xA1nica y Pe\xC3\xB1\xC3\xBA"
+                                 "elas, Puerto Rico")};
+  for (const char* name : kNames) {
+    // As cleanName leaves them: Lodz is folded whole, since two of its
+    // letters are not in the reading cuts.
+    const std::string place = name;
+
+    weatherui::MainModel main = fullWeek();
+    main.place = place.c_str();
+    Rendered a;
+    buildMain(a, main);
+    CHECK(allDrawable(a, "main"));
+    CHECK(drewText(a, place.substr(0, 4).c_str()));
+
+    weatherui::MenuModel menu;
+    menu.place = place.c_str();
+    menu.updated = "UPDATED 14:07";
+    Rendered b;
+    buildMenu(b, menu);
+    CHECK(allDrawable(b, "menu"));
+    CHECK(drewText(b, place.substr(0, 4).c_str()));
+
+    weatherui::SearchModel search = results(3);
+    const std::string region = place.substr(place.find(", ") + 2);
+    const std::string city = place.substr(0, place.find(", "));
+    search.rows[1].name = city.c_str();
+    search.rows[1].region = region.c_str();
+    Rendered c;
+    buildSearch(c, search);
+    CHECK(allDrawable(c, "search"));
+    CHECK(drewText(c, city.substr(0, 4).c_str()));
+  }
+  for (auto& shot : everyScreen()) CHECK(allDrawable(shot->out, shot->name.c_str()));
+}
+
+// The screens never name the forecast's provider, and never explain what can
+// be read off them: the credit is in the notices, the docs and the site.
+void noScreenNamesItsProviderOrExplainsItself() {
+  const char* const kNever[] = {"Open-Meteo",
+                                "OPEN-METEO",
+                                "open-meteo",
+                                "Meteo",
+                                "METEO",
+                                "Which city is the forecast for?",
+                                "Try again in a minute.",
+                                "It stays on the card",
+                                "Tap the field and press GO",
+                                "did not answer"};
+  for (auto& shot : everyScreen()) {
+    for (const auto& run : shot->out.target.texts) {
+      for (const char* never : kNever) {
+        if (run.text.find(never) == std::string::npos) continue;
+        std::printf("  weather %s: \"%s\"\n", shot->name.c_str(), run.text.c_str());
+        CHECK(false);
+      }
+    }
+  }
+}
+
+void noWeatherScreenPrintsIntoAnything() {
+  for (auto& shot : everyScreen()) {
+    CHECK(clean(shot->out, shot->name.c_str()));
+    CHECK(collisionFree(shot->out, shot->name.c_str()));
+  }
+  weatherui::MainModel m = fullWeek();
+  m.place = "Llanfairpwllgwyngyll in Anglesey on the Menai Strait";
+  Rendered out;
+  buildMain(out, m);
+  CHECK(collisionFree(out, "main, long place"));
+}
+
+void everySkyHasItsBitmapAtEverySize() {
+  bool all = true;
+  for (int i = 0; i < static_cast<int>(weather::Icon::None); ++i) {
+    for (const int size : {32, 88}) {
+      const freeink::Icon* icon = weatherui::skyBitmap(static_cast<weather::Icon>(i), size);
+      all = all && icon != nullptr && icon->w == size && icon->h == size && icon->bits != nullptr;
+    }
+  }
+  CHECK(all);
+  // Two different skies are two different pictures.
+  CHECK(weatherui::skyBitmap(weather::Icon::Rain, 32)->bits != weatherui::skyBitmap(weather::Icon::Snow, 32)->bits);
+}
+
+// --- Ink, not line boxes -----------------------------------------------------
+//
+// Measured the way a person sees it: by where the INK is, cap top to baseline
+// (Mario, 2026-11-18, measured 47.5 / 25.5 / 19.5 / 17.5 / 14.5 / 17.5 / 20.5 /
+// ~29 px down the main screen when it stacked line boxes). One scale on every
+// screen: 12 between lines of a block, 24 between rows, 36 between groups.
+
+int gapBetween(const Rendered& out, const char* above, const char* below) {
+  const FakeTarget::TextRun* a = runAt(out, above);
+  const FakeTarget::TextRun* b = runAt(out, below);
+  if (!a || !b) {
+    std::printf("  weather: no \"%s\" or no \"%s\" to measure between\n", above, below);
+    return -1;
+  }
+  return inkOf(*b).y - inkOf(*a).bottom();
+}
+
+void mainInkFollowsOneScale() {
+  weatherui::MainModel m = fullWeek();
+  m.status = weatherui::Status::Offline;
+  Rendered out;
+  buildMain(out, m);
+  // Inside the reading: one gap, measured ink to ink, between every pair.
+  const int g1 = gapBetween(out, "7", "PARTLY CLOUDY");
+  const int g2 = gapBetween(out, "PARTLY CLOUDY", "H");
+  const int g3 = gapBetween(out, "H", "OFFLINE");
+  const int g4 = gapBetween(out, "OFFLINE", "UPDATED 14:07");
+  if (!(g1 == 12 && g2 == 12 && g3 == 12 && g4 == 12))
+    std::printf("  weather reading gaps %d %d %d %d\n", g1, g2, g3, g4);
+  CHECK(g1 == 12 && g2 == 12 && g3 == 12 && g4 == 12);
+  CHECK(gapBetween(out, "Z\xC3\xBCrich, Switzerland", "7") == 36);
+
+  // The week: one pitch for every row, whatever the reading above it took.
+  std::vector<int> tops;
+  for (const char* day : {"WED", "THU", "FRI", "SAT", "SUN", "MON"}) {
+    const FakeTarget::TextRun* run = runAt(out, day);
+    CHECK(run != nullptr);
+    if (run) tops.push_back(inkOf(*run).y);
+  }
+  bool even = tops.size() == 6;
+  for (size_t i = 2; i < tops.size(); ++i) even = even && tops[i] - tops[i - 1] == tops[1] - tops[0];
+  CHECK(even);
+
+  // The space the composition did not need is placed, not left over: as much
+  // above the place as below the last row.
+  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* last = runAt(out, "MON");
+  CHECK(place && last);
+  if (place && last) {
+    const int above = inkOf(*place).y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
+    const int below = device().height - inkOf(*last).bottom();
+    if (std::abs(above - below) > 1) std::printf("  weather space above %d, below %d\n", above, below);
+    CHECK(std::abs(above - below) <= 1);
+  }
+}
+
+// The menu and the search on the main screen's scale: a caption a line gap
+// over what it labels, groups three gutters apart, rows two, by ink.
+void menuAndSearchFollowTheSameScale() {
+  weatherui::MenuModel menu;
+  menu.place = "Springfield, Illinois";
+  menu.updated = "UPDATED 14:07";
+  Rendered c;
+  buildMenu(c, menu);
+  const FakeTarget::TextRun* city = runAt(c, "CITY");
+  const FakeTarget::TextRun* place = runAt(c, "Springfield, Illinois");
+  const FakeTarget::TextRun* units = runAt(c, "UNITS");
+  const FakeTarget::TextRun* forecast = runAt(c, "FORECAST");
+  const FakeTarget::TextRun* updated = runAt(c, "UPDATED 14:07");
+  CHECK(city && place && units && forecast && updated);
+  if (city && place && units && forecast && updated) {
+    const int first = inkOf(*city).y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
+    // The boxes under each caption, found by what they hold.
+    fui::Rect row{}, units0{}, update{};
+    for (const auto& s : c.target.strokes) {
+      if (contains(s.rect, inkOf(*place))) row = s.rect;
+    }
+    for (const auto& run : c.target.texts) {
+      if (run.text == "CELSIUS") units0 = run.rect;
+      if (run.text == "UPDATE NOW") update = run.rect;
+    }
+    const int captionToRow = row.y - inkOf(*city).bottom();
+    const int rowToUnits = inkOf(*units).y - row.bottom();
+    const int unitsToForecast = inkOf(*forecast).y - (units0.y + units0.height / 2 + toybox::kPillHeight / 2);
+    const int placeAbove = inkOf(*place).y - row.y;
+    const int placeBelow = row.bottom() - inkOf(*place).bottom();
+    if (!(first == 36 && captionToRow == 12 && rowToUnits == 36 && unitsToForecast == 36 && placeAbove == placeBelow)) {
+      std::printf("  weather menu gaps: first %d, caption-row %d, row-units %d, units-forecast %d, place %d/%d\n",
+                  first, captionToRow, rowToUnits, unitsToForecast, placeAbove, placeBelow);
+    }
+    CHECK(first == 36);
+    CHECK(captionToRow == 12);
+    CHECK(rowToUnits == 36);
+    CHECK(unitsToForecast == 36);
+    CHECK(std::abs(placeAbove - placeBelow) <= 1);
+    (void)update;
+  }
+
+  Rendered s;
+  buildSearch(s, results(3));
+  fui::Rect field{};
+  for (const auto& stroke : s.target.strokes) {
+    if (stroke.rect.y > toybox::kHeaderHeight && field.height == 0) field = stroke.rect;
+  }
+  const int fieldGap = field.y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
+  std::vector<fui::Rect> inks;
+  for (const auto& run : s.target.texts) {
+    if (run.rect.y > field.bottom()) inks.push_back(inkOf(run));
+  }
+  std::sort(inks.begin(), inks.end(), [](const fui::Rect& a, const fui::Rect& b) { return a.y < b.y; });
+  CHECK(inks.size() == 6);
+  if (inks.size() == 6) {
+    const int toFirst = inks[0].y - field.bottom();
+    const int inRow = inks[1].y - inks[0].bottom();
+    const int betweenRows = inks[2].y - inks[1].bottom();
+    if (!(fieldGap == 36 && toFirst == 36 && inRow == 12 && betweenRows == 24)) {
+      std::printf("  weather search gaps: band-field %d, field-row %d, in row %d, between rows %d\n", fieldGap, toFirst,
+                  inRow, betweenRows);
+    }
+    CHECK(fieldGap == 36);
+    CHECK(toFirst == 36);
+    CHECK(inRow == 12);
+    CHECK(betweenRows == 24);
+  }
+}
+
+void theInkHelperPlacesByInk() {
+  // A column of three inks: the gaps between inks are the ones asked for, and
+  // the spare space goes half above, half below.
+  toybox::InkColumn<4> column;
+  const int a = column.add(99, 20);  // the first block's gap is ignored
+  const int b = column.add(12, 30);
+  const int c = column.add(24, 10);
+  CHECK(column.height() == 20 + 12 + 30 + 24 + 10);
+  column.centre(100, 300);
+  CHECK(column.top(a) - 100 == 300 - column.bottom(c));
+  CHECK(column.top(b) - column.bottom(a) == 12);
+  CHECK(column.top(c) - column.bottom(b) == 24);
+  // Too tall for its span: it starts at the minimum edge rather than above it.
+  column.centre(100, 150, 16);
+  CHECK(column.top(a) == 116);
+  CHECK(column.add(0, 1) >= 0 && column.add(0, 1) == -1);
+
+  // inkRect puts the cap top where it is asked, in a real cut's metrics.
+  FakeTarget target;
+  target.lineH = toybox::kUiCut.lineHeight;
+  const fui::Rect r = toybox::inkRect(target, toybox::kUiFont, 10, 200, 100);
+  CHECK(r.y + (toybox::kUiCut.ascender - toybox::kUiCut.inkHeight) == 200);
+  CHECK(r.height == toybox::kUiCut.lineHeight);
+  CHECK(toybox::inkHeight(target, toybox::kUiFont, 2) == toybox::kUiCut.lineHeight + toybox::kUiCut.inkHeight);
+
+  // iconInk finds the drawn shape inside the square: a 32px cloud is wider
+  // than it is tall and does not touch the square's edges.
+  const fui::Rect cloud = toybox::iconInk(*weatherui::skyBitmap(weather::Icon::Cloud, 32));
+  CHECK(cloud.width > cloud.height);
+  CHECK(cloud.x > 0 && cloud.y > 0 && cloud.right() < 32 && cloud.bottom() < 32);
+}
+
+}  // namespace weathertest
+
+// --- Reading Stats -------------------------------------------------------
+
+namespace rstats {
+
+// A fortnight ending on a Wednesday: this week is the last four columns.
+rstatsui::MainModel weekModel(const rstatsui::BookRow* books, const int count) {
+  rstatsui::MainModel model;
+  model.anySession = true;
+  model.year = 2026;
+  model.weekSeconds = 214 * 60;
+  model.streak = 9;
+  const char letters[] = "TFSSMTWTFSSMTW";
+  const uint32_t minutes[] = {28, 0, 120, 83, 0, 53, 46, 39, 32, 101, 124, 41, 34, 15};
+  for (int i = 0; i < rstatsui::kChartCells; ++i) {
+    model.chart[i].seconds = minutes[i] * 60;
+    model.chart[i].letter = letters[i];
+    model.chart[i].thisWeek = i >= 10;
+    model.chart[i].today = i == 13;
+  }
+  model.books = books;
+  model.bookCount = count;
+  return model;
+}
+
+const rstatsui::BookRow kBooks[] = {
+    {"The Left Hand of Darkness", "16 NOV"},
+    {"The Hitchhiker's Guide to the Galaxy", "2 NOV"},
+    {"Le Comte de Monte-Cristo", "1 OCT"},
+    {"The Strange Case of Dr Jekyll and Mr Hyde", "8 SEP"},
+    {"Master and Margarita", "19 AUG"},
+    {"Godel, Escher, Bach", "2 JUL"},
+    {"Zen and the Art of Motorcycle Maintenance", "14 JUN"},
+    {"Sapiens", "30 APR"},
+    {"Cien anos de soledad", "21 MAR"},
+    {"Norwegian Wood", "3 FEB"},
+    {"Frankenstein", "9 JAN"},
+};
+constexpr int kBookCount = static_cast<int>(sizeof(kBooks) / sizeof(kBooks[0]));
+
+void buildMain(Rendered& out, const rstatsui::MainModel& model, rstatsui::Titles& titles) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rstatsui::buildMain(screen, model, titles);
+}
+
+void buildBooks(Rendered& out, const rstatsui::BooksModel& model, rstatsui::Titles& titles) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rstatsui::buildBooks(screen, model, titles);
+}
+
+const FakeTarget::TextRun* runOf(const Rendered& out, const char* exact) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == exact) return &run;
+  }
+  return nullptr;
+}
+
+bool overlaps(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+
+}  // namespace rstats
+
+void testReadingStatsMainSaysTheWeekTheStreakAndTheYear() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, rstats::kBookCount), titles);
+  CHECK(drewText(out, "READING STATS"));
+  CHECK(rstats::runOf(out, "3 HR 34 MIN") != nullptr);
+  CHECK(rstats::runOf(out, "THIS WEEK") != nullptr);
+  CHECK(rstats::runOf(out, "9 DAY STREAK") != nullptr);
+  CHECK(rstats::runOf(out, "FINISHED IN 2026") != nullptr);
+  CHECK(rstats::runOf(out, "11 BOOKS") != nullptr);
+  // Every column with reading carries its number, and the empty ones none.
+  CHECK(rstats::runOf(out, "124") != nullptr && rstats::runOf(out, "28") != nullptr);
+  CHECK(rstats::runOf(out, "0") == nullptr);
+  // Today's letter is knocked out of black; no other letter is.
+  int whiteLetters = 0;
+  for (const auto& run : out.target.texts) {
+    if (run.text.size() == 1 && run.color == fui::Color::White) ++whiteLetters;
+  }
+  CHECK(whiteLetters == 1);
+}
+
+void testReadingStatsThisWeekIsSolidAndLastWeekDithered() {
+  Rendered out;
+  rstatsui::Titles titles;
+  const rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, 2);
+  rstats::buildMain(out, model, titles);
+  int dithered = 0;
+  for (const fui::Paint& paint : out.target.fillPaints) {
+    if (paint.kind == fui::PaintKind::Dither) ++dithered;
+  }
+  int earlierDays = 0;
+  for (const rstatsui::Day& day : model.chart) {
+    if (!day.thisWeek && day.seconds >= 60) ++earlierDays;
+  }
+  CHECK(earlierDays == 8);
+  CHECK(dithered == earlierDays);
+}
+
+void testReadingStatsChartNumbersNeverCollide() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, 0);
+  // The widest numbers a column can carry, side by side.
+  for (rstatsui::Day& day : model.chart) day.seconds = 999 * 60;
+  model.chart[5].seconds = 1439 * 60;  // a whole day: hours, not four digits
+  rstats::buildMain(out, model, titles);
+  std::vector<fui::Rect> numbers;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "999" || run.text == "23H") numbers.push_back(run.rect);
+  }
+  CHECK(numbers.size() == 14);
+  CHECK(rstats::runOf(out, "1439") == nullptr);
+  bool apart = true;
+  for (size_t i = 0; i < numbers.size(); ++i) {
+    for (size_t j = i + 1; j < numbers.size(); ++j) apart = apart && !rstats::overlaps(numbers[i], numbers[j]);
+  }
+  CHECK(apart);
+}
+
+void testReadingStatsDoorOpensTheYearAndNothingSitsOnIt() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, rstats::kBookCount), titles);
+  const fui::DeviceContext ctx = device();
+  const int doorY = ctx.height - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(ctx.width / 2, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(out.tap(toybox::kMargin + 4, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(out.tap(ctx.width - toybox::kMargin - 4, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(rstats::runOf(out, "ALL 11 BOOKS") != nullptr);
+  // The rows the screen showed are the newest, in order, and none of them
+  // reaches the door or the foot of the panel.
+  CHECK(titles.count >= 2 && titles.count < rstats::kBookCount);
+  const fui::Rect door =
+      fui::makeRect(toybox::kMargin, static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight),
+                    static_cast<int16_t>(ctx.width - 2 * toybox::kMargin), toybox::kPillHeight);
+  for (int i = 0; i < titles.count; ++i) {
+    CHECK(std::string(titles.slots[i].title) == rstats::kBooks[i].title);
+    CHECK(!rstats::overlaps(titles.slots[i].box, door));
+    CHECK(titles.slots[i].box.right() <= ctx.width - toybox::kMargin);
+  }
+  // Each title sits beside its own date, on the same row.
+  for (int i = 0; i < titles.count; ++i) {
+    const auto* date = rstats::runOf(out, rstats::kBooks[i].date);
+    CHECK(date != nullptr && date->rect.y >= titles.slots[i].box.y - 10 &&
+          date->rect.bottom() <= titles.slots[i].box.bottom() + 10);
+    CHECK(date != nullptr && date->rect.right() <= titles.slots[i].box.x);
+  }
+}
+
+void testReadingStatsAShortYearHasNoDoor() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, 2), titles);
+  CHECK(!out.has(rstatsui::ActionAllBooks));
+  CHECK(titles.count == 2);
+  CHECK(rstats::runOf(out, "2 BOOKS") != nullptr);
+  Rendered one;
+  rstatsui::Titles oneTitle;
+  rstats::buildMain(one, rstats::weekModel(rstats::kBooks, 1), oneTitle);
+  CHECK(rstats::runOf(one, "1 BOOK") != nullptr);
+}
+
+void testReadingStatsFirstRunSaysWhatWillAppear() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model;
+  model.year = 2026;
+  rstats::buildMain(out, model, titles);
+  CHECK(rstats::runOf(out, "0 MIN") != nullptr);
+  CHECK(rstats::runOf(out, "NO STREAK") != nullptr);
+  CHECK(rstats::runOf(out, "MINUTES READ SHOW UP HERE") != nullptr);
+  CHECK(rstats::runOf(out, "NONE YET") != nullptr);
+  CHECK(titles.count == 0);
+  CHECK(!out.has(rstatsui::ActionAllBooks));
+}
+
+void testReadingStatsWithoutAClockShowsOnlyHowToSetIt() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, rstats::kBookCount);
+  model.clockSet = false;
+  rstats::buildMain(out, model, titles);
+  CHECK(rstats::runOf(out, "NO DATE YET") != nullptr);
+  CHECK(rstats::runOf(out, "JOIN WI-FI TO SET IT") != nullptr);
+  CHECK(rstats::runOf(out, "THIS WEEK") == nullptr);
+  CHECK(rstats::runOf(out, "FINISHED IN 2026") == nullptr);
+  CHECK(titles.count == 0);
+  // Every line of it fits the panel at the fake ten pixels a character.
+  for (const auto& run : out.target.texts) {
+    CHECK(static_cast<int>(run.text.size()) * out.target.charW <= device().width - 2 * toybox::kMargin);
+  }
+}
+
+void testReadingStatsBooksPageThroughTheYear() {
+  const int perPage = rstatsui::booksPerPage(device());
+  CHECK(perPage >= 8);
+  CHECK(perPage < rstats::kBookCount);
+  Rendered first;
+  rstatsui::Titles page1;
+  rstatsui::BooksModel model;
+  model.year = 2026;
+  model.books = rstats::kBooks;
+  model.count = rstats::kBookCount;
+  model.pageLabel = "1/2";
+  rstats::buildBooks(first, model, page1);
+  CHECK(page1.count == perPage);
+  CHECK(drewText(first, "1/2"));
+  CHECK(rstats::runOf(first, "11 BOOKS") != nullptr);
+  CHECK(page1.slots[perPage - 1].box.bottom() <= device().height - toybox::kMargin);
+
+  Rendered second;
+  rstatsui::Titles page2;
+  model.first = perPage;
+  model.pageLabel = "2/2";
+  rstats::buildBooks(second, model, page2);
+  CHECK(page2.count == rstats::kBookCount - perPage);
+  CHECK(std::string(page2.slots[0].title) == rstats::kBooks[perPage].title);
+}
+
+// The title fitter, at the fake metric: lines within the box, never more than
+// it holds, broken at spaces in Latin and between characters in CJK.
+void testReadingStatsTitlesFitTheirBox() {
+  FakeTarget target;
+  target.lineH = 20;
+  const int16_t width = 200;  // twenty fake characters
+  const rstatsui::TitleLayout shortOne = rstatsui::layOutTitle(target, "Dune", width, 58);
+  CHECK(shortOne.lines == 1 && shortOne.text[0] == "Dune" && shortOne.whole);
+
+  const rstatsui::TitleLayout twoLines = rstatsui::layOutTitle(target, "The Left Hand of Darkness and More", width, 58);
+  CHECK(twoLines.lines == 2 && twoLines.whole);
+  CHECK(twoLines.text[0] == "The Left Hand of" && twoLines.text[1] == "Darkness and More");
+
+  // No space anywhere: CJK breaks between characters (3 bytes, 30 fake px each).
+  const std::string cjk =
+      "\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e";
+  const rstatsui::TitleLayout broken = rstatsui::layOutTitle(target, cjk.c_str(), 180, 58);
+  CHECK(broken.lines == 2 && broken.whole);
+  // ...at the LARGEST cut. Breaking between characters is CJK's ordinary line
+  // break, not the smallest cut's last resort for a word too wide for its line;
+  // a fitter that saw one long word would only manage it at the smallest.
+  CHECK(broken.font == fui::FONT_SLOT_TITLE);
+  CHECK(broken.text[0] == "\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e\xe6\xba\x90\xe6\xb0\x8f");
+
+  // Past what the box can hold: the lines stay in it and the last says so.
+  std::string longest;
+  for (int i = 0; i < 40; ++i) longest += "word ";
+  const rstatsui::TitleLayout cut = rstatsui::layOutTitle(target, longest.c_str(), width, 58);
+  CHECK(!cut.whole);
+  CHECK(cut.lines * cut.lineHeight <= 58);
+  bool narrow = true;
+  for (int i = 0; i < cut.lines; ++i) {
+    narrow = narrow && target.measureText(cut.font, cut.text[i].c_str(), fui::TextStyle{}).width <= width;
+  }
+  CHECK(narrow);
+  CHECK(cut.text[cut.lines - 1].size() >= 3 &&
+        cut.text[cut.lines - 1].compare(cut.text[cut.lines - 1].size() - 3, 3, "...") == 0);
+
+  // And drawn, every line lands inside the box.
+  FakeTarget drawn;
+  const fui::Rect box = fui::makeRect(90, 400, width, 58);
+  rstatsui::drawTitle(drawn, box, twoLines);
+  CHECK(drawn.texts.size() == 2);
+  for (const auto& run : drawn.texts) {
+    CHECK(run.rect.y >= box.y && run.rect.bottom() <= box.bottom() && run.rect.x == box.x &&
+          run.rect.width == box.width);
+  }
+}
+
 int main() {
+  weathertest::mainDrawsTheWeekAndOnlyTheGearIsTappable();
+  weathertest::mainSaysWhatTheRadioDidAndWhenInFull();
+  weathertest::mainDrawsOnlyTheDaysItHas();
+  weathertest::aReadingFromAnotherDayIsNeverNow();
+  weathertest::aDayWithNoSkyDrawsNoSky();
+  weathertest::theChanceSaysWhatItIsAChanceOf();
+  weathertest::aNegativeReadingHasAMinusAndRoom();
+  weathertest::aLongPlaceKeepsItsWeightAndBreaksAtItsHyphens();
+  weathertest::aMainWithNoWeekSaysWhyAndOffersWhatHelps();
+  weathertest::searchRowsChooseTheirOwnPlace();
+  weathertest::everyPlaceFoundIsReachable();
+  weathertest::searchStaysAboveTheKeyboard();
+  weathertest::aPlaceWithNoRegionIsOneLine();
+  weathertest::theFieldShowsTheEndOfWhatWasTyped();
+  weathertest::longNamesInTheListKeepTheirWeight();
+  weathertest::searchSaysWhatHappened();
+  weathertest::menuDoorsGoWhereTheySay();
+  weathertest::theMenuFitsThePlaceLikeTheMainScreen();
+  weathertest::theRegionIsNeverTheFirstThingLost();
+  weathertest::aRegionIsCutAtAWholePart();
+  weathertest::everyPlaceIsDrawnInAFaceWithItsLetters();
+  weathertest::noScreenNamesItsProviderOrExplainsItself();
+  weathertest::noWeatherScreenPrintsIntoAnything();
+  weathertest::everySkyHasItsBitmapAtEverySize();
+  weathertest::mainInkFollowsOneScale();
+  weathertest::menuAndSearchFollowTheSameScale();
+  weathertest::theInkHelperPlacesByInk();
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
   wordletest::aFinishedGameShowsTheAnswerAndLetsGo();
@@ -15743,8 +18189,20 @@ int main() {
   testWikipediaArticleChromeLeavesThePageItsRoom();
   testWikipediaArticleChromeKeepsItsMargins();
   testWikipediaRecentTrailIsDivided();
+  testWikipediaArticleTitleFitsTheRoomItGets();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
+  testWikipediaChooserCardsOpenTheirPack();
+  testWikipediaChooserFitsEveryPack();
+  testWikipediaHomeBandNamesTheLanguage();
+  testWikipediaInstallNamesTheLanguage();
+  testWikipediaInstallFitsEveryState();
+  testWikipediaTitleNeverStartsALineWithASlash();
+  testWikipediaRecentCaptionNeverStandsAlone();
+  testWikipediaTitlesBreakWhereTheirLanguageDoes();
+  testWikipediaShiftReadsOneWayEverywhere();
+  testWikipediaArticleBandSaysWhenItCutsTheTitle();
+  testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();
@@ -15848,6 +18306,7 @@ int main() {
   testRssPostsRowsOpenTheirOwnPost();
   testRssEveryPageDrawsItsRows();
   testRssScrollTrackHasItsAir();
+  testToyboxScrollTrackEndsWithTheRows();
   testRssSegments();
   testRssFeedsScreen();
   testRssEmptyStates();
@@ -15924,6 +18383,7 @@ int main() {
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyDeckBracketsSitOnTheMargin();
+  testStudyDeckBracketsClearTheWordsAboveThem();
   testStudyHeadlineIsTheHitTarget();
   testStudyDeckUnderAWrongClockSaysTheDateNotTheCount();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
@@ -16008,6 +18468,16 @@ int main() {
   everyBandCarriesItsRule();
   yahtzeeScreensClearTheChrome();
   yahtzeeDiceClearTheHeader();
+
+  testReadingStatsMainSaysTheWeekTheStreakAndTheYear();
+  testReadingStatsThisWeekIsSolidAndLastWeekDithered();
+  testReadingStatsChartNumbersNeverCollide();
+  testReadingStatsDoorOpensTheYearAndNothingSitsOnIt();
+  testReadingStatsAShortYearHasNoDoor();
+  testReadingStatsFirstRunSaysWhatWillAppear();
+  testReadingStatsWithoutAClockShowsOnlyHowToSetIt();
+  testReadingStatsBooksPageThroughTheYear();
+  testReadingStatsTitlesFitTheirBox();
 
   std::printf("chrome probe: %d header renders measured, %d renders had no band\n", chromeScreensMeasured,
               chromeScreensSkipped);

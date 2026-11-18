@@ -13,6 +13,10 @@
 //   twentyMinuteCheck  the rule: measure first, and stop to say so if the
 //                      projection for the chosen tier crosses twenty minutes
 //   formatBytes, formatRate, formatDuration   the numbers as the page prints them
+//   parseLanguages     which languages the pack host publishes, and where each
+//                      goes on the card
+//   routeSeconds       the time a route takes before anything is measured, from
+//                      the two rates that have been
 
 export const TWENTY_MINUTES_S = 20 * 60;
 
@@ -29,6 +33,140 @@ export const SHA256_RE = /^[0-9a-f]{64}$/;
 // verified, by sha256, so the next visit can skip them without re-reading a
 // gigabyte. It travels with the card, which a browser's own storage would not.
 export const MARKER_FILE = "copied.json";
+
+// --- languages ----------------------------------------------------------------
+//
+// Every language is a pack of its own. The first (English) has always lived in
+// /wikipedia/ on the card and stays there, so a reader that has it needs
+// nothing done; every other lives in a folder named by its code,
+// /wikipedia/de/. The pack host lists what it publishes in languages.json,
+// written by its publish script, so a new language reaches this page by being
+// published; without the list (an older host) the page offers English alone.
+
+export const DEFAULT_LANGUAGES = [{ code: "en", name: "English", dir: "" }];
+
+export function parseLanguages(input) {
+  let list = input;
+  if (typeof input === "string") {
+    try {
+      list = JSON.parse(input);
+    } catch (e) {
+      return DEFAULT_LANGUAGES;
+    }
+  }
+  if (list && !Array.isArray(list) && Array.isArray(list.languages)) list = list.languages;
+  if (!Array.isArray(list)) return DEFAULT_LANGUAGES;
+  const out = [];
+  for (const l of list) {
+    if (!l || typeof l.code !== "string" || !/^[a-z][a-z0-9-]{0,14}$/.test(l.code)) continue;
+    const dir = typeof l.dir === "string" ? l.dir : l.code === "en" ? "" : l.code;
+    // the folder is the code or the root, never a path
+    if (dir !== "" && dir !== l.code) continue;
+    if (out.some((o) => o.code === l.code)) continue;
+    out.push({ code: l.code, name: typeof l.name === "string" && l.name ? l.name : l.code.toUpperCase(), dir });
+  }
+  return out.length ? out : DEFAULT_LANGUAGES;
+}
+
+export function languageByCode(languages, code) {
+  return languages.find((l) => l.code === code) || null;
+}
+
+// Where a language's pack goes on the card, as path parts under the root.
+export function cardFolder(language) {
+  return language && language.dir ? ["wikipedia", language.dir] : ["wikipedia"];
+}
+
+// A language's name in English, for the page's own sentences ("This is
+// German Wikipedia"); the language's own name ("Deutsch") is for its button.
+// The browser knows every code's English name; without that, the host's.
+export function languageInEnglish(language) {
+  if (!language) return "";
+  if (language.code === "en") return "English";
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(language.code);
+    if (name && name !== language.code) return name;
+  } catch (e) {
+    // an engine without Intl.DisplayNames
+  }
+  return language.name || language.code;
+}
+
+// The sentence under the heading, once the language's own manifest is in:
+// "This is German Wikipedia from October 2026, 50,000 articles." Empty
+// without one, so a language just picked never shows the last one's figures.
+export function packSentence(language, manifest) {
+  if (!language || !manifest) return "";
+  return (
+    "This is " +
+    languageInEnglish(language) +
+    " Wikipedia from " +
+    formatSnapshot(manifest.snapshot) +
+    ", " +
+    formatCount(manifest.articles) +
+    " articles."
+  );
+}
+
+// The by-hand instruction's first sentence, as runs of words and of folder
+// names: English goes in the card's wikipedia folder, every other language
+// in a folder of its own code inside it.
+export function byHandFolderRuns(language) {
+  const parts = cardFolder(language);
+  if (parts.length === 1) {
+    return [
+      { text: "Make a folder called " },
+      { code: parts[0] },
+      { text: " at the root of the card." },
+    ];
+  }
+  return [
+    { text: "Make a folder called " },
+    { code: parts[1] },
+    { text: " inside a folder called " },
+    { code: parts[0] },
+    { text: " at the root of the card." },
+  ];
+}
+
+// What the reader said is on its card (install.json): the packs by code, from
+// the list a newer reader writes, else from the root fields an older one does.
+export function cardPacks(info) {
+  const out = {};
+  if (!info || typeof info !== "object") return out;
+  if (Array.isArray(info.packs)) {
+    for (const p of info.packs) {
+      if (p && typeof p.pack === "string" && typeof p.snapshot === "string" && p.snapshot) {
+        out[p.pack] = { snapshot: p.snapshot, shardsPresent: p.shardsPresent };
+      }
+    }
+  } else if (typeof info.pack === "string" && typeof info.snapshot === "string" && info.snapshot) {
+    out[info.pack] = { snapshot: info.snapshot, shardsPresent: info.shardsPresent };
+  }
+  return out;
+}
+
+// --- time, before anything is measured ----------------------------------------
+//
+// The page measures the real rate once a copy starts and says so if it
+// disagrees; until then a route's time is its bytes over the two rates that
+// have been measured. The cable is the device's own USB port writing its card
+// (425 MB in 13 minutes on an X4 Pro, 2026-09-11); the host is the pack
+// server as a download (1.66 MB/s, 2026-11-17). The cable route runs at the
+// slower of the two, the card route at the host's.
+export const MEASURED_RATES = { host: 1.66e6, cable: 0.55e6 };
+
+export function routeSeconds(bytes, routeId, rates = MEASURED_RATES) {
+  const rate = routeId === "essentials" ? Math.min(rates.host, rates.cable) : rates.host;
+  return bytes / rate;
+}
+
+// "About 12 minutes." for the route cards.
+export function formatEstimate(seconds) {
+  const d = formatDuration(seconds);
+  if (!d) return "";
+  return d.charAt(0).toUpperCase() + d.slice(1) + ".";
+}
 
 // --- the manifest -----------------------------------------------------------
 
@@ -150,16 +288,16 @@ export function tierByName(manifest, name) {
 
 // --- the two routes ---------------------------------------------------------
 //
-// The wording is the plan's (docs/apps/wikipedia-plan.md, "The page"). The
-// "about" times are the plan's promise, not a measurement: the page measures
-// the moment it starts copying and says so if the measurement disagrees.
+// The wording is the plan's (docs/apps/wikipedia-plan.md, "The page"). A
+// route's time is not here: it depends on the language's pack, so the page
+// works it out from the bytes (routeSeconds) and then measures the moment it
+// starts copying and says so if the measurement disagrees.
 
 export const ROUTES = [
   {
     id: "essentials",
     tier: "essentials",
     title: "The essentials, with the cable.",
-    time: "About ten minutes.",
     instruction: "Plug the reader into the computer with its cable.",
     pick: "Choose the reader",
     picked: "the reader",
@@ -171,7 +309,6 @@ export const ROUTES = [
     id: "all",
     tier: "all",
     title: "All of Wikipedia, with the card in the computer.",
-    time: "About fifteen minutes.",
     instruction:
       "Take the card out of the reader and put it in the computer, in its slot or in a card reader.",
     pick: "Choose the card",

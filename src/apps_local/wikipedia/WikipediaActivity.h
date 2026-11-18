@@ -46,7 +46,7 @@ class WikipediaActivity final : public Activity {
   bool skipLoopDelay() override;
 
  private:
-  enum class View : uint8_t { Search, Article, Contents, Install, Notice };
+  enum class View : uint8_t { Chooser, Search, Article, Contents, Install, Notice };
   struct Visit {
     uint32_t locator;
     int page;
@@ -59,12 +59,13 @@ class WikipediaActivity final : public Activity {
   // Below this many bytes of XHTML, headings flow with the text; above it each
   // top-level heading starts a fresh page.
   static constexpr size_t kFreshPageBytes = 24 * 1024;
-  // A title longer than this does not fit the band whole; the page keeps its h1.
-  static constexpr size_t kBandTitleBytes = 56;
   static constexpr unsigned long kHostWaitMs = 30UL * 60UL * 1000UL;
   static constexpr unsigned long kCableOutMs = 2000;
 
   void go(View next);
+  // `title` with soft hyphens where `lang` breaks its words, the patterns the
+  // article's own text breaks with, for the screens to break titles at.
+  static std::string hyphenated(const std::string& title, const std::string& lang);
   void routeAction(int action, int value);
   void showNotice(const char* headline, const char* body, const char* actionLabel, freeink::ui::ActionId action);
   // A notice that names the title it is about: "There is no article called "X"".
@@ -84,6 +85,9 @@ class WikipediaActivity final : public Activity {
   // link), and the cue needs it BEFORE the read rather than after.
   bool openLocator(uint32_t locator, int page, const std::string& anchor, const std::string& title);
   bool stageArticle(uint32_t locator);
+  // Whether the article band draws this article's title whole, measured in
+  // the faces render() draws it in. When it cannot, the page keeps its h1.
+  bool bandHoldsTitle();
   bool ensureBuilt();
   void closeArticle();
   void turnPage(int delta);
@@ -101,10 +105,32 @@ class WikipediaActivity final : public Activity {
   void pruneCache();
 
   // install
-  void enterInstall();
+  // `failedPack`: the code of a pack that would not open, so the page offers it.
+  void enterInstall(const std::string& failedPack = std::string());
+  void startUsbDrive();
   void leaveInstall();
 
+  // packs: one opens as it always has; with more, the chooser comes first
+  bool openPack(int index);
+  void closePack();
+  void showChooser();
+
   View view_ = View::Search;
+  std::vector<wikipedia::PackSummary> packs_;
+  int packIndex_ = -1;
+  // The chooser's rows, kept for the frame they are drawn in.
+  std::vector<std::string> packDetails_;
+  std::vector<std::string> packCodes_;
+  int chosenRow_ = -1;
+  std::string bandTitle_ = "WIKIPEDIA";
+  // Per pack: its article cache (the root pack keeps the one it always had),
+  // the heading its builder put over the infobox, the keyboard its titles need.
+  std::string cacheRoot_;
+  std::string factsHeading_;
+  std::string lang_;  // the open pack's language, for hyphenating its titles
+  freeink::ui::KeyboardLayoutId keyboard_ = freeink::ui::KeyboardLayoutId::QwertyEn;
+  std::string installLine_;
+  std::string installWant_;
   wikipedia::Pack pack_;
   wikipedia::State state_;
   bool packOpen_ = false;
