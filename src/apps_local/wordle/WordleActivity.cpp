@@ -15,6 +15,7 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
@@ -158,10 +159,11 @@ bool WordleActivity::loadWords() {
 
 int WordleActivity::today() const {
   const time_t now = time(nullptr);
+  // No clock, or one earlier than this firmware's build (a never-set RTC reads
+  // months back): the newest puzzle on the card stands in for today.
+  if (!clockfloor::trusted(static_cast<int64_t>(now))) return wordle::lastKnownDay(answers_);
   struct tm parts;
-  if (now > 0) localtime_r(&now, &parts);
-  // No clock: the newest puzzle on the card stands in for today.
-  if (now <= 0 || parts.tm_year + 1900 < 2021) return wordle::lastKnownDay(answers_);
+  localtime_r(&now, &parts);
   return wordle::dayIndex(parts.tm_year + 1900, parts.tm_mon + 1, parts.tm_mday);
 }
 

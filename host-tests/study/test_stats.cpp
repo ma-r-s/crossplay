@@ -172,6 +172,37 @@ void testFutureRecordsAreIgnored() {
   check(stats.reviewsPerDay[0] == 1, "today's is still counted");
 }
 
+void testAClockBehindTheDeckIsNotTrusted() {
+  // Report #727, in the numbers a reTerminal Sticky produced: its RTC read
+  // 2026-02-06 on 2026-11-17. Against Mario's collection epoch that is day
+  // 264 where the deck's last review was day 547 -- a set clock, above the
+  // floor, and nine months wrong. Every card due in November read as due in
+  // the future, and the deck screen said NOTHING TO REVIEW.
+  const int64_t february = 1770379200;  // 2026-02-06 12:00 UTC
+  const int clockDay = static_cast<int>((february - kCreated) / 86400);
+  const int lastReview = 547;
+  check(study::clockUntrusted(february, clockDay, lastReview),
+        "a clock months behind the deck's last review is not trusted");
+
+  // The same deck on the right day, and on the day after its last review.
+  const int64_t november = kCreated + static_cast<int64_t>(lastReview + 3) * 86400 + 3600;
+  check(!study::clockUntrusted(november, lastReview + 3, lastReview), "a clock past the last review is trusted");
+  check(!study::clockUntrusted(november, lastReview, lastReview), "a review earlier today proves nothing wrong");
+  // A reader a few minutes behind the computer, across a rollover.
+  check(!study::clockUntrusted(november, lastReview - 1, lastReview), "one day of slack");
+  check(study::clockUntrusted(november, lastReview - 2, lastReview), "two days is a wrong clock");
+  // A deck nobody has reviewed is no witness at all.
+  check(!study::clockUntrusted(november, 0, -1), "no review, no evidence");
+  // And the floor still holds on its own.
+  check(study::clockUntrusted(86400, 0, -1), "a clock near the epoch is never trusted");
+  // The guard's own failure mode: a review stamped in the future by a device
+  // whose clock ran ahead. Once NTP has confirmed the clock, the deck is the
+  // one that is wrong, and it must not stay shut until that date comes round.
+  check(!study::clockUntrusted(november, lastReview + 3, lastReview + 200, true),
+        "a clock NTP confirmed outranks a future-dated review");
+  check(study::clockUntrusted(86400, 0, -1, true), "but never a clock below the floor");
+}
+
 void testGarbageRecordsAreSkipped() {
   FakeLog log;
   log.add(kToday, study::Rating::Good);
@@ -192,6 +223,7 @@ int main() {
   testStreak();
   testWindowAndEarlyExit();
   testFutureRecordsAreIgnored();
+  testAClockBehindTheDeckIsNotTrusted();
   testGarbageRecordsAreSkipped();
   std::printf("%s %d checks, %d failed\n", failures == 0 ? "PASS" : "FAIL", checks, failures);
   return failures == 0 ? 0 : 1;

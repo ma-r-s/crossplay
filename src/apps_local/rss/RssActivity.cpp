@@ -19,6 +19,7 @@
 #include "../../network/HttpDownloader.h"
 #include "../../util/DeviceHostname.h"
 #include "../../util/QrUtils.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ShelfScreen.h"
 #include "../hackernews/HackerNewsCore.h"
@@ -99,9 +100,11 @@ bool writeText(const char* path, const std::string& text) {
   return true;
 }
 
+// 0 for a clock earlier than this firmware's build, which settleDates() reads
+// as "no clock": undated posts stay undated rather than taking a wrong date.
 uint32_t nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > static_cast<int64_t>(rss::kClockFloor) ? static_cast<uint32_t>(now) : 0u;
+  return clockfloor::trusted(now) ? static_cast<uint32_t>(now) : 0u;
 }
 
 }  // namespace

@@ -14,6 +14,7 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -26,11 +27,6 @@
 namespace {
 
 namespace fui = freeink::ui;
-
-// Below this, the clock has never been set: the device boots at the epoch and
-// a reading position stamped there would either be dropped by the bridge or,
-// worse, believed by Instapaper. The same floor Study uses.
-constexpr int64_t kClockFloor = 1700000000;
 
 // How long to wait between polls of a running job. The bridge fetches and
 // converts a handful of articles, so this is seconds rather than tens of them,
@@ -53,9 +49,12 @@ std::unique_ptr<Activity> InstapaperActivity::create(GfxRenderer& renderer, Mapp
   return makeUniqueNoThrow<InstapaperActivity>(renderer, mappedInput);
 }
 
+// A clock earlier than this firmware's build has never been set, or was set
+// wrong: a reading position stamped there would either be dropped by the bridge
+// or, worse, believed by Instapaper. 0 is "no time".
 uint32_t InstapaperActivity::nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > kClockFloor ? static_cast<uint32_t>(now) : 0u;
+  return clockfloor::trusted(now) ? static_cast<uint32_t>(now) : 0u;
 }
 
 // --- Lifecycle -----------------------------------------------------------

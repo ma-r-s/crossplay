@@ -156,7 +156,12 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // button of its own.
   char headline[32];
   const int waiting = model.due + model.fresh;
-  if (waiting > 0) {
+  if (model.clockUnset) {
+    // Counted by a wrong date, so neither the count nor ALL CLEAR is true:
+    // a Sticky months behind read NOTHING DUE TODAY over a deck full of due
+    // cards, in this, the largest type on the screen (#727).
+    std::snprintf(headline, sizeof(headline), "WRONG DATE");
+  } else if (waiting > 0) {
     std::snprintf(headline, sizeof(headline), "%d TO GO", waiting);
   } else {
     if (model.otherWaiting > 0) {
@@ -172,7 +177,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   screen.target().text(fui::makeRect(body.x, body.y, body.width, 60), headline, hero);
 
   char state[64];
-  if (waiting > 0) {
+  if (model.clockUnset) {
+    std::snprintf(state, sizeof(state), "SYNC TO SET THE CLOCK");
+  } else if (waiting > 0) {
     std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
   } else if (model.reviewed > 0) {
     std::snprintf(state, sizeof(state), "%d REVIEWED   %d%% RIGHT", model.reviewed,
@@ -185,7 +192,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   sub.align = fui::TextAlign::Left;
   screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y + 62, body.width, 26), toybox::kUiCut), state,
                        sub);
-  if (waiting > 0) {
+  if (waiting > 0 && !model.clockUnset) {
     screen.frame().hit(fui::makeRect(body.x, body.y, body.width, 96), ActionStudy, 0);
   }
 
@@ -227,10 +234,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // 5px below the line before it, and below the caption is the top door. The
   // nudge it displaces is routine; a warning is neither routine nor silent.
   char warning[48] = "";
+  // A wrong clock is not here: the headline says it.
   if (model.writeFailed) {
     std::snprintf(warning, sizeof(warning), "SOME REVIEWS DID NOT SAVE");
-  } else if (model.clockUnset) {
-    std::snprintf(warning, sizeof(warning), "THIS READER LOST THE DATE -- SYNC TO SET IT");
   } else if (model.decksOverCap > 0) {
     std::snprintf(warning, sizeof(warning), "%d DECK%s HERE CANNOT BE OPENED OR SENT", model.decksOverCap,
                   model.decksOverCap == 1 ? "" : "S");
@@ -241,7 +247,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   if (warning[0] != '\0') {
     fui::TextStyle warn = small;
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), warning, warn);
-  } else if (model.deckCount > 1) {
+  } else if (model.deckCount > 1 && !model.clockUnset) {
+    // Not under a wrong clock: what waits in the other decks was counted from
+    // that same wrong date.
     fui::TextStyle scope = small;
     scope.color = fui::Color::DarkGray;
     char elsewhere[64];
@@ -306,7 +314,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // read NOTHING TO REVIEW and sit there looking live: same box, same glyph,
   // no response. It becomes the way to that work instead.
   const bool elsewhereOnly = waiting == 0 && model.otherWaiting > 0;
-  rows[doorCount].label = model.clockUnset ? "SYNC TO SET THE CLOCK"
+  // Shut under a wrong clock, saying when it opens. The label has to fit the
+  // door at the UI cut; host-tests/ui measures it.
+  rows[doorCount].label = model.clockUnset ? "REVIEW AFTER SYNC"
                           : waiting > 0    ? "START REVIEWING"
                           : elsewhereOnly  ? "REVIEW ANOTHER DECK"
                                            : "NOTHING TO REVIEW";

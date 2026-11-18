@@ -5475,6 +5475,76 @@ void testStudyDeckBracketsSitOnTheMargin() {
   CHECK(right == 480 - toybox::kMargin);
 }
 
+// Report #727: a Sticky whose clock read February in November counted a deck
+// full of due cards as nothing due, and the screen said so in its largest type.
+// The activity now marks that clock untrusted (study::clockUntrusted); this is
+// what the screen must do with it.
+void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
+  int forecast[studyui::kForecastDays] = {};
+  for (const int fresh : {0, 23}) {
+    Rendered out;
+    // The UI cut's real letters: Jersey at 20 runs about 19 to the capital
+    // (measure.py 20: SYNC TO SET THE CLOCK 392px, REVIEW AFTER SYNC 326px).
+    // At the fake's ten, a door label cut short on the panel fits here.
+    out.target.fontWidths.push_back({toybox::kUiFont, 19});
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.due = 0;
+    model.fresh = fresh;  // new cards are counted whatever the date says
+    model.total = 23;
+    model.forecast = forecast;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(out.target.drew("SYNC TO SET THE CLOCK"));
+    CHECK(!out.target.drew("ALL CLEAR"));
+    CHECK(!out.target.drew("NOTHING DUE TODAY"));
+    CHECK(!out.target.drew("NOTHING TO REVIEW"));
+    CHECK(!out.target.drew("23 TO GO"));
+
+    // The review door is shut and its label is whole on the glass; the
+    // instruction is whole too, on a line wide enough for it.
+    CHECK(drewLabelWhole(out, "REVIEW AFTER SYNC"));
+    CHECK(drewLabelWhole(out, "SYNC TO SET THE CLOCK"));
+    const auto* door = out.target.find("REVIEW AFTER SYNC");
+    CHECK(door != nullptr);
+    if (door != nullptr) {
+      CHECK(out.tap(door->rect.x + 20, door->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // And so is the headline, the other way into a session: a tap there under
+    // a wrong clock opened cards whose answers the review log then refused.
+    const auto* headline = out.target.find("WRONG DATE");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) {
+      CHECK(out.tap(headline->rect.x + 20, headline->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // SYNC, the way out, still answers.
+    const auto* sync = out.target.find("SYNC");
+    CHECK(sync != nullptr);
+    if (sync != nullptr) {
+      const fui::ActionEvent onSync = out.tap(sync->rect.x + 20, sync->rect.y + 10);
+      CHECK(onSync.action == studyui::ActionStudy && onSync.value == 2);
+    }
+  }
+  // With other decks on the card, what waits in them was counted from the
+  // same wrong date, so it is not offered either.
+  {
+    Rendered out;
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.total = 23;
+    model.forecast = forecast;
+    model.deckCount = 2;
+    model.otherWaiting = 3;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(!out.target.drew("3 WAITING IN YOUR OTHER DECK"));
+    CHECK(!out.target.drew("REVIEW ANOTHER DECK"));
+  }
+}
+
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;
@@ -15028,6 +15098,35 @@ void aNoteAsleepIsReadOnlyAndTaller() {
         "asleep, the first page holds MORE rows: the footer's height went to the list", __LINE__);
 }
 
+// Report #652, "How to edit a note?". Changing a note's words happens on the
+// phone page and nowhere else, and the menu row that opens it said TYPE ON
+// YOUR PHONE: nothing on any Notes screen said edit, which is the word he
+// looked for. The row says it now, on a note and on a list alike.
+void theMenuSaysWhereEditingIs() {
+  for (const bool isList : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    notesui::MenuModel model;
+    model.title = "Errands";
+    model.isList = isList;
+    notesui::buildMenu(screen, model);
+
+    const FakeTarget::TextRun* row = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.text.rfind("EDIT", 0) == 0) row = &run;
+    }
+    check(row != nullptr, "a menu row starts with EDIT", __LINE__);
+    if (row == nullptr) continue;
+    check(drewLabelWhole(out, row->text.c_str()), "and is drawn whole", __LINE__);
+    check(out.tap(static_cast<int16_t>(row->rect.x + 20), static_cast<int16_t>(row->rect.y + row->rect.height / 2))
+                  .action == notesui::ActionUsePhone,
+          "and opens the phone page, where editing happens", __LINE__);
+  }
+}
+
 }  // namespace notestest
 
 namespace wordletest {
@@ -15601,6 +15700,7 @@ int main() {
   notestest::anItemCutAtItsCapStillSaysSo();
   notestest::everyItemIsOnThePageItsSaidToBeginOn();
   notestest::aHugeUnbrokenRunIsCheapAndLosesNothing();
+  notestest::theMenuSaysWhereEditingIs();
   heartsDrawsNothingOnTopOfAnythingElse();
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();
@@ -15825,6 +15925,7 @@ int main() {
   testStudyDeckLeadsWithTheCount();
   testStudyDeckBracketsSitOnTheMargin();
   testStudyHeadlineIsTheHitTarget();
+  testStudyDeckUnderAWrongClockSaysTheDateNotTheCount();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();

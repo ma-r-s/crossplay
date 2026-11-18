@@ -281,6 +281,7 @@ nothing the second time.
 | Symptom                                  | Cause and fix                                                                                                                                   |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
+| WRONG DATE on the deck screen            | The reader's clock is earlier than the deck's last review, so everything due would read as not due yet. Tap SYNC: it sets the clock from the internet (the reTerminal Sticky's chip too) before anything else, and the deck opens. Reviews are not recorded until then, because they would be dated wrong in Anki. |
 | A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
 | Japanese readings appear beside the word, not above it | The deck has no ruby cut. Re-run `setup`, or `make_fonts.py`, after a conversion that reported a `ruby` glyph count. |
 | Korean draws as blank | An older card, converted before Hangul was classified correctly. Re-run `setup`; the fonts are rebuilt with the `hangul` interval. |
