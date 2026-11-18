@@ -273,7 +273,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   int panelHeight = body.bottom() - doorBand - toybox::kMargin - captionDrop - captionH - panelTop;
   if (panelHeight > 190) panelHeight = 190;
   if (panelHeight < 84) panelHeight = 84;
-  const fui::Rect panel = fui::makeRect(body.x + 10, panelTop, body.width - 20, panelHeight);
+  // The brackets stand 18 outside the panel, on the page's margin, as every
+  // other bracketed front door's do.
+  const fui::Rect panel = fui::makeRect(body.x + 18, panelTop, body.width - 36, panelHeight);
   brackets(screen, fui::makeRect(panel.x - 18, panel.y - 18, panel.width + 36, panel.height + 54), 32);
   timeline(screen, fui::makeRect(panel.x + 12, panel.y + 8, panel.width - 24, panelHeight - 16), model);
 

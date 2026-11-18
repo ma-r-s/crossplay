@@ -23,10 +23,13 @@ constexpr uint8_t kBlankBits[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
 constexpr int16_t kMarkSize = 12;
 // What the list puts between the mark and the headline.
 constexpr int16_t kMarkGap = 8;
-// The scroll track the list draws beside its rows once they page, which takes
-// its width out of every row. Reserved whether or not it is drawn: a headline
-// fitted a few pixels too wide is cut mid-word by the component instead.
-constexpr int16_t kScrollRoom = 8;
+// The scroll track the list draws beside its rows once they page, and the air
+// before it, which take their width out of every row. Reserved whether or not
+// it is drawn: a headline fitted a few pixels too wide is cut mid-word by the
+// component instead. The list reserves exactly this (list.h, `needed`).
+int16_t scrollRoom(const fui::ThemeTokens& tokens) {
+  return static_cast<int16_t>(tokens.listScrollWidth + tokens.listScrollInset + tokens.listScrollGap);
+}
 
 void chrome(toybox::Screen& screen, const char* title) {
   fui::HeaderProps header;
@@ -140,7 +143,7 @@ fui::TextStyle footnoteStyle(const fui::ThemeTokens& tokens) {
 int16_t postSiteWidth() { return kSiteWidth; }
 
 int16_t postTitleWidth(const fui::DeviceContext& device, const fui::ThemeTokens& tokens, const int16_t siteWidth) {
-  return static_cast<int16_t>(postsBand(device).width - kScrollRoom - 2 * tokens.listSidePadding - kMarkSize -
+  return static_cast<int16_t>(postsBand(device).width - scrollRoom(tokens) - 2 * tokens.listSidePadding - kMarkSize -
                               kMarkGap - (siteWidth > 0 ? siteWidth + kMarkGap : 0));
 }
 
@@ -148,7 +151,7 @@ int16_t feedTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& 
                        const fui::ThemeTokens& tokens) {
   const fui::TextStyle count = footnoteStyle(tokens);
   const int16_t countWidth = target.measureText(count.font, "FAILED", count).width;
-  return static_cast<int16_t>(feedsBand(device).width - kScrollRoom - 2 * tokens.listSidePadding - countWidth -
+  return static_cast<int16_t>(feedsBand(device).width - scrollRoom(tokens) - 2 * tokens.listSidePadding - countWidth -
                               toybox::kGutter);
 }
 

@@ -189,8 +189,8 @@ makes rivers a fifth of the measure wide when justified, hyphenation on or
 off; two cold reviews found them), and hyphenation is on. The footer is a
 book's running foot: the section you are in at the left, "12 of 87" at the
 right ("page 12" while a first layout is still counting), and under the
-words, in the gutter above the glass, a hairline with a solid band along it
-as far as the page has come.
+words a hairline with a solid band along it as far as the page has come,
+the page's margin above the glass (it sat 4px from the glass until 1.15.1).
 
 The band has a chevron at the left, the way back along the trail (the
 previous article, or the main page when there is none; the edge swipe is

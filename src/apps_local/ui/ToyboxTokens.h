@@ -282,6 +282,9 @@ inline const fui::ThemeTokens& themeTokens() {
     tokens.listMinRowHeight = kRowHeight;
     tokens.listTouchRowGap = tokens.listRowGap;
     tokens.listSidePadding = kGutter;
+    // Half a gutter between a list's rows and its scroll track: the SDK's 2px
+    // read as the track touching the row outlines (RSS, 1.15.0 review).
+    tokens.listScrollGap = spaceBetween;
     // Zero, not kMargin: the screen's content rect already carries the page
     // margin, and listInset is applied on top of it. Setting both indents the
     // rows twice.

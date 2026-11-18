@@ -5453,6 +5453,28 @@ void testStudyHeadlineIsTheHitTarget() {
   }
 }
 
+// The ornament's brackets sit on the page's margin, as every bracketed front
+// door's do. Study's stood 8px from the panel's edges.
+void testStudyDeckBracketsSitOnTheMargin() {
+  int forecast[studyui::kForecastDays] = {289, 4, 0, 12, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0};
+  Rendered out;
+  buildStudyDeck(out, deckWithWork(forecast));
+  int left = 480;
+  int right = -1;
+  int arms = 0;
+  for (const auto& fill : out.target.fills) {
+    const bool arm =
+        (fill.width == 32 && fill.height == toybox::kFrame) || (fill.width == toybox::kFrame && fill.height == 32);
+    if (!arm) continue;
+    ++arms;
+    left = std::min<int>(left, fill.x);
+    right = std::max<int>(right, fill.right());
+  }
+  CHECK(arms == 8);
+  CHECK(left == toybox::kMargin);
+  CHECK(right == 480 - toybox::kMargin);
+}
+
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;
@@ -14356,6 +14378,69 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   }
 }
 
+// The article band's two chips mirror each other, and the progress band at
+// the foot keeps the page's margin above the glass. The back chip sat 4px from
+// the left edge beside a contents chip 12px from the right, and the progress
+// band 4px from the bottom.
+void testWikipediaArticleChromeKeepsItsMargins() {
+  wikiui::ArticleChromeModel model;
+  model.title = "Photosynthesis";
+  model.back = true;
+  model.contents = true;
+  wikiui::ArticleFooterModel footer;
+  footer.left = "12 of 87";
+  footer.right = "Light-dependent reactions";
+  footer.page = 12;
+  footer.total = 87;
+  Rendered out;
+  buildWikiArticleChrome(out, model, footer);
+  int leftChip = 480;
+  int rightChip = -1;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.bottom() > toybox::kHeaderHeight) continue;
+    leftChip = std::min<int>(leftChip, stroke.rect.x);
+    rightChip = std::max<int>(rightChip, stroke.rect.right());
+  }
+  CHECK(leftChip < 60 && rightChip > 420);
+  CHECK(leftChip == 480 - rightChip);
+  CHECK(out.tap(leftChip + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionPrevious);
+  int barBottom = -1;
+  for (const auto& fill : out.target.fills) {
+    if (fill.y > 700 && fill.height >= 1 && fill.height <= 5) barBottom = std::max<int>(barBottom, fill.bottom());
+  }
+  CHECK(barBottom > 700);
+  CHECK(barBottom <= 800 - toybox::kMargin);
+}
+
+// The recent trail is divided, not underlined: the last row's own rule sat 8px
+// over the count line's hairline and read as a double line.
+void testWikipediaRecentTrailIsDivided() {
+  wikiui::SearchModel home;
+  home.continueTitle = "Photosynthesis";
+  static const char* kRecent[] = {"Ray Charles", "Polish-Russian War (1654-1667)", "Kluane", "Bern", "Tokyo"};
+  for (int i = 0; i < 5; ++i) home.recent[i].title = kRecent[i];
+  home.recentCount = 5;
+  home.footer = "50,034 ARTICLES, MAY 2026";
+  Rendered out;
+  buildWikiSearch(out, home);
+  const FakeTarget::TextRun* caption = out.target.find("RECENT");
+  const FakeTarget::TextRun* count = out.target.find(home.footer);
+  CHECK(caption != nullptr && count != nullptr);
+  if (caption == nullptr || count == nullptr) return;
+  std::vector<int> rules;
+  for (const auto& fill : out.target.fills) {
+    if (fill.height == toybox::kHairline && fill.width > 300) rules.push_back(fill.y);
+  }
+  std::sort(rules.begin(), rules.end());
+  int rows = 0;
+  for (int i = 0; i < 5; ++i) rows += out.target.find(kRecent[i]) != nullptr ? 1 : 0;
+  CHECK(rows >= 2);
+  int between = 0;
+  for (const int y : rules) between += y > caption->rect.bottom() && y < count->rect.y - 8 ? 1 : 0;
+  CHECK(between == rows - 1);
+  for (size_t i = 1; i < rules.size(); ++i) CHECK(rules[i] - rules[i - 1] >= toybox::kGutter);
+}
+
 void testWikipediaContentsRowsCarryTheHeading() {
   static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
                                     "Carbon fixation", "History",     "Evolution",
@@ -15265,6 +15350,34 @@ void testRssEveryPageDrawsItsRows() {
   }
 }
 
+// The scroll track stands half a gutter off the row outlines. It stood 2px
+// off, which reads as the track touching them.
+void testRssScrollTrackHasItsAir() {
+  const int perPage = rssVisibleRows();
+  RssRows rows(0, perPage, true);
+  rssui::ListModel model;
+  model.items = rows.items.data();
+  model.count = perPage * 3;
+  model.windowCount = perPage;
+  Rendered out;
+  buildRssPosts(out, model);
+  const fui::Rect band = rssui::postsBand(device());
+  int rowRight = -1;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.y >= band.y && stroke.rect.width > band.width / 2)
+      rowRight = std::max<int>(rowRight, stroke.rect.right());
+  }
+  int trackX = -1;
+  for (const auto& fill : out.target.fills) {
+    if (fill.width == toybox::themeTokens().listScrollWidth && fill.height > 20 && fill.y >= band.y) trackX = fill.x;
+  }
+  CHECK(rowRight > 0 && trackX > 0);
+  CHECK(trackX - rowRight == toybox::spaceBetween);
+  // And the headline fitted to the row is the one the row draws: the room the
+  // track takes is the theme's, not a guess beside it.
+  CHECK(trackX + toybox::themeTokens().listScrollWidth <= band.x + band.width);
+}
+
 void testRssSegments() {
   RssRows rows(0, 2, true);
   const fui::DeviceContext ctx = device();
@@ -15528,6 +15641,8 @@ int main() {
   testTriviaDrawsNoOptionsWithoutAQuestion();
   testWikipediaSearchRowsCarryTheirIndex();
   testWikipediaArticleChromeLeavesThePageItsRoom();
+  testWikipediaArticleChromeKeepsItsMargins();
+  testWikipediaRecentTrailIsDivided();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
   testTriviaSettingsShowsTheToggleAndItsState();
@@ -15632,6 +15747,7 @@ int main() {
   testHnEveryNoticeCarriesAWayOff();
   testRssPostsRowsOpenTheirOwnPost();
   testRssEveryPageDrawsItsRows();
+  testRssScrollTrackHasItsAir();
   testRssSegments();
   testRssFeedsScreen();
   testRssEmptyStates();
@@ -15707,6 +15823,7 @@ int main() {
   testABoardShowsWhoYouArePlaying();
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
+  testStudyDeckBracketsSitOnTheMargin();
   testStudyHeadlineIsTheHitTarget();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();

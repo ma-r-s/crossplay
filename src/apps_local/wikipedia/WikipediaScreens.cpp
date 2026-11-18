@@ -22,10 +22,12 @@ constexpr int16_t kRowPad = 6;
 constexpr int16_t kMaxTitleLines = 3;
 constexpr int16_t kFieldHeight = 52;
 constexpr int16_t kCaptionHeight = 28;
-// The footer's words sit kFooterPad under the page and toybox::kGutter above
-// the glass; the band is as tall as the small cut's line box needs, never a
+// The footer's words sit kFooterPad under the page; under them the progress
+// track and its band take kFooterBar, and the band ends kMargin above the
+// glass. The footer is as tall as the small cut's line box needs, never a
 // constant the cut can outgrow.
 constexpr int16_t kFooterPad = 6;
+constexpr int16_t kFooterBar = 8;  // the track 5 under the words, the band 2 above it and 3 below
 // The count line at the foot of the home: a hairline, then the words.
 constexpr int16_t kCountLine = 36;
 // The line under the count, "TAP HERE FOR A NEWER PACK": the count and a
@@ -285,9 +287,13 @@ int16_t drawRecent(toybox::Screen& screen, const SearchModel& model, int16_t y, 
   const fui::Rect body = screen.body();
   drawCaption(screen, fui::Rect{body.x, y, body.width, kCaptionHeight}, "RECENT");
   y = static_cast<int16_t>(y + kCaptionHeight);
+  // Divided, not underlined: a rule goes between two rows, never under the
+  // last, which would sit a few pixels over the count line's own hairline and
+  // read as a double line.
   for (int i = 0; i < model.recentCount && i < kMaxRecent; ++i) {
-    const int16_t h = drawTitleRow(screen, y, bottom, model.recent[i].title, ActionRecent, i, true);
+    const int16_t h = drawTitleRow(screen, y, bottom, model.recent[i].title, ActionRecent, i, false);
     if (h == 0) break;
+    if (i > 0) hairline(screen, static_cast<int16_t>(y - 1));
     y = static_cast<int16_t>(y + h);
   }
   return y;
@@ -323,7 +329,7 @@ void drawCountLine(toybox::Screen& screen, const int16_t bottom, const char* tex
 
 int16_t footerHeight(toybox::Screen& screen) {
   const int16_t lineHeight = screen.target().lineHeight(toybox::kSmallFont);
-  return static_cast<int16_t>(kFooterPad + lineHeight + toybox::kGutter);
+  return static_cast<int16_t>(kFooterPad + lineHeight + kFooterBar + kMargin);
 }
 
 }  // namespace
@@ -400,10 +406,10 @@ fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& m
 }
 
 // The section the page is in at the left, the page at the right, as a book's
-// running foot. The words are one line box tall, kFooterPad under the page,
-// and end toybox::kGutter above the glass; the progress rule lives in that
-// gutter, so it costs the page nothing: a hairline track, and a solid band
-// along it as far as the page has come, once the total is known.
+// running foot. The words are one line box tall, kFooterPad under the page;
+// under them the progress rule, a hairline track and a solid band along it as
+// far as the page has come once the total is known, and then the page's
+// margin.
 void buildArticleFooter(toybox::Screen& screen, const ArticleFooterModel& model) {
   const fui::Rect body = screen.body();
   const int16_t lineHeight = screen.target().lineHeight(toybox::kSmallFont);
