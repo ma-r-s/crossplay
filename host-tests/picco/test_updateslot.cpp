@@ -6,9 +6,9 @@
 // the answer is the slot executing right now, and FirmwareFlasher's raw erase
 // would wipe it. The four flash paths ask updateSlot() instead; test_config.py
 // checks that they do.
-#include "network/UpdateSlot.h"
-
 #include <cstdio>
+
+#include "network/UpdateSlot.h"
 
 static int failures = 0;
 #define EXPECT(cond, what)                     \

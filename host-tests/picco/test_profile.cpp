@@ -30,7 +30,8 @@ int main() {
   const BoardProfile& x = XTEINK_X4_PRO;
 
   EXPECT(p.displayWidth == 800 && p.displayHeight == 480, "the Picco panel is 800x480 (480x800 in the apps' portrait)");
-  EXPECT(p.displayWidth == s.displayWidth && p.displayHeight == s.displayHeight, "the Picco panel is the Sticky's size");
+  EXPECT(p.displayWidth == s.displayWidth && p.displayHeight == s.displayHeight,
+         "the Picco panel is the Sticky's size");
   EXPECT(p.uiScale == s.uiScale && p.uiScale == x.uiScale, "the Picco uiScale is the Sticky's and the X4 Pro's");
   EXPECT(p.viewableInsets.top == s.viewableInsets.top && p.viewableInsets.right == s.viewableInsets.right &&
              p.viewableInsets.bottom == s.viewableInsets.bottom && p.viewableInsets.left == s.viewableInsets.left,
