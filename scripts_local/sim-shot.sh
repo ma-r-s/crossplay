@@ -52,6 +52,27 @@ grep -E "${SIM_LOG_GREP:-Entering activity|\[ERR\]}" "$LOG" | sed 's/^/  /' || e
 echo "screenshots:"
 bmp_to_png "$OUT_DIR"
 echo "full log: $LOG"
+# Every header in this run's shots: is its back control on its title's line?
+# Measured in the picture because the case that prompted it was two pieces of
+# code each placing half of one row (Study's count on its own middle of the
+# band, the theme's arrow on the row below the battery strip), 12.5px apart
+# and photographed by two agents the day it was found without either seeing
+# it. tools_local/header_row_check.py says how it reads a header.
+HEADER_ROW_FAILED=0
+shots=()
+IFS=';' read -ra shot_entries <<< "$SHOT_SCRIPT"
+for entry in "${shot_entries[@]}"; do
+  shot="${entry#*:}"
+  shot="${shot%.bmp}.png"
+  [ -f "$shot" ] && shots+=("$shot")
+done
+if [ "${#shots[@]}" -gt 0 ] &&
+   ! uv run --quiet --with pillow python "$REPO/tools_local/header_row_check.py" "${shots[@]}"; then
+  echo "FAILED: a header's title is off its back control's line (HEADER ROW above)."
+  echo "        Words drawn inside the theme's band go on HeaderLayoutRecord::last"
+  echo "        (src/components/HeaderLayoutRecord.h), never on a middle worked out by hand."
+  HEADER_ROW_FAILED=1
+fi
 
 # A missing glyph is ALWAYS a layout bug, and it is the one bug this panel
 # cannot show you. The SDK truncates overflowing text with U+2026, and the
@@ -98,3 +119,4 @@ if grep -q "No glyph for codepoint" "$LOG"; then
   fi
   exit 1
 fi
+exit "$HEADER_ROW_FAILED"
