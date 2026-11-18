@@ -482,6 +482,22 @@ void testButtonsPageThenReveal() {
         "a swipe on a one-page question does nothing");
 }
 
+void testStalePageIsCapped() {
+  // The page the loop holds is capped to the count the last paint measured,
+  // never trusted: a turn that landed while a shorter face was being painted
+  // must route from that face's last page, not from a page it does not have.
+  study::CardOutcome out = study::routeCardInput(view(false, 7, 3), CardInput::KeyPrevious);
+  CHECK(out.action == CardAction::Turn && out.page == 1, "a page past the end routes from the last page");
+  out = study::routeCardInput(view(false, 7, 3), CardInput::KeyNext);
+  CHECK(out.action == CardAction::Reveal && out.page == 0, "and the next press from there reveals, at page 1");
+  out = study::routeCardInput(view(true, 5, 2), CardInput::KeyNext);
+  CHECK(out.action == CardAction::None && out.page == 1, "on the answer it rests on the last page");
+  out = study::routeCardInput(view(false, -4, 3), CardInput::KeyNext);
+  CHECK(out.action == CardAction::Turn && out.page == 1, "a page before the start routes from the first");
+  out = study::routeCardInput(view(true, 3, 0), CardInput::KeyNext);
+  CHECK(out.action == CardAction::None && out.page == 0, "a count of zero is one page");
+}
+
 void testNoPageTurnEverGrades() {
   // Walk every state the card view can be in and every input that turns
   // pages. None of them may grade, undo or open the photograph; only a side
@@ -568,6 +584,7 @@ int main() {
   testPagesPastAnyCap();
   testStressLongAnswerAndLongWord();
   testButtonsPageThenReveal();
+  testStalePageIsCapped();
   testNoPageTurnEverGrades();
   testTapsKeepTheirMeaning();
   std::printf("%s %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);
