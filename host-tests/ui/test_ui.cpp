@@ -14772,9 +14772,8 @@ void testWikipediaInstallNamesTheLanguage() {
 // Wikipedia's search and Weather's city search pass exactly these props.
 void testNoKeyboardLabelIsElided() {
   using Id = fui::KeyboardLayoutId;
-  static const Id kIds[] = {Id::QwertyEn,   Id::AzertyFr,   Id::QwertzDe,   Id::SpanishEs,
-                            Id::CyrillicRu, Id::CyrillicUk, Id::CyrillicBe, Id::CyrillicKk,
-                            Id::HebrewIl,   Id::ArabicAr,   Id::GreekEl};
+  static const Id kIds[] = {Id::QwertyEn,   Id::AzertyFr,   Id::QwertzDe, Id::SpanishEs, Id::CyrillicRu, Id::CyrillicUk,
+                            Id::CyrillicBe, Id::CyrillicKk, Id::HebrewIl, Id::ArabicAr,  Id::GreekEl};
   // Every distinct STR_KEY_SHIFT in lib/I18n/translations.
   static const char* const kShift[] = {"Shift", "Maj", "Mayús", "Posuň", "OOk!", "Maiúsculas"};
   static const int16_t kGaps[] = {0, 10};
