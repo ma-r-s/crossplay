@@ -57,6 +57,12 @@ done
 FAREWELL=0
 case "$ENV_NAME_FW" in
   x4pro|sticky|papermono) ;;
+  # The device answers a Wi-Fi flash with "no OTA partition" (updateSlot()):
+  # its one app slot is the one running. Said here, before anything uploads.
+  picco|gh_release_picco)
+     echo "error: the BOOX Picco has one app slot and cannot flash itself over Wi-Fi." >&2
+     echo "       It takes its app slot over USB: docs/install.md, BOOX Picco." >&2
+     exit 2 ;;
   gh_release_x4pro|gh_release_sticky|gh_release_papermono)
     FAREWELL=1 ;;
   *) echo "error: --env must be x4pro, sticky, papermono, gh_release_x4pro, gh_release_sticky or gh_release_papermono" >&2
