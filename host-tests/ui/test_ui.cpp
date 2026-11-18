@@ -5579,6 +5579,64 @@ void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
   }
 }
 
+// The ornament's top bracket stands as far below the words above it as the
+// bottom bracket stands above its caption, ink to ink. With a deck name and a
+// scope line it stood 5px under the scope line against the caption's 16
+// (#340 review). Every state the door has above the ornament, and every door
+// count below it.
+void testStudyDeckBracketsClearTheWordsAboveThem() {
+  int forecast[studyui::kForecastDays] = {289, 4, 0, 12, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0};
+  for (int state = 0; state < 4; ++state) {
+    for (const bool paired : {false, true}) {
+      studyui::DeckModel model = deckWithWork(forecast);
+      model.paired = paired;
+      if (state >= 1) {
+        model.lifetimeReviews = 40;
+        model.retention = 85;
+        model.streak = 3;
+      }
+      if (state >= 2) {
+        model.deckCount = 3;
+        model.deckIndex = 1;
+        model.otherWaiting = 2293;
+      }
+      if (state == 3) model.writeFailed = true;
+      Rendered out;
+      buildStudyDeck(out, model);
+      int armTop = 800;
+      int armBottom = -1;
+      for (const auto& fill : out.target.fills) {
+        const bool arm =
+            (fill.width == 32 && fill.height == toybox::kFrame) || (fill.width == toybox::kFrame && fill.height == 32);
+        if (!arm) continue;
+        armTop = std::min<int>(armTop, fill.y);
+        armBottom = std::max<int>(armBottom, fill.bottom());
+      }
+      // The words above: the lowest ink above the top arm. The caption: the
+      // first ink below the bottom arm.
+      int above = -1;
+      int below = 800;
+      for (const auto& run : out.target.texts) {
+        if (run.text.empty()) continue;
+        const fui::Rect ink = inkBandOf(run);
+        if (ink.bottom() <= armTop && run.rect.y > toybox::kHeaderHeight) above = std::max<int>(above, ink.bottom());
+        if (ink.y >= armBottom) below = std::min<int>(below, ink.y);
+      }
+      CHECK(armBottom > 0 && above > 0 && below < 800);
+      const int topAir = armTop - above;
+      const int bottomAir = below - armBottom;
+      if (topAir < bottomAir) {
+        ++checksFailed;
+        std::printf(
+            "FAIL study door (state %d%s): top bracket %dpx under the words above it, caption %dpx under "
+            "the bottom bracket\n",
+            state, paired ? ", paired" : "", topAir, bottomAir);
+      }
+      ++checksRun;
+    }
+  }
+}
+
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;
@@ -14545,6 +14603,57 @@ void testWikipediaRecentTrailIsDivided() {
   for (size_t i = 1; i < rules.size(); ++i) CHECK(rules[i] - rules[i - 1] >= toybox::kGutter);
 }
 
+// The article band's title is chosen -- one line of the display cut, or two of
+// the small one -- against the room the band will really give it. The choice
+// was made before toybox::headerBand() moved the back chip 12px in, so it
+// counted 8px the title never got: a title in that 8px was sent to one line,
+// found too wide there, and drawn shortened and marked instead of wrapping
+// whole (#340 review).
+void testWikipediaArticleTitleFitsTheRoomItGets() {
+  int windows = 0;
+  for (int16_t charW = 7; charW <= 13; ++charW) {
+    for (int n = 20; n <= 60; ++n) {
+      // Words, so a title too wide for one line has somewhere to wrap.
+      std::string title;
+      for (int i = 0; i < n; ++i) title += (i % 5 == 4) ? ' ' : 'x';
+      wikiui::ArticleChromeModel model;
+      model.title = title.c_str();
+      model.back = true;
+      model.contents = true;
+      wikiui::ArticleFooterModel footer;
+      Rendered out;
+      out.target.charW = charW;
+      buildWikiArticleChrome(out, model, footer);
+      const FakeTarget::TextRun* run = nullptr;
+      for (const auto& text : out.target.texts) {
+        if (text.rect.bottom() <= toybox::kHeaderHeight && text.text.find('x') != std::string::npos) run = &text;
+      }
+      if (run == nullptr) {
+        ++checksFailed;
+        std::printf("FAIL wiki title: %d chars at %dpx drew no title\n", n, charW);
+        continue;
+      }
+      ++checksRun;
+      const int16_t width = out.target.measureText(run->style.font, title.c_str(), run->style).width;
+      if (run->style.maxLines <= 1 && width > run->rect.width - 8 && width <= run->rect.width + 8) ++windows;
+      // One line only when the whole title fits it. A title the band's room
+      // cannot hold on one line goes to the two-line cut -- where a title
+      // past two lines takes the running head's one permitted cut, which is
+      // the rule above and not this one.
+      const bool oneLine = run->style.maxLines <= 1;
+      if (oneLine && (run->text != title || width > run->rect.width)) {
+        ++checksFailed;
+        std::printf("FAIL wiki title: %d chars at %dpx drew %d chars in font %d (%d lines, %dpx in %dpx)\n", n, charW,
+                    static_cast<int>(run->text.size()), static_cast<int>(run->style.font), run->style.maxLines, width,
+                    run->rect.width);
+      }
+    }
+  }
+  // The sweep reaches titles within 8px either side of the room, or it proves
+  // nothing about the 8px it is here for.
+  CHECK(windows > 0);
+}
+
 void testWikipediaContentsRowsCarryTheHeading() {
   static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
                                     "Carbon fixation", "History",     "Evolution",
@@ -15749,6 +15858,85 @@ void testRssScrollTrackHasItsAir() {
   CHECK(trackX + toybox::themeTokens().listScrollWidth <= band.x + band.width);
 }
 
+// A Toybox list's scroll track spans its rows, not the rect they sit in. The
+// rect is taller than the rows whenever its height is not a whole number of
+// rows, and the track ran on past the last row into empty paper: 29px under
+// RSS's posts and Hacker News's saved shelf, 65px under the RSS feeds (#340
+// review).
+void testToyboxScrollTrackEndsWithTheRows() {
+  const auto measure = [](const Rendered& out, const fui::Rect& band, int& rowsBottom, int& trackBottom) {
+    rowsBottom = -1;
+    trackBottom = -1;
+    for (const auto& stroke : out.target.strokes) {
+      if (stroke.rect.y >= band.y && stroke.rect.width > band.width / 2)
+        rowsBottom = std::max<int>(rowsBottom, stroke.rect.bottom());
+    }
+    for (const auto& fill : out.target.fills) {
+      if (fill.width == toybox::themeTokens().listScrollWidth && fill.height > 20 && fill.y >= band.y)
+        trackBottom = std::max<int>(trackBottom, fill.bottom());
+    }
+  };
+  struct Case {
+    const char* name;
+    bool feeds;
+  };
+  for (const Case& c : {Case{"rss posts", false}, Case{"rss feeds", true}}) {
+    FakeTarget sizing;
+    const fui::Rect band = c.feeds ? rssui::feedsBand(device()) : rssui::postsBand(device());
+    const int perPage = c.feeds ? fui::listVisibleRows(band, rssui::feedRowHeight(sizing, toybox::themeTokens()),
+                                                       toybox::themeTokens().listRowGap)
+                                : rssVisibleRows();
+    RssRows rows(0, perPage, !c.feeds);
+    rssui::ListModel model;
+    model.tab = c.feeds ? rssui::Tab::Feeds : rssui::Tab::All;
+    model.items = rows.items.data();
+    model.count = perPage * 3;
+    model.windowCount = perPage;
+    Rendered out;
+    if (c.feeds) {
+      buildRssFeeds(out, model);
+    } else {
+      buildRssPosts(out, model);
+    }
+    int rowsBottom = 0;
+    int trackBottom = 0;
+    measure(out, band, rowsBottom, trackBottom);
+    CHECK(rowsBottom > 0 && trackBottom > 0);
+    if (trackBottom != rowsBottom) {
+      ++checksFailed;
+      std::printf("FAIL %s: the scroll track ends at %d, the rows at %d\n", c.name, trackBottom, rowsBottom);
+    }
+    ++checksRun;
+  }
+  // Hacker News, a front page longer than its screen.
+  std::vector<std::string> labels;
+  std::vector<fui::ListItem> items(40);
+  labels.reserve(40);
+  for (int i = 0; i < 40; ++i) labels.push_back("Story number " + std::to_string(i));
+  for (int i = 0; i < 40; ++i) {
+    items[static_cast<size_t>(i)].label = labels[static_cast<size_t>(i)].c_str();
+    items[static_cast<size_t>(i)].actionValue = static_cast<int16_t>(i);
+  }
+  hnui::ListModel model;
+  model.items = items.data();
+  model.count = 40;
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildList(screen, model);
+  int rowsBottom = 0;
+  int trackBottom = 0;
+  measure(out, hnui::listBand(device()), rowsBottom, trackBottom);
+  CHECK(rowsBottom > 0 && trackBottom > 0);
+  if (trackBottom != rowsBottom) {
+    ++checksFailed;
+    std::printf("FAIL hacker news: the scroll track ends at %d, the rows at %d\n", trackBottom, rowsBottom);
+  }
+  ++checksRun;
+}
+
 void testRssSegments() {
   RssRows rows(0, 2, true);
   const fui::DeviceContext ctx = device();
@@ -16912,6 +17100,7 @@ int main() {
   testWikipediaArticleChromeLeavesThePageItsRoom();
   testWikipediaArticleChromeKeepsItsMargins();
   testWikipediaRecentTrailIsDivided();
+  testWikipediaArticleTitleFitsTheRoomItGets();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
   testWikipediaChooserCardsOpenTheirPack();
@@ -17022,6 +17211,7 @@ int main() {
   testRssPostsRowsOpenTheirOwnPost();
   testRssEveryPageDrawsItsRows();
   testRssScrollTrackHasItsAir();
+  testToyboxScrollTrackEndsWithTheRows();
   testRssSegments();
   testRssFeedsScreen();
   testRssEmptyStates();
@@ -17098,6 +17288,7 @@ int main() {
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyDeckBracketsSitOnTheMargin();
+  testStudyDeckBracketsClearTheWordsAboveThem();
   testStudyHeadlineIsTheHitTarget();
   testStudyDeckUnderAWrongClockSaysTheDateNotTheCount();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();

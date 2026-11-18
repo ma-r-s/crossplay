@@ -326,7 +326,7 @@ void testPagesPastAnyCap() {
   }
   CHECK(drawn == 300, "every line is drawn on exactly one of the 150 pages");
   // The whole of the paging state: a few ints, never a copy of the text.
-  CHECK(sizeof(study::TextFlow) <= 40, "paging keeps a handful of ints, not text");
+  CHECK(sizeof(study::TextFlow) <= 56, "paging keeps a handful of ints, not text");
 }
 
 void testStressLongAnswerAndLongWord() {
@@ -600,6 +600,89 @@ void testShortQuestionKeepsItsAnswer() {
   CHECK(lines(full) == (std::vector<std::string>{"aaa", "bbb"}), "and page 1 is the whole question");
 }
 
+// Where an answer opens when its question leaves little room: it follows the
+// question only when a meaningful amount of it fits there -- the whole answer,
+// or at least a third of a page -- and otherwise starts a page of its own.
+// 1.15.1 kept every one-page question's answer under it, and a question that
+// nearly filled its page then showed two lines of a twelve-line answer, with
+// the rest beginning mid-sentence on page 2 (#340 review, Study edge deck).
+//
+// 120px pages: six 20px lines, a third of a page is 40px. Laid out the way the
+// card is: a measuring pass, settleMarkBreak(), and the pass that counts.
+study::TextFlow settledAnswer(const int page, Recorder& target, const char* question, const char* answer) {
+  study::TextFlow flow = pagedFlow(100, 120, page);
+  const auto pass = [&](Recorder& into) {
+    flow.marking = false;
+    flow.markPage = -1;
+    flow.markRoom = -1;
+    flow.pages.last = -1;
+    flow.pages.rule = -1;
+    int y = field(into, flow, 100, 30, question);
+    y += 6;
+    flow.marking = true;
+    field(into, flow, y, 30, answer);
+  };
+  Recorder measuring;
+  pass(measuring);
+  flow.settleMarkBreak();
+  pass(target);
+  return flow;
+}
+
+void testNearFullQuestionHandsItsAnswerAPage() {
+  // Four lines of question (100-180), a 6px gap: 34px left on page 1, less than
+  // a third of a page. A four-line answer would put one line there and three
+  // on page 2, so it starts page 2 instead.
+  Recorder first;
+  const study::TextFlow flow = settledAnswer(0, first, "aaa bbb ccc ddd", "xxx yyy zzz www");
+  CHECK(flow.markPage == 1, "the answer opens on page 2, a page of its own");
+  CHECK(flow.pages.count() == 2, "and the card is two pages");
+  CHECK(lines(first) == (std::vector<std::string>{"aaa", "bbb", "ccc", "ddd"}), "page 1 is the whole question");
+  Recorder second;
+  settledAnswer(1, second, "aaa bbb ccc ddd", "xxx yyy zzz www");
+  CHECK(lines(second) == (std::vector<std::string>{"xxx", "yyy", "zzz", "www"}), "page 2 is the whole answer");
+  CHECK(!second.texts.empty() && second.texts[0].y == 100, "starting at the top of the page");
+
+  // The same room holds a one-line answer whole, so that one stays.
+  Recorder whole;
+  const study::TextFlow fits = settledAnswer(0, whole, "aaa bbb ccc ddd", "xxx");
+  CHECK(fits.markPage == 0 && fits.pages.count() == 1, "an answer that fits in what is left stays under its question");
+  CHECK(lines(whole) == (std::vector<std::string>{"aaa", "bbb", "ccc", "ddd", "xxx"}), "on page 1");
+}
+
+void testShortQuestionStillKeepsItsAnswerWhenSettled() {
+  // One line of question leaves 94px, more than a third of a page: a long
+  // answer follows it and runs on, through the same settled layout.
+  Recorder first;
+  const study::TextFlow flow = settledAnswer(0, first, "aaa", "xxx yyy zzz www vvv uuu ttt");
+  CHECK(flow.markPage == 0, "the answer begins under its question");
+  CHECK(lines(first) == (std::vector<std::string>{"aaa", "xxx", "yyy", "zzz", "www"}),
+        "page 1 holds the question and four lines of the answer");
+  Recorder second;
+  settledAnswer(1, second, "aaa", "xxx yyy zzz www vvv uuu ttt");
+  CHECK(lines(second) == (std::vector<std::string>{"vvv", "uuu", "ttt"}), "page 2 carries the rest");
+
+  // Exactly a third of a page left counts as enough: 40px after a question
+  // ending at 180 with no gap.
+  study::TextFlow edge = pagedFlow(100, 120, 0);
+  Recorder measuring;
+  const auto pass = [&](Recorder& into) {
+    edge.marking = false;
+    edge.markPage = -1;
+    edge.markRoom = -1;
+    edge.pages.last = -1;
+    edge.pages.rule = -1;
+    const int y = field(into, edge, 100, 30, "aaa bbb ccc ddd");
+    edge.marking = true;
+    field(into, edge, y, 30, "xxx yyy zzz www");
+  };
+  pass(measuring);
+  edge.settleMarkBreak();
+  Recorder settled;
+  pass(settled);
+  CHECK(edge.markPage == 0, "a third of a page left keeps the answer under its question");
+}
+
 void testStalePageIsCapped() {
   // The page the loop holds is capped to the count the last paint measured,
   // never trusted: a turn that landed while a shorter face was being painted
@@ -706,6 +789,8 @@ int main() {
   testStalePageIsCapped();
   testAnswerOpensWhereItBegins();
   testShortQuestionKeepsItsAnswer();
+  testNearFullQuestionHandsItsAnswerAPage();
+  testShortQuestionStillKeepsItsAnswerWhenSettled();
   testNoPageTurnEverGrades();
   testTapsKeepTheirMeaning();
   std::printf("%s %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);

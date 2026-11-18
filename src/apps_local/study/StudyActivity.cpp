@@ -1321,6 +1321,16 @@ void StudyActivity::drawCard(const Rect& body) {
     textFlow_.pages.top = body.y + kCardInset;
     textFlow_.pages.height = foot - textFlow_.pages.top;
     layout(area, true);
+    // Whether the answer follows its question or opens its own page is known
+    // only once the face is measured; a break moves every later line, so the
+    // face is measured again before its pages are counted.
+    textFlow_.settleMarkBreak();
+    if (textFlow_.breakAtMark) {
+      textFlow_.pages.last = -1;
+      textFlow_.pages.rule = -1;
+      textFlow_.lineEnd = 0;
+      layout(area, true);
+    }
     pages = textFlow_.pages.count();
     if (pages <= 1) {
       textFlow_.pages = study::TextPages{};
