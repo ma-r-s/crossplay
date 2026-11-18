@@ -140,6 +140,20 @@ bool cacheIsFor(const Cache& cache, const Place& place);
 // the coming one and is never drawn as if it were.
 int firstDay(const Cache& cache, int64_t nowUtc);
 
+// What the card can say about now. The reading taken with the forecast, when
+// that was today in the place's own time (or the clock cannot say); on any
+// later day there is no reading for now, only today's row of the forecast,
+// whose sky stands in as a day and whose temperatures are a high and a low,
+// not a now. A reading from Sunday drawn as now on Wednesday showed Sunday's
+// "7 PARTLY CLOUDY" over Wednesday's overcast "H 5 L 0".
+struct Now {
+  bool reading = false;     // tempC is a reading taken today
+  int16_t tempC = kNoTemp;  // tenths of a degree C; kNoTemp unless `reading`
+  int16_t code = -1;        // the sky for now: the reading's, or today's row's
+  bool isDay = true;
+};
+Now nowFor(const Cache& cache, int64_t nowUtc);
+
 // "UPDATED 14:07", "UPDATED YESTERDAY 14:07", "UPDATED MON 14:07" or
 // "UPDATED 12 NOV": when the forecast was read, in the place's own time,
 // against today when the clock knows it.
@@ -184,10 +198,13 @@ std::string cleanName(const std::string& raw, CanDraw canDraw);
 // its region, or when nothing of that did either, its coordinates
 // ("35.69N 139.69E"). Never empty.
 std::string placeLabel(const std::string& name, const std::string& region, double lat, double lon);
-// The label with the first part of the region that is not the name again, so
-// one Springfield is told from the next: "Springfield, Illinois", "Zurich,
-// Switzerland" (for a Zurich whose canton is also Zurich). Just the label when there is no such part.
-std::string placeTitle(const std::string& name, const std::string& region, double lat, double lon);
+// What tells a place from another of the name: the first part of its region
+// that is not the name again ("Illinois" for a Springfield, "Switzerland" for
+// a Zurich whose canton is also Zurich). Empty when there is no such part, and
+// when the name could not be drawn, since the label is then the region itself
+// or the coordinates. The screens set it after the label, a comma between,
+// and keep it whole: it is never cut, and never the first thing lost.
+std::string placeQualifier(const std::string& name, const std::string& region);
 
 // The search as typed: ASCII the keyboard sent, trimmed, spaces collapsed.
 // Two characters is the least the geocoder answers.

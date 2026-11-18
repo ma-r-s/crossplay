@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
-#include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -16,12 +15,11 @@
 #include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
-#include "../../components/UITheme.h"
-#include "../../fontIds.h"
 #include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../rss/RssFetch.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxKeyboard.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace fui = freeink::ui;
@@ -653,8 +651,10 @@ void WeatherActivity::loop() {
 
 weatherui::MainModel WeatherActivity::mainModel() {
   weatherui::MainModel model;
-  placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
-  model.place = placeTitle_.c_str();
+  placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
+  placeQualifier_ = weather::placeQualifier(place_.name, place_.region);
+  model.place = placeLabel_.c_str();
+  model.region = placeQualifier_.c_str();
   switch (status_) {
     case Status::Current:
       model.status = weatherui::Status::Current;
@@ -683,10 +683,13 @@ weatherui::MainModel WeatherActivity::mainModel() {
     return model;
   }
   model.hasForecast = true;
-  model.hasNow = f.nowC != weather::kNoTemp;
-  if (model.hasNow) model.now = weather::displayTemp(f.nowC, units);
-  model.nowIcon = weather::skyIcon(f.nowCode, f.isDay);
-  model.sky = weather::skyWords(f.nowCode);
+  // The reading is now only on the day it was taken; on a later one, after a
+  // failed update or with the radio declined, today's row stands in.
+  const weather::Now reading = weather::nowFor(cache_, now);
+  model.hasNow = reading.reading && reading.tempC != weather::kNoTemp;
+  if (model.hasNow) model.now = weather::displayTemp(reading.tempC, units);
+  model.nowIcon = weather::skyIcon(reading.code, reading.isDay);
+  model.sky = weather::skyWords(reading.code);
   model.today = rowFor(f.days[first], units);
   model.chance = weather::chanceWord(f.days[first].code);
   for (int i = first + 1; i < f.dayCount && model.dayCount < weatherui::kRows; ++i) {
@@ -696,49 +699,15 @@ weatherui::MainModel WeatherActivity::mainModel() {
 }
 
 fui::Rect WeatherActivity::keyboardRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  const int rows = layout.rowCount;
-  const int gap = metrics.keyboardKeySpacing;
-  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
-  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
-  return fui::Rect{static_cast<int16_t>((pageWidth - width) / 2), static_cast<int16_t>(pageHeight - 8 - height),
-                   static_cast<int16_t>(width), static_cast<int16_t>(height)};
+  return toybox::searchKeyboardRect(
+      renderer, fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false));
 }
 
-// The keyboard Wikipedia's search draws, with its own table: it registers more
-// hit rects than a toybox screen holds, and it is routed first.
+// Wikipedia's search keyboard, the same code (ui/ToyboxKeyboard.h).
 void WeatherActivity::drawKeyboard() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  kbInteractions_.beginPublishCycle();
-  fui::GfxRendererTarget target(renderer);
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
-  const fui::DeviceContext device = target.deviceContext();
-  const fui::InputSnapshot noInput{};
-  fui::Frame<56> frame(target, device, noInput, kbInteractions_);
-
-  fui::KeyboardProps props;
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  props.layout = &layout;
-  props.keyAction = weatherui::ActionKey;
-  props.okLabel = "GO";
-  props.shiftLabel = tr(STR_KEY_SHIFT);
-  props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
-  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
-  props.selectedIndex = -1;
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
-  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-  props.padding = fui::Insets{0, 0, 0, 0};
-  const fui::Rect kb = keyboardRect();
-  props.bottomHitOverflow = static_cast<int16_t>(renderer.getScreenHeight() - kb.bottom());
-  fui::keyboard(frame, kb, props);
-  kbInteractions_.publish();
+  toybox::drawSearchKeyboard(
+      renderer, fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false), symbols_,
+      weatherui::ActionKey, kbInteractions_);
   kbGate_.markBuilt();
 }
 
@@ -781,8 +750,10 @@ void WeatherActivity::render(RenderLock&&) {
     }
     case View::Menu: {
       weatherui::MenuModel model;
-      placeTitle_ = weather::placeTitle(place_.name, place_.region, place_.lat, place_.lon);
-      model.place = placeTitle_.c_str();
+      placeLabel_ = weather::placeLabel(place_.name, place_.region, place_.lat, place_.lon);
+      placeQualifier_ = weather::placeQualifier(place_.name, place_.region);
+      model.place = placeLabel_.c_str();
+      model.region = placeQualifier_.c_str();
       model.fahrenheit = place_.units == weather::Units::Fahrenheit;
       updated_ = haveCache_ ? weather::updatedLabel(cache_, nowOrZero(), SETTINGS.clockFormat == 1) : std::string();
       model.updated = updated_.c_str();

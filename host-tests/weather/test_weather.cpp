@@ -301,9 +301,18 @@ void testCleanNameKeepsLettersAndDropsTheRest() {
   // Markup is not a name: the symbols go and the words they separated stay apart.
   CHECK_EQ_STR(weather::cleanName("Rio <b>&amp;</b>", latin1), "Rio b amp /b");
   CHECK_EQ_STR(weather::cleanName("Hamburg\xC2\xAE", latin1), "Hamburg");
-  // A letter the face lacks keeps its base letter where it has one.
-  // Łódź: the z-acute decomposes; the L-stroke does not, and keeps its L.
-  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA", latin1), "Lódz");
+  // A letter the face lacks keeps its base letter where it has one, and then
+  // the whole name is folded: Łódź is "Lodz", never the "Lódz" of a drawable
+  // o-acute kept between a folded L-stroke and z-acute.
+  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA", latin1), "Lodz");
+  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA Voivodeship", latin1), "Lodz Voivodeship");
+  CHECK_EQ_STR(weather::cleanName("\xC5\xBB\xC3\xB3\xC5\x82w", latin1), "Zolw");  // Żółw
+  // A name the face draws whole keeps every accent.
+  CHECK_EQ_STR(weather::cleanName("Krak\xC3\xB3w", latin1), "Krak\xC3\xB3w");
+  CHECK_EQ_STR(weather::cleanName("S\xC3\xA3o Tom\xC3\xA9", latin1), "S\xC3\xA3o Tom\xC3\xA9");
+  // Letters with no base at all are dropped, not folded, so they do not fold
+  // the drawable rest.
+  CHECK_EQ_STR(weather::cleanName("Z\xC3\xBCrich \xD0\xA6\xD1\x8E\xD1\x80\xD0\xB8\xD1\x85", latin1), "Z\xC3\xBCrich");
   // Dotless i, as in Turkish names, keeps an i rather than vanishing.
   CHECK_EQ_STR(weather::cleanName("Diyarbak\xC4\xB1r", latin1), "Diyarbakir");
   // A letter with no base at all still goes: Greek has no Latin-1 reading.
@@ -332,20 +341,20 @@ void testPlaceLabelIsNeverEmpty() {
   CHECK_EQ_STR(weather::placeLabel("", "", 40.71, -74.01), "40.71N 74.01W");
 }
 
-void testPlaceTitleTellsSameNamesApart() {
+void testPlaceQualifierTellsSameNamesApart() {
   // The first part of the region: the state for a Springfield, the country
   // where the region is only that.
-  CHECK_EQ_STR(weather::placeTitle("Springfield", "Illinois, United States", 39.8, -89.6), "Springfield, Illinois");
-  CHECK_EQ_STR(weather::placeTitle("Springfield", "Missouri, United States", 37.2, -93.3), "Springfield, Missouri");
-  CHECK_EQ_STR(weather::placeTitle("Lisbon", "Portugal", 38.7, -9.1), "Lisbon, Portugal");
+  CHECK_EQ_STR(weather::placeQualifier("Springfield", "Illinois, United States"), "Illinois");
+  CHECK_EQ_STR(weather::placeQualifier("Springfield", "Missouri, United States"), "Missouri");
+  CHECK_EQ_STR(weather::placeQualifier("Lisbon", "Portugal"), "Portugal");
   // A region that opens with the name again skips to what follows it.
-  CHECK_EQ_STR(weather::placeTitle("Zürich", "Zurich, Switzerland", 47.4, 8.6), "Zürich, Switzerland");
-  CHECK_EQ_STR(weather::placeTitle("Singapore", "", 1.3, 103.9), "Singapore");
-  CHECK_EQ_STR(weather::placeTitle("Singapore", "Singapore", 1.3, 103.9), "Singapore");
+  CHECK_EQ_STR(weather::placeQualifier("Zürich", "Zurich, Switzerland"), "Switzerland");
+  CHECK_EQ_STR(weather::placeQualifier("Singapore", ""), "");
+  CHECK_EQ_STR(weather::placeQualifier("Singapore", "Singapore"), "");
   // A name that could not be drawn is already the region or the coordinates:
   // nothing is said twice.
-  CHECK_EQ_STR(weather::placeTitle("", "Russia", 55.8, 37.6), "Russia");
-  CHECK_EQ_STR(weather::placeTitle("", "", 35.69, 139.69), "35.69N 139.69E");
+  CHECK_EQ_STR(weather::placeQualifier("", "Russia"), "");
+  CHECK_EQ_STR(weather::placeQualifier("", ""), "");
 }
 
 void testCleanQuery() {
@@ -499,6 +508,33 @@ void testFirstDayFollowsTheClock() {
   CHECK(weather::firstDay(c, kNovember17 + 30 * kDay) == -1);
   // A clock behind the forecast (set wrong) does not skip anything.
   CHECK(weather::firstDay(c, kNovember17 - 5 * kDay) == 0);
+}
+
+// A reading is "now" only on the day it was taken, in the place's own time.
+void testNowIsOnlyTodaysReading() {
+  const weather::Cache c = zurichCache();
+  // The day it was read: the reading, as it was.
+  weather::Now n = weather::nowFor(c, kNovember17 + 3600);
+  CHECK(n.reading);
+  CHECK(n.tempC == c.forecast.nowC);
+  CHECK(n.code == c.forecast.nowCode);
+  // No clock: nothing says it is old, so it stands.
+  CHECK(weather::nowFor(c, 0).reading);
+  // The next day, and three days on: no reading for now, and the sky is
+  // today's row's, as a day.
+  for (const int later : {1, 3}) {
+    n = weather::nowFor(c, kNovember17 + later * kDay);
+    CHECK(!n.reading);
+    CHECK(n.tempC == weather::kNoTemp);
+    CHECK(n.code == c.forecast.days[later].code);
+    CHECK(n.isDay);
+  }
+  // 00:30 in Zurich is already the next day there, though 23:30 UTC is not.
+  CHECK(!weather::nowFor(c, kNovember17 + 10 * 3600 + 23 * 60).reading);
+  // Every day past: no reading and no sky.
+  n = weather::nowFor(c, kNovember17 + 30 * kDay);
+  CHECK(!n.reading);
+  CHECK(n.code == -1);
 }
 
 void testUpdatedLabel() {
@@ -659,7 +695,7 @@ int main() {
   testNonLatinNamesKeepWhatCanBeDrawn();
   testCleanNameKeepsLettersAndDropsTheRest();
   testPlaceLabelIsNeverEmpty();
-  testPlaceTitleTellsSameNamesApart();
+  testPlaceQualifierTellsSameNamesApart();
   testCleanQuery();
   testUrls();
   testPlaceRoundTrips();
@@ -668,6 +704,7 @@ int main() {
   testCacheRefusesDamage();
   testCacheBelongsToItsPlace();
   testFirstDayFollowsTheClock();
+  testNowIsOnlyTodaysReading();
   testUpdatedLabel();
   testWeekdays();
   testSkies();

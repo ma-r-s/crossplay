@@ -303,6 +303,61 @@ PlaceText fitPlace(toybox::Screen& screen, const char* text, const int16_t width
   return place;
 }
 
+// A list of parts ("North Rhine-Westphalia, Germany") on one line of `font`:
+// whole, or as many whole parts as fit and an ellipsis after the last of
+// them, so a cut never ends on the comma between two parts. Only a first part
+// too long for the line by itself is cut inside, after its last whole word.
+std::string fitParts(const fui::DrawTarget& target, const fui::FontId font, const char* text, const int16_t width) {
+  const std::string whole = text != nullptr ? text : "";
+  if (fitsIn(target, font, whole, width)) return whole;
+  static constexpr const char* kEllipsis = "...";
+  for (size_t comma = whole.rfind(", "); comma != std::string::npos && comma > 0;
+       comma = whole.rfind(", ", comma - 1)) {
+    const std::string head = whole.substr(0, comma) + kEllipsis;
+    if (fitsIn(target, font, head, width)) return head;
+  }
+  const size_t comma = whole.find(", ");
+  PlaceText first;
+  cutPlace(target, font, comma == std::string::npos ? whole : whole.substr(0, comma), width, 1, first);
+  return first.lines[0];
+}
+
+// The place and its qualifier in at most `most` lines, down the rungs. Whole
+// when it fits; otherwise, at the smallest rung, the qualifier keeps the last
+// line to itself and the name has the lines above it, cut where it must: the
+// region is never the first thing lost, and a one-word name too long for a
+// line ("Llanfairpwllgwyngyllgogerychwyrndrobwll...") no longer takes its
+// region down with it.
+PlaceText fitTitle(toybox::Screen& screen, const char* name, const char* qualifier, const int16_t width, const int most,
+                   const fui::FontId* rungs, const int rungCount) {
+  const std::string label = name != nullptr ? name : "";
+  const std::string part = qualifier != nullptr ? qualifier : "";
+  if (part.empty()) return fitPlace(screen, label.c_str(), width, most, rungs, rungCount);
+  const std::string whole = label + ", " + part;
+  const fui::DrawTarget& target = screen.target();
+  PlaceText place;
+  for (int i = 0; i < rungCount; ++i) {
+    place.font = rungs[i];
+    if (wrapPlace(target, rungs[i], whole, width, most, place)) break;
+    place.count = 0;
+  }
+  if (place.count == 0) {
+    if (most >= 2) {
+      if (!wrapPlace(target, place.font, label, width, most - 1, place)) {
+        cutPlace(target, place.font, label, width, most - 1, place);
+      }
+      place.lines[place.count++] = fitParts(target, place.font, part.c_str(), width);
+    } else {
+      place.lines[0] = fitParts(target, place.font, whole.c_str(), width);
+      place.count = 1;
+    }
+  }
+  place.inkHeight = toybox::inkHeight(target, place.font, place.count);
+  place.advance = target.lineHeight(place.font);
+  place.largestInk = toybox::inkHeight(target, rungs[0]);
+  return place;
+}
+
 void drawPlace(toybox::Screen& screen, const PlaceText& place, const int16_t x, const int16_t inkTop,
                const int16_t width) {
   for (int i = 0; i < place.count; ++i) {
@@ -455,8 +510,6 @@ void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, con
   label(line.pct.c_str());
 }
 
-std::string nowText(const MainModel& model) { return model.hasNow ? number(model.now) : std::string("--"); }
-
 // The week's columns, measured from THIS week's strings, a gutter apart:
 // day | sky | chance | low | the bar | high. Nothing is reserved for a string
 // that is not on screen, so no dead band opens between two columns, and a
@@ -508,8 +561,15 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
 
   // The whole composition, gaps first; when it will not fit with a margin to
   // spare, the rows close up to a gutter, then the groups to two.
+  // The hero is the reading now when there is one: its number, its sky at
+  // the right edge. Without one (the forecast was read on an earlier day) it
+  // is today's sky alone, at the left edge where the number would be, and no
+  // number at all: a reading from another day is never drawn as now.
+  const freeink::Icon* heroSky = skyBitmap(model.nowIcon, 88);
+  const int16_t heroHeight =
+      model.hasNow ? capOf(screen, toybox::kDisplayFont) : (heroSky ? toybox::iconInk(*heroSky).height : int16_t{0});
   int rowsAt[kRows] = {};
-  int place = 0, hero = 0, sky = -1, range = 0, state = -1, updated = -1, rule = -1;
+  int place = 0, hero = -1, sky = -1, range = 0, state = -1, updated = -1, rule = -1;
   Column column;
   const int16_t room = static_cast<int16_t>(spanBottom(screen) - spanTop() - 2 * kMargin);
   for (const int16_t tighten : {int16_t{0}, int16_t{1}, int16_t{2}}) {
@@ -517,9 +577,16 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
     const int16_t groupGap = tighten > 1 ? kRowGap : kGroupGap;
     column = Column{};
     place = column.add(0, placeInk);
-    hero = column.add(groupGap, capOf(screen, toybox::kDisplayFont));
-    sky = model.sky[0] ? column.add(kLineGap, capOf(screen, toybox::kUiFont)) : -1;
-    range = column.add(kLineGap, capOf(screen, toybox::kUiFont));
+    // The first block under the place is a group away, the rest a line.
+    int16_t gap = groupGap;
+    const auto next = [&gap](Column& c, const int16_t height) {
+      const int index = c.add(gap, height);
+      gap = kLineGap;
+      return index;
+    };
+    hero = heroHeight > 0 ? next(column, heroHeight) : -1;
+    sky = model.sky[0] ? next(column, capOf(screen, toybox::kUiFont)) : -1;
+    range = next(column, capOf(screen, toybox::kUiFont));
     state = status[0] ? column.add(kLineGap, smallCap) : -1;
     updated = model.updated[0] ? column.add(kLineGap, smallCap) : -1;
     rule = days > 0 ? column.add(groupGap, toybox::kHairline) : -1;
@@ -529,13 +596,21 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
   column.centre(spanTop(), spanBottom(screen), kMargin);
 
   // The reading: the number at the left edge, its sky with its ink centred on
-  // the number's capitals at the right edge, then the lines under it.
-  const int16_t heroTop = column.top(hero);
-  tempAt(screen, body.x, heroTop, toybox::kDisplayFont, nowText(model));
-  if (const freeink::Icon* icon = skyBitmap(model.nowIcon, 88)) {
-    const fui::Rect drawn = toybox::iconInk(*icon);
-    iconCentred(screen, *icon, static_cast<int16_t>(right - drawn.width / 2),
-                static_cast<int16_t>(heroTop + capOf(screen, toybox::kDisplayFont) / 2));
+  // the number's capitals at the right edge, then the lines under it. With no
+  // reading, today's sky alone with its ink at the left edge.
+  if (hero >= 0) {
+    const int16_t heroTop = column.top(hero);
+    if (model.hasNow) {
+      tempAt(screen, body.x, heroTop, toybox::kDisplayFont, number(model.now));
+      if (heroSky) {
+        const fui::Rect drawn = toybox::iconInk(*heroSky);
+        iconCentred(screen, *heroSky, static_cast<int16_t>(right - drawn.width / 2),
+                    static_cast<int16_t>(heroTop + capOf(screen, toybox::kDisplayFont) / 2));
+      }
+    } else {
+      const fui::Rect drawn = toybox::iconInk(*heroSky);
+      blit(screen, *heroSky, static_cast<int16_t>(body.x - drawn.x), static_cast<int16_t>(heroTop - drawn.y));
+    }
   }
   if (sky >= 0) textAt(screen, body.x, column.top(sky), body.width, toybox::kUiFont, model.sky);
   drawRangeLine(screen, rangeLine(screen, model, toybox::kUiFont), body.x, column.top(range), toybox::kUiFont);
@@ -700,8 +775,10 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names
       return layout;
     }
     case SearchModel::State::Failed:
+      // A second line like a missed search's: what to do, never why. The
+      // keyboard is up again, so GO is on the screen.
       say("Could not search.", toybox::kBodyFont);
-      if (model.offline) say("Not connected to Wi-Fi.", toybox::kSmallFont);
+      say(model.offline ? "Not connected to Wi-Fi." : "Press GO to try again.", toybox::kSmallFont);
       return layout;
     case SearchModel::State::Results:
       break;
@@ -739,7 +816,7 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names
     if (i > layout.first) hairline(screen, body.x, static_cast<int16_t>(y - kRowGap / 2), body.width);
     names.top[i] = y;
     if (model.rows[i].region[0]) {
-      const std::string region = toybox::fitLines(target, model.rows[i].region, body.width, 1, ink(toybox::kSmallFont));
+      const std::string region = fitParts(target, toybox::kSmallFont, model.rows[i].region, body.width);
       textAt(screen, body.x, static_cast<int16_t>(y + names.ink[i] + kLineGap), body.width, toybox::kSmallFont,
              region.c_str());
     }
@@ -782,7 +859,7 @@ void drawMain(toybox::Screen& screen, const MainModel& model, const Rebind& bind
   bind(kPlacePass);
   band(screen, "WEATHER", ActionMenu, nullptr);
   const fui::Rect body = screen.body();
-  const PlaceText place = fitPlace(screen, model.place, body.width, 2, kPlaceRungs, 2);
+  const PlaceText place = fitTitle(screen, model.place, model.region, body.width, 2, kPlaceRungs, 2);
   bind(kDataPass);
   const int16_t placeTop =
       model.hasForecast ? weekBlock(screen, model, place.inkHeight) : noWeekBlock(screen, model, place.inkHeight);
@@ -822,7 +899,7 @@ void drawMenu(toybox::Screen& screen, const MenuModel& model, const Rebind& bind
   const int16_t nameW = static_cast<int16_t>(rowWidth - kChevron - 3 * kGutter);
 
   bind(kPlacePass);
-  const PlaceText place = fitPlace(screen, model.place, nameW, 2, kPlaceRungs, 2);
+  const PlaceText place = fitTitle(screen, model.place, model.region, nameW, 2, kPlaceRungs, 2);
 
   bind(kMenuPass);
   band(screen, "WEATHER", ActionCloseMenu, "DONE");

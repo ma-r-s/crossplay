@@ -35,17 +35,28 @@ Celsius or Fahrenheit, and UPDATE NOW.
   are two lines, so neither is ever cut to fit the other. With nothing on the
   card yet the screen says so (`NO FORECAST YET`, `COULD NOT GET THE FORECAST`)
   and offers TRY AGAIN. It is never blank.
+- **A reading from an earlier day is never drawn as now.** The temperature
+  and sky taken with the forecast are "now" only on the day they were taken,
+  in the place's own time (`weather::nowFor`). On a later day, after a failed
+  update or with Wi-Fi declined, there is no number where now goes: today's
+  sky stands at the left edge, then today's words, high, low and chance, all
+  from today's row of the forecast, which is what the card knows about today.
 - **A week that has happened is not drawn as the coming one.** Only today and
   the days after it are rows. When every day on the card is past, the screen
   shows the place, `NO FORECAST FOR TODAY`, when it was read, and UPDATE NOW,
   and no week.
-- **The city is typed once, on the keyboard Wikipedia's search uses**, and
+- **The city is typed once, on the keyboard Wikipedia's search uses**: the
+  same code, `ui/ToyboxKeyboard.h`, so its Shift key draws the keyboard's own
+  arrow in every theme and its symbol pages "#+=" and "123", as Wikipedia's
+  does, and
   chosen from Open-Meteo's own geocoder (ten places at most, each with its
   region so three Springfields can be told apart). The places come a page at a
   time: the side keys and a vertical swipe turn the page, and a row of page
   numbers at the foot, the shelf's, is a door to each. A search that found
   nothing or failed puts the keyboard back up with what was typed, since the
-  answer to both is to type or press GO. The menu changes the city. The place
+  answer to both is to type or press GO, and each says so in a second line:
+  "Check the spelling, or try a larger town nearby.", "Press GO to try
+  again." (or "Not connected to Wi-Fi." without the radio). The menu changes the city. The place
   lives in `/.crosspoint/weather/place.txt`.
 - **Units follow the city's country until the player chooses.** Fahrenheit for
   the United States, its territories, the Bahamas, Belize, the Cayman Islands,
@@ -75,7 +86,12 @@ region, then to its coordinates (`35.69N 139.69E`), so it is never empty.
 
 Unicode gives the stroked and dotless letters (L-stroke, D-stroke, dotless i)
 no decomposition, so a short table in `WeatherCore.cpp` gives them their base
-letter too: "Łódź" shows as "Lódz", which is also what the player typed.
+letter too. A name is folded whole or not at all: when one letter has to be
+reduced to its base, every accented letter is, so "Łódź" shows as "Lodz", what
+the player typed, and never as "Lódz", which is neither Polish nor plain. A
+name the cuts draw whole keeps every accent ("Kraków", "São Tomé"). The
+geocoder is asked for English names (`language=en`), so most names in other
+scripts never reach this: "Tok" finds "Tokyo".
 A letter of a script with no Latin reading (Greek, Cyrillic, CJK) has no base
 and goes. The real fix for all of it is a reading cut that carries more than
 Latin-1; this is the honest best until there is one.
@@ -91,7 +107,7 @@ The main screen and the menu measure the place in `kPlacePass`, lay out and draw
 everything else in Jersey, then draw the place in `kPlacePass` where the layout
 put it. Because the faces and their order live in the builders, the host suite
 binds exactly what the device binds: `everyPlaceIsDrawnInAFaceWithItsLetters`
-draws São Bernardo do Campo, Saint-Étienne-du-Rouvray, Münster and Łódź on every
+draws São Bernardo do Campo, Saint-Étienne-du-Rouvray, Münster and Lodz on every
 screen and fails on a letter drawn in a face without it. The menu once fitted a
 long name down into Jersey's button cut and printed holes; that is the case it
 was written for.
@@ -100,11 +116,17 @@ A place's name is laid out here, line by line, rather than by the component:
 a line may end at a space or after a hyphen, so
 "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson" takes its second line before
 anything is cut. The ladder is bold 16 then bold 12, two lines, on the main
-screen and in the menu's row alike, so the region is never the first thing
-lost; a name too long for both is cut once, after its last whole word, and
-marked with an ellipsis, and through a word only when its first word alone
-will not fit. In the search list the names keep bold 16 and take two
-lines. A place with no region (a name that cleaned to nothing falls back to its
+screen and in the menu's row alike. The name and what tells it apart
+("Illinois", `weather::placeQualifier`) are fitted together, "Springfield,
+Illinois", and when they will not go together the qualifier takes the last
+line to itself, whole, and the name has the lines above it: the region is
+never the first thing lost, and a one-word name wider than a line
+("Llanfairpwllgwyngyllgogerychwyrndrobwll...") keeps "Wales" under it. A name
+is cut once, after its last whole word, and through a word only when its
+first word alone will not fit. A region line in the search list keeps whole
+parts ("North Rhine-Westphalia..."), so no cut ends on the comma between two.
+In the search list the names take the same ladder, measured and drawn in the
+place's own pass. A place with no region (a name that cleaned to nothing falls back to its
 coordinates) is one line, not a line and an empty one.
 
 ## The main screen
@@ -196,9 +218,11 @@ forecast, and the second Back had the Apps folder up 220 ms later; the Home key
 abandoned it 18 ms after the press and Home was up 650 ms after it, the same
 double-tap window an idle Home takes; with no key at all, the request gave up
 at 20.3 s and kept the cached forecast. Searches starting `zur`, `lis`, `spr`,
-`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla` and `yak` answer
-with fixtures that exercise accents, hyphens, ten results, and names in scripts
-the cuts cannot draw. The
+`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla`, `yak`, `san` and `kyo`
+answer with fixtures that exercise accents, hyphens and ten results. They
+answer as the service does with `language=en`, which the device always sends:
+"Tok" finds Tokyo, not 東京都. `kyo` is the exception kept on purpose, a place
+answered only in its own script, so the coordinates fallback can be seen. The
 simulator auto-connects only with a saved network in
 `fs_agent/.crosspoint/wifi.json`; `CROSSPOINT_SIM_WIFI_CONNECT=fail` makes it
 refuse.

@@ -801,6 +801,33 @@ int firstDay(const Cache& cache, const int64_t nowUtc) {
   return -1;
 }
 
+Now nowFor(const Cache& cache, const int64_t nowUtc) {
+  const Forecast& f = cache.forecast;
+  Now now;
+  bool today = true;
+  if (nowUtc > 0) {
+    int64_t readingDay = 0;
+    int hour = 0, minute = 0;
+    bool dated = parseLocalTime(f.localTime, readingDay, hour, minute);
+    if (!dated && cache.fetchedUtc > 0) {
+      readingDay = floorDiv(cache.fetchedUtc + f.utcOffset, 86400);
+      dated = true;
+    }
+    // A reading nothing dates is not drawn as now either.
+    today = dated && readingDay >= floorDiv(nowUtc + f.utcOffset, 86400);
+  }
+  if (today) {
+    now.reading = true;
+    now.tempC = f.nowC;
+    now.code = f.nowCode;
+    now.isDay = f.isDay;
+    return now;
+  }
+  const int first = firstDay(cache, nowUtc);
+  if (first >= 0) now.code = f.days[first].code;
+  return now;
+}
+
 std::string updatedLabel(const Cache& cache, const int64_t nowUtc, const bool twelveHour) {
   const Forecast& f = cache.forecast;
   int64_t fetchDay = 0;
@@ -948,8 +975,30 @@ Units defaultUnitsFor(const char* countryCode) {
 
 // --- Text from outside ------------------------------------------------------------
 
+// The base letter a face can draw for `cp` (s for s-comma, z for z-acute, L
+// for L-stroke), or 0 when it has none.
+uint32_t drawableBase(const uint32_t cp, const CanDraw canDraw) {
+  uint32_t base = utf8DecomposedBase(cp);
+  if (base == 0) base = strokeBase(cp);
+  return base != 0 && canDraw(base) ? base : 0;
+}
+
 std::string cleanName(const std::string& raw, const CanDraw canDraw) {
   const std::string folded = utf8FoldTypography(utf8ComposeNfc(raw));
+  // A name is folded whole or not at all. When one of its letters has to be
+  // reduced to its base, every accented letter is: "Lodz", not the "Lódz"
+  // that keeping the drawable o-acute beside a folded L-stroke and z-acute
+  // made, which is neither Polish nor plain.
+  bool foldAll = false;
+  if (canDraw != nullptr) {
+    const unsigned char* q = reinterpret_cast<const unsigned char*>(folded.data());
+    const unsigned char* qend = q + folded.size();
+    while (q < qend && !foldAll) {
+      const uint32_t cp = nextCodepoint(q, qend);
+      if (cp == 0xFFFFFFFFu || !isLetterlike(cp) || canDraw(cp)) continue;
+      foldAll = drawableBase(cp, canDraw) != 0;
+    }
+  }
   std::string out;
   out.reserve(folded.size());
   bool pendingSpace = false;
@@ -972,10 +1021,10 @@ std::string cleanName(const std::string& raw, const CanDraw canDraw) {
       // A letter the face lacks keeps its base letter when it has one the
       // face can draw (s-comma for s, z-acute for z, L-stroke for L);
       // otherwise it goes.
-      uint32_t base = utf8DecomposedBase(cp);
-      if (base == 0) base = strokeBase(cp);
-      if (base == 0 || !canDraw(base)) continue;
-      draw = base;
+      draw = drawableBase(cp, canDraw);
+      if (draw == 0) continue;
+    } else if (foldAll) {
+      if (const uint32_t base = drawableBase(cp, canDraw)) draw = base;
     }
     if (pendingSpace && !out.empty()) out += ' ';
     pendingSpace = false;
@@ -994,9 +1043,8 @@ std::string placeLabel(const std::string& name, const std::string& region, const
   return coordinates(lat, lon);
 }
 
-std::string placeTitle(const std::string& name, const std::string& region, const double lat, const double lon) {
-  const std::string label = placeLabel(name, region, lat, lon);
-  if (name.empty()) return label;
+std::string placeQualifier(const std::string& name, const std::string& region) {
+  if (name.empty()) return std::string();
   // The first part of the region that is not the name again: the state, the
   // province, or the country when the region is only that.
   size_t start = 0;
@@ -1004,10 +1052,10 @@ std::string placeTitle(const std::string& name, const std::string& region, const
     size_t comma = region.find(", ", start);
     if (comma == std::string::npos) comma = region.size();
     const std::string part = region.substr(start, comma - start);
-    if (!part.empty() && !sameName(part, name)) return label + ", " + part;
+    if (!part.empty() && !sameName(part, name)) return part;
     start = comma + 2;
   }
-  return label;
+  return std::string();
 }
 
 std::string cleanQuery(const std::string& typed) {

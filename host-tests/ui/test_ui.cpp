@@ -17021,6 +17021,57 @@ void mainSaysWhatTheRadioDidAndWhenInFull() {
   CHECK(!drewText(current, "OFFLINE"));
 }
 
+// The forecast on the card was read on an earlier day and the update failed:
+// there is no reading for now, so no number is drawn where now goes, and
+// today's sky stands in at its left edge, then today's words and range.
+void aReadingFromAnotherDayIsNeverNow() {
+  weatherui::MainModel m = fullWeek();
+  m.hasNow = false;
+  m.nowIcon = weather::Icon::Cloud;
+  m.sky = "OVERCAST";
+  m.status = weatherui::Status::Failed;
+  m.updated = "UPDATED SUN 19:03";
+  Rendered out;
+  buildMain(out, m);
+  for (const auto& run : out.target.texts) {
+    weatherui::Face face{};
+    const bool huge = faceOf(run, face) && face == weatherui::Face::Huge;
+    if (huge) std::printf("  weather: \"%s\" drawn where now goes\n", run.text.c_str());
+    CHECK(!huge);
+  }
+  // Today's sky, its ink at the left margin, a group under the place and a
+  // line over today's words.
+  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* words = runAt(out, "OVERCAST");
+  CHECK(place && words);
+  bool found = false;
+  for (const auto& blit : out.target.blits) {
+    if (blit.rect.width != 88) continue;
+    found = true;
+    const fui::Rect ink = inkOf(blit);
+    CHECK(ink.x == toybox::kMargin);
+    if (place && words) {
+      CHECK(ink.y - inkOf(*place).bottom() == 36);
+      CHECK(inkOf(*words).y - ink.bottom() == 12);
+    }
+  }
+  CHECK(found);
+  CHECK(drewExactly(out, "H"));
+  CHECK(clean(out, "main, no reading"));
+  CHECK(collisionFree(out, "main, no reading"));
+
+  // No sky for today either: the words of the range line follow the place.
+  m.nowIcon = weather::Icon::None;
+  m.sky = "";
+  Rendered bare;
+  buildMain(bare, m);
+  const FakeTarget::TextRun* place2 = runAt(bare, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* h = runAt(bare, "H");
+  CHECK(place2 && h);
+  if (place2 && h) CHECK(inkOf(*h).y - inkOf(*place2).bottom() == 36);
+  CHECK(clean(bare, "main, no reading, no sky"));
+}
+
 void mainDrawsOnlyTheDaysItHas() {
   weatherui::MainModel m = fullWeek();
   m.dayCount = 4;
@@ -17363,6 +17414,9 @@ void searchSaysWhatHappened() {
   buildSearch(failed, m);
   CHECK(drewText(failed, "Could not search."));
   CHECK(!drewText(failed, "Wi-Fi"));
+  // A second line of advice, as a missed search has: what to do, not why.
+  CHECK(drewExactly(failed, "Press GO to try again."));
+  CHECK(clean(failed, "search, failed"));
 
   m.state = weatherui::SearchModel::State::Searching;
   Rendered busy;
@@ -17405,18 +17459,20 @@ void menuDoorsGoWhereTheySay() {
 }
 
 // The menu's row takes the place as the main screen does: a second line
-// before anything is cut, its region included, and when even two lines will
-// not hold it, a cut between words, never through one ("Bouzemont-S...").
+// before anything is cut, and when even two lines will not hold it, a cut
+// between words, never through one ("Bouzemont-S...").
 void theMenuFitsThePlaceLikeTheMainScreen() {
   weatherui::MenuModel m;
-  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
+  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson";
+  m.region = "Grand Est";
   m.updated = "UPDATED 14:07";
   Rendered two;
   buildMenu(two, m);
   std::string whole;
   int lines = 0;
+  const std::string title = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
   for (const auto& run : two.target.texts) {
-    if (run.text.size() < 4 || std::string(m.place).find(run.text) == std::string::npos) continue;
+    if (run.text.size() < 4 || title.find(run.text) == std::string::npos) continue;
     whole += run.text;
     ++lines;
   }
@@ -17426,7 +17482,7 @@ void theMenuFitsThePlaceLikeTheMainScreen() {
   CHECK(clean(two, "menu, two lines"));
   CHECK(collisionFree(two, "menu, two lines"));
 
-  const std::string longer = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord, Grand Est, France";
+  const std::string longer = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord et du Sud";
   m.place = longer.c_str();
   Rendered cut;
   buildMenu(cut, m);
@@ -17435,19 +17491,82 @@ void theMenuFitsThePlaceLikeTheMainScreen() {
     const size_t dots = run.text.find("...");
     if (dots == std::string::npos) continue;
     ++marked;
-    // What is kept is whole words: the next letter of the name is a space or
-    // a comma.
+    // What is kept is whole words: the next letter of the name is a space.
     const std::string kept = run.text.substr(0, dots);
     const size_t at = longer.find(kept);
     CHECK(at != std::string::npos);
     if (at != std::string::npos) {
       const char next = longer[at + kept.size()];
-      if (next != ' ' && next != ',') std::printf("  weather menu cut a word: \"%s\"\n", run.text.c_str());
-      CHECK(next == ' ' || next == ',');
+      if (next != ' ') std::printf("  weather menu cut a word: \"%s\"\n", run.text.c_str());
+      CHECK(next == ' ');
     }
   }
   CHECK(marked == 1);
+  // And the region kept its line.
+  CHECK(drewExactly(cut, "Grand Est"));
   CHECK(clean(cut, "menu, cut"));
+}
+
+// The region is never the first thing lost: a name too long for its lines
+// gives way and the region keeps the last line, whole. A one-word name wider
+// than a line ("Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch")
+// took "Wales" down with it while a second line stood empty.
+void theRegionIsNeverTheFirstThingLost() {
+  const char* const kName = "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch";
+  const char* const kLonger = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord et du Sud";
+  for (const char* name : {kName, kLonger}) {
+    weatherui::MainModel main = fullWeek();
+    main.place = name;
+    main.region = "Wales";
+    Rendered a;
+    buildMain(a, main);
+    weatherui::MenuModel menu;
+    menu.place = name;
+    menu.region = "Wales";
+    menu.updated = "UPDATED 14:07";
+    Rendered b;
+    buildMenu(b, menu);
+    for (Rendered* out : {&a, &b}) {
+      CHECK(drewExactly(*out, "Wales"));
+      int nameLines = 0;
+      for (const auto& run : out->target.texts) {
+        if (run.text.rfind("Llanfair", 0) == 0 || run.text.rfind("Saint", 0) == 0) ++nameLines;
+        // Nothing ends on a comma before its ellipsis.
+        const bool dangling = run.text.find(",...") != std::string::npos || run.text.find(", ...") != std::string::npos;
+        if (dangling) std::printf("  weather: \"%s\" ends on a comma\n", run.text.c_str());
+        CHECK(!dangling);
+      }
+      CHECK(nameLines == 1);
+      CHECK(clean(*out, "a name that gives way to its region"));
+    }
+  }
+}
+
+// A region line that will not fit keeps whole parts: "North Rhine-
+// Westphalia..." rather than "North Rhine-Westphalia,...".
+void aRegionIsCutAtAWholePart() {
+  weatherui::SearchModel m = results(3);
+  m.rows[0].name = "M\xC3\xBCnster";
+  m.rows[0].region = "North Rhine-Westphalia, Germany, Western Europe, Earth";
+  m.rows[1].name = "Santo Domingo";
+  m.rows[1].region = "Distrito Nacional, Dominican Republic, Caribbean Islands";
+  Rendered out;
+  buildSearch(out, m);
+  bool sawCut = false;
+  for (const auto& run : out.target.texts) {
+    const size_t dots = run.text.find("...");
+    if (dots == std::string::npos) continue;
+    sawCut = true;
+    const bool dangling = dots > 0 && (run.text[dots - 1] == ',' || run.text[dots - 1] == ' ');
+    if (dangling) std::printf("  weather: \"%s\" ends on a comma\n", run.text.c_str());
+    CHECK(!dangling);
+    // What is kept is whole parts of the region.
+    const std::string kept = run.text.substr(0, dots);
+    const std::string region = run.text.rfind("North", 0) == 0 ? m.rows[0].region : m.rows[1].region;
+    CHECK(region.rfind(kept, 0) == 0 && region.compare(kept.size(), 2, ", ") == 0);
+  }
+  CHECK(sawCut);
+  CHECK(clean(out, "search, cut regions"));
 }
 
 // --- Every screen, every state ---------------------------------------------------------
@@ -17459,17 +17578,14 @@ void everyPlaceIsDrawnInAFaceWithItsLetters() {
   const char* const kNames[] = {"S\xC3\xA3o Bernardo do Campo, S\xC3\xA3o Paulo",
                                 "Saint-\xC3\x89tienne-du-Rouvray, Normandy",
                                 "M\xC3\xBCnster, North Rhine-Westphalia",
-                                ("L\xC3\xB3"
-                                 "dz, \xC5\x81odz Voivodeship"),
+                                "Lodz, Lodz Voivodeship",
                                 "Bad M\xC3\xBCnstereifel, North Rhine-Westphalia",
                                 ("Se\xC3\xB1ora de Gu\xC3\xA1nica y Pe\xC3\xB1\xC3\xBA"
                                  "elas, Puerto Rico")};
   for (const char* name : kNames) {
-    // The fake's own check is Latin-1, and the stroked L is what cleanName
-    // turns into a plain one before any screen sees it.
-    std::string place = name;
-    const size_t stroke = place.find("\xC5\x81");
-    if (stroke != std::string::npos) place.replace(stroke, 2, "L");
+    // As cleanName leaves them: Lodz is folded whole, since two of its
+    // letters are not in the reading cuts.
+    const std::string place = name;
 
     weatherui::MainModel main = fullWeek();
     main.place = place.c_str();
@@ -17988,6 +18104,7 @@ int main() {
   weathertest::mainDrawsTheWeekAndOnlyTheGearIsTappable();
   weathertest::mainSaysWhatTheRadioDidAndWhenInFull();
   weathertest::mainDrawsOnlyTheDaysItHas();
+  weathertest::aReadingFromAnotherDayIsNeverNow();
   weathertest::aDayWithNoSkyDrawsNoSky();
   weathertest::theChanceSaysWhatItIsAChanceOf();
   weathertest::aNegativeReadingHasAMinusAndRoom();
@@ -18002,6 +18119,8 @@ int main() {
   weathertest::searchSaysWhatHappened();
   weathertest::menuDoorsGoWhereTheySay();
   weathertest::theMenuFitsThePlaceLikeTheMainScreen();
+  weathertest::theRegionIsNeverTheFirstThingLost();
+  weathertest::aRegionIsCutAtAWholePart();
   weathertest::everyPlaceIsDrawnInAFaceWithItsLetters();
   weathertest::noScreenNamesItsProviderOrExplainsItself();
   weathertest::noWeatherScreenPrintsIntoAnything();
