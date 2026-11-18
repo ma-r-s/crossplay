@@ -37,6 +37,11 @@ UP DOWN POWER SLEEP HOME QUIT`. Coordinates are logical pixels; the X4 Pro is
 then grep for `Entering activity: X`". That is a real regression test and it
 runs headless.
 
+It also measures every screenshot it takes: a header whose back arrow or chip
+sits off its title's line fails the run with a `HEADER ROW` line saying by how
+many pixels (`tools_local/header_row_check.py`). A "before" shot of a bug it
+catches will fail too; that is the point of taking one.
+
 ### Landscape, and the one thing it breaks
 
 `renderer.setOrientation(LandscapeCounterClockwise)` gives 800x480 logical
@@ -221,6 +226,17 @@ did not test.
 FreeInkUI gives this for free: touch, focus and Confirm all resolve to the same
 semantic `ActionId`, so a row cannot behave differently depending on which input
 reached it. Prefer that over another pair of hand-written branches.
+
+### Words in the theme's band go on the theme's row
+
+An app that keeps the theme's header (`GUI.drawHeader`) but draws its own words
+in it -- Study's card count and its PHOTO pill -- places them on
+`HeaderLayoutRecord::last` (`src/components/HeaderLayoutRecord.h`): the rect of
+the back arrow the header drew, and the rect it laid its title in. Never on a
+middle of the band worked out by hand. The band includes the battery strip and
+the theme's row sits below it, so Study's count, centred on the whole band, sat
+12.5px above its own back arrow until 2026-11-17, through three changes and two
+rounds of screenshots.
 
 ### Hit-testing must share geometry with drawing
 

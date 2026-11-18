@@ -537,6 +537,47 @@ void checkBandTextClearsChips(const FakeTarget& target, const fui::Rect& band) {
   }
 }
 
+// The back control and the title share one line. Study's count once sat
+// 12.5px above its own back arrow because two pieces of code each placed half
+// of the row; this asks every header render the same question the screenshot
+// check (tools_local/header_row_check.py) asks every simulator shot, so a
+// header drawn by this library cannot drift either. Ink to ink: the control's
+// box centre (icons and chips are drawn centred in their boxes) against the
+// title's capital ink, never the title's line box.
+int headerRowsMeasured = 0;
+void checkBandRowAligned(const FakeTarget& target, const fui::Rect& band) {
+  if (band.height == 0) return;
+  fui::Rect control{};
+  bool found = false;
+  const auto consider = [&](const fui::Rect& r) {
+    if (r.bottom() > band.height || r.x >= 60 || r.height < 14 || r.width >= 90) return;
+    if (!found || r.x < control.x || (r.x == control.x && r.height > control.height)) {
+      control = r;
+      found = true;
+    }
+  };
+  for (const auto& blit : target.blits) consider(blit.rect);
+  for (const auto& stroke : target.strokes) consider(stroke.rect);
+  if (!found) return;
+  const FakeTarget::TextRun* title = nullptr;
+  for (const auto& run : target.texts) {
+    if (run.text.empty() || run.style.maxLines > 1 || run.rect.bottom() > band.height) continue;
+    const int gap = run.rect.x - control.right();
+    if (gap < 0 || gap > 60) continue;
+    if (title == nullptr || run.rect.x < title->rect.x) title = &run;
+  }
+  if (title == nullptr) return;
+  ++headerRowsMeasured;
+  const fui::Rect ink = inkBandOf(*title);
+  const int controlMid2 = 2 * control.y + control.height;  // doubled: no half pixels lost
+  const int titleMid2 = 2 * ink.y + ink.height;
+  if (std::abs(controlMid2 - titleMid2) <= 2 * 3) return;
+  ++checksFailed;
+  std::printf("FAIL header row: [%s] control [%d,%d %dx%d] centred at %.1f, title ink centred at %.1f\n",
+              title->text.substr(0, 40).c_str(), control.x, control.y, control.width, control.height, controlMid2 / 2.0,
+              titleMid2 / 2.0);
+}
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -580,6 +621,7 @@ struct Rendered {
     const fui::Rect band = bandRectOf(target);
     ++checksRun;
     checkBandTextClearsChips(target, band);
+    checkBandRowAligned(target, band);
     if (band.height == 0) {
       // Not a header render: a popup, a headerless play screen (Forehead's
       // round, every Wavelength screen), or a build that drew nothing. Counted
@@ -15264,6 +15306,7 @@ int main() {
 
   std::printf("chrome probe: %d header renders measured, %d renders had no band\n", chromeScreensMeasured,
               chromeScreensSkipped);
+  std::printf("header row probe: %d headers had a back control beside a title\n", headerRowsMeasured);
   // The probe measuring nothing is a silent regression, not a pass. This number
   // only goes up as screens are added; if it collapses, the renders stopped
   // drawing chrome and the probe quietly stopped being a check.

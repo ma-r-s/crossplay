@@ -13,7 +13,7 @@
 #include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
-#include "../../components/HeaderBackTapTarget.h"
+#include "../../components/HeaderLayoutRecord.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
@@ -1718,26 +1718,22 @@ void StudyActivity::render(RenderLock&&) {
   } else {
     std::snprintf(title, sizeof(title), "STUDY");
   }
-  // The band, the rule and the battery come from the theme; the two things
-  // inside it are placed here.
-  //
-  // Not stubbornness. GUI.drawHeader does not centre its title in the band it
-  // is given -- measured, the title's cap sits 13px below centre while a pill
-  // centred in the same band sits on it. Matching the title would have made
-  // the two agree with each other and both look low, which is the thing that
-  // felt wrong in the first place. Passing an empty title and placing both
-  // ourselves is the smallest change that puts them where they belong, and the
-  // chrome is still the theme's.
+  // The band, the rule, the battery and (on a touch panel) the back arrow come
+  // from the theme. The count and the pill are Study's, in the toybox face, so
+  // the theme draws an empty title and these go on the row the theme laid out:
+  // after the arrow, centred on the arrow's line. Never on a middle of the band
+  // worked out here. The band includes the battery strip and the theme's row
+  // sits below it, so a title centred on the whole band floated 12px above its
+  // own arrow.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
   GUI.drawHeader(renderer, headerBand, "");
+  const freeink::ui::HeaderLayout& row = HeaderLayoutRecord::last;
+  const freeink::ui::Rect& line = row.leading.width > 0 ? row.leading : row.title;
 
-  // The theme puts a back arrow at the start of the band on a touch panel,
-  // and a tap on it is Back. The title starts after it rather than on top of
-  // it ("2 LEFT" was drawn through the arrow since the 1.13.28 sync).
-  const int titleX = HeaderBackTapTarget::w > 0 ? HeaderBackTapTarget::x + HeaderBackTapTarget::w + 4 : toybox::kMargin;
+  const int titleX = row.title.x;
   if (title[0] != '\0') {
-    toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, headerBand.y, headerBand.height, title, true);
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, line.y, line.height, title, true);
   }
   // Where the card count ends, measured on the photograph too, where it is not
   // drawn: the pill below keeps clear of it, and has to land in the same place
@@ -1764,7 +1760,7 @@ void StudyActivity::render(RenderLock&&) {
     // Centred, unless the count reaches it ("256 LEFT" did once the count
     // moved clear of the back arrow): then just after the count.
     const int pillX = std::max((width - pillWidth) / 2, countEnd + kPillPadding);
-    const int pillY = headerBand.y + (headerBand.height - kPillHeight) / 2;
+    const int pillY = line.y + (line.height - kPillHeight) / 2;
 
     renderer.fillRoundedRect(pillX, pillY, pillWidth, kPillHeight, kPillHeight / 2, White);
     renderer.drawRoundedRect(pillX, pillY, pillWidth, kPillHeight, toybox::kHairline, kPillHeight / 2, true);
