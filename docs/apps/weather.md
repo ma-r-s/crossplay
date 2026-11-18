@@ -51,7 +51,9 @@ Celsius or Fahrenheit, and UPDATE NOW.
   time: the side keys and a vertical swipe turn the page, and a row of page
   numbers at the foot, the shelf's, is a door to each. A search that found
   nothing or failed puts the keyboard back up with what was typed, since the
-  answer to both is to type or press GO. The menu changes the city. The place
+  answer to both is to type or press GO, and each says so in a second line:
+  "Check the spelling, or try a larger town nearby.", "Press GO to try
+  again." (or "Not connected to Wi-Fi." without the radio). The menu changes the city. The place
   lives in `/.crosspoint/weather/place.txt`.
 - **Units follow the city's country until the player chooses.** Fahrenheit for
   the United States, its territories, the Bahamas, Belize, the Cayman Islands,

@@ -775,8 +775,10 @@ SearchLayout buildSearch(toybox::Screen& screen, const SearchModel& model, Names
       return layout;
     }
     case SearchModel::State::Failed:
+      // A second line like a missed search's: what to do, never why. The
+      // keyboard is up again, so GO is on the screen.
       say("Could not search.", toybox::kBodyFont);
-      if (model.offline) say("Not connected to Wi-Fi.", toybox::kSmallFont);
+      say(model.offline ? "Not connected to Wi-Fi." : "Press GO to try again.", toybox::kSmallFont);
       return layout;
     case SearchModel::State::Results:
       break;

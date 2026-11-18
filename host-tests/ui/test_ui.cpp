@@ -17344,6 +17344,9 @@ void searchSaysWhatHappened() {
   buildSearch(failed, m);
   CHECK(drewText(failed, "Could not search."));
   CHECK(!drewText(failed, "Wi-Fi"));
+  // A second line of advice, as a missed search has: what to do, not why.
+  CHECK(drewExactly(failed, "Press GO to try again."));
+  CHECK(clean(failed, "search, failed"));
 
   m.state = weatherui::SearchModel::State::Searching;
   Rendered busy;
