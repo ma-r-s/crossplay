@@ -66,8 +66,10 @@ src = re.sub(r"//[^\n]*", "", open(sys.argv[1]).read())
 calls = re.findall(r"startDeepSleepArmed\(([^;{}]*)\);", src)
 bad = [c for c in calls if c.strip() == "kTimerWakeMicros"]
 fails = 0
-if len(calls) != 4:
-    print("FAIL live  found %d startDeepSleepArmed calls in main.cpp, expected 4 (enterDeepSleep, the timer wake, and the two re-sleeps); read the new one and add it here" % len(calls))
+# Five since CrossPoint 2.0's EEGO A4 wake-hold check (#4407) added a third
+# re-sleep beside the ghost-wake and USB-power ones.
+if len(calls) != 5:
+    print("FAIL live  found %d startDeepSleepArmed calls in main.cpp, expected 5 (enterDeepSleep, the timer wake, and the three re-sleeps); read the new one and add it here" % len(calls))
     fails += 1
 for c in bad:
     print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s): 0 on a release build, so Live's alarm is dropped (card #620)" % c.strip())
@@ -79,6 +81,13 @@ for c in calls:
     if not any(a in c for a in allowed):
         print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s), which is not Live's number" % c.strip())
         fails += 1
+# And nothing sleeps around it: a bare powerManager.startDeepSleep() outside
+# startDeepSleepArmed() arms no timer at all, which is the same dropped alarm.
+armed_body = re.search(r"static void startDeepSleepArmed\([^)]*\)\s*\{(.*?)\n\}", src, re.S)
+outside = src.replace(armed_body.group(0), "") if armed_body else src
+for direct in re.findall(r"powerManager\.startDeepSleep\(([^;]*)\);", outside):
+    print("FAIL live  main.cpp calls powerManager.startDeepSleep(%s) directly, which drops Live's alarm; use startDeepSleepArmed" % direct)
+    fails += 1
 m = re.search(r"resleepTimerMicros\(\)\s*\{(.*?)\n\}", src, re.S)
 if not m or "live::engine::resleepSeconds()" not in m.group(1):
     print("FAIL live  resleepTimerMicros() no longer asks live::engine::resleepSeconds()")
@@ -138,6 +147,8 @@ both = re.search(r"void\s+PowerManager::deepSleepUntilPowerButtonOrTimer\(\s*con
 check(both is not None and "armTimerWakeup(micros)" in both.group(1) and "deepSleep()" in both.group(1),
       "freeink-sdk deepSleepUntilPowerButtonOrTimer no longer arms the timer before sleeping")
 
+check(re.search(r"static\s+void\s+startDeepSleepArmed\(\s*bool\s*\)\s*=\s*delete;", main) is not None,
+      "main.cpp no longer deletes startDeepSleepArmed(bool): a bool in the timer slot is a 1us timer")
 armed = re.search(r"static\s+void\s+startDeepSleepArmed\((.*?)\)\s*\{(.*?)\n\}", main, re.S)
 check(armed is not None, "main.cpp startDeepSleepArmed not found")
 if armed:
