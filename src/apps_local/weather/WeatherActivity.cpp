@@ -683,10 +683,13 @@ weatherui::MainModel WeatherActivity::mainModel() {
     return model;
   }
   model.hasForecast = true;
-  model.hasNow = f.nowC != weather::kNoTemp;
-  if (model.hasNow) model.now = weather::displayTemp(f.nowC, units);
-  model.nowIcon = weather::skyIcon(f.nowCode, f.isDay);
-  model.sky = weather::skyWords(f.nowCode);
+  // The reading is now only on the day it was taken; on a later one, after a
+  // failed update or with the radio declined, today's row stands in.
+  const weather::Now reading = weather::nowFor(cache_, now);
+  model.hasNow = reading.reading && reading.tempC != weather::kNoTemp;
+  if (model.hasNow) model.now = weather::displayTemp(reading.tempC, units);
+  model.nowIcon = weather::skyIcon(reading.code, reading.isDay);
+  model.sky = weather::skyWords(reading.code);
   model.today = rowFor(f.days[first], units);
   model.chance = weather::chanceWord(f.days[first].code);
   for (int i = first + 1; i < f.dayCount && model.dayCount < weatherui::kRows; ++i) {

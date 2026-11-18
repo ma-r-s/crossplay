@@ -140,6 +140,20 @@ bool cacheIsFor(const Cache& cache, const Place& place);
 // the coming one and is never drawn as if it were.
 int firstDay(const Cache& cache, int64_t nowUtc);
 
+// What the card can say about now. The reading taken with the forecast, when
+// that was today in the place's own time (or the clock cannot say); on any
+// later day there is no reading for now, only today's row of the forecast,
+// whose sky stands in as a day and whose temperatures are a high and a low,
+// not a now. A reading from Sunday drawn as now on Wednesday showed Sunday's
+// "7 PARTLY CLOUDY" over Wednesday's overcast "H 5 L 0".
+struct Now {
+  bool reading = false;     // tempC is a reading taken today
+  int16_t tempC = kNoTemp;  // tenths of a degree C; kNoTemp unless `reading`
+  int16_t code = -1;        // the sky for now: the reading's, or today's row's
+  bool isDay = true;
+};
+Now nowFor(const Cache& cache, int64_t nowUtc);
+
 // "UPDATED 14:07", "UPDATED YESTERDAY 14:07", "UPDATED MON 14:07" or
 // "UPDATED 12 NOV": when the forecast was read, in the place's own time,
 // against today when the clock knows it.

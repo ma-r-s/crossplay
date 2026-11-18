@@ -16951,6 +16951,57 @@ void mainSaysWhatTheRadioDidAndWhenInFull() {
   CHECK(!drewText(current, "OFFLINE"));
 }
 
+// The forecast on the card was read on an earlier day and the update failed:
+// there is no reading for now, so no number is drawn where now goes, and
+// today's sky stands in at its left edge, then today's words and range.
+void aReadingFromAnotherDayIsNeverNow() {
+  weatherui::MainModel m = fullWeek();
+  m.hasNow = false;
+  m.nowIcon = weather::Icon::Cloud;
+  m.sky = "OVERCAST";
+  m.status = weatherui::Status::Failed;
+  m.updated = "UPDATED SUN 19:03";
+  Rendered out;
+  buildMain(out, m);
+  for (const auto& run : out.target.texts) {
+    weatherui::Face face{};
+    const bool huge = faceOf(run, face) && face == weatherui::Face::Huge;
+    if (huge) std::printf("  weather: \"%s\" drawn where now goes\n", run.text.c_str());
+    CHECK(!huge);
+  }
+  // Today's sky, its ink at the left margin, a group under the place and a
+  // line over today's words.
+  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* words = runAt(out, "OVERCAST");
+  CHECK(place && words);
+  bool found = false;
+  for (const auto& blit : out.target.blits) {
+    if (blit.rect.width != 88) continue;
+    found = true;
+    const fui::Rect ink = inkOf(blit);
+    CHECK(ink.x == toybox::kMargin);
+    if (place && words) {
+      CHECK(ink.y - inkOf(*place).bottom() == 36);
+      CHECK(inkOf(*words).y - ink.bottom() == 12);
+    }
+  }
+  CHECK(found);
+  CHECK(drewExactly(out, "H"));
+  CHECK(clean(out, "main, no reading"));
+  CHECK(collisionFree(out, "main, no reading"));
+
+  // No sky for today either: the words of the range line follow the place.
+  m.nowIcon = weather::Icon::None;
+  m.sky = "";
+  Rendered bare;
+  buildMain(bare, m);
+  const FakeTarget::TextRun* place2 = runAt(bare, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* h = runAt(bare, "H");
+  CHECK(place2 && h);
+  if (place2 && h) CHECK(inkOf(*h).y - inkOf(*place2).bottom() == 36);
+  CHECK(clean(bare, "main, no reading, no sky"));
+}
+
 void mainDrawsOnlyTheDaysItHas() {
   weatherui::MainModel m = fullWeek();
   m.dayCount = 4;
@@ -17918,6 +17969,7 @@ int main() {
   weathertest::mainDrawsTheWeekAndOnlyTheGearIsTappable();
   weathertest::mainSaysWhatTheRadioDidAndWhenInFull();
   weathertest::mainDrawsOnlyTheDaysItHas();
+  weathertest::aReadingFromAnotherDayIsNeverNow();
   weathertest::aDayWithNoSkyDrawsNoSky();
   weathertest::theChanceSaysWhatItIsAChanceOf();
   weathertest::aNegativeReadingHasAMinusAndRoom();

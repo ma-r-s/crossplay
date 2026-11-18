@@ -455,8 +455,6 @@ void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, con
   label(line.pct.c_str());
 }
 
-std::string nowText(const MainModel& model) { return model.hasNow ? number(model.now) : std::string("--"); }
-
 // The week's columns, measured from THIS week's strings, a gutter apart:
 // day | sky | chance | low | the bar | high. Nothing is reserved for a string
 // that is not on screen, so no dead band opens between two columns, and a
@@ -508,8 +506,15 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
 
   // The whole composition, gaps first; when it will not fit with a margin to
   // spare, the rows close up to a gutter, then the groups to two.
+  // The hero is the reading now when there is one: its number, its sky at
+  // the right edge. Without one (the forecast was read on an earlier day) it
+  // is today's sky alone, at the left edge where the number would be, and no
+  // number at all: a reading from another day is never drawn as now.
+  const freeink::Icon* heroSky = skyBitmap(model.nowIcon, 88);
+  const int16_t heroHeight =
+      model.hasNow ? capOf(screen, toybox::kDisplayFont) : (heroSky ? toybox::iconInk(*heroSky).height : int16_t{0});
   int rowsAt[kRows] = {};
-  int place = 0, hero = 0, sky = -1, range = 0, state = -1, updated = -1, rule = -1;
+  int place = 0, hero = -1, sky = -1, range = 0, state = -1, updated = -1, rule = -1;
   Column column;
   const int16_t room = static_cast<int16_t>(spanBottom(screen) - spanTop() - 2 * kMargin);
   for (const int16_t tighten : {int16_t{0}, int16_t{1}, int16_t{2}}) {
@@ -517,9 +522,16 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
     const int16_t groupGap = tighten > 1 ? kRowGap : kGroupGap;
     column = Column{};
     place = column.add(0, placeInk);
-    hero = column.add(groupGap, capOf(screen, toybox::kDisplayFont));
-    sky = model.sky[0] ? column.add(kLineGap, capOf(screen, toybox::kUiFont)) : -1;
-    range = column.add(kLineGap, capOf(screen, toybox::kUiFont));
+    // The first block under the place is a group away, the rest a line.
+    int16_t gap = groupGap;
+    const auto next = [&gap](Column& c, const int16_t height) {
+      const int index = c.add(gap, height);
+      gap = kLineGap;
+      return index;
+    };
+    hero = heroHeight > 0 ? next(column, heroHeight) : -1;
+    sky = model.sky[0] ? next(column, capOf(screen, toybox::kUiFont)) : -1;
+    range = next(column, capOf(screen, toybox::kUiFont));
     state = status[0] ? column.add(kLineGap, smallCap) : -1;
     updated = model.updated[0] ? column.add(kLineGap, smallCap) : -1;
     rule = days > 0 ? column.add(groupGap, toybox::kHairline) : -1;
@@ -529,13 +541,21 @@ int16_t weekBlock(toybox::Screen& screen, const MainModel& model, const int16_t 
   column.centre(spanTop(), spanBottom(screen), kMargin);
 
   // The reading: the number at the left edge, its sky with its ink centred on
-  // the number's capitals at the right edge, then the lines under it.
-  const int16_t heroTop = column.top(hero);
-  tempAt(screen, body.x, heroTop, toybox::kDisplayFont, nowText(model));
-  if (const freeink::Icon* icon = skyBitmap(model.nowIcon, 88)) {
-    const fui::Rect drawn = toybox::iconInk(*icon);
-    iconCentred(screen, *icon, static_cast<int16_t>(right - drawn.width / 2),
-                static_cast<int16_t>(heroTop + capOf(screen, toybox::kDisplayFont) / 2));
+  // the number's capitals at the right edge, then the lines under it. With no
+  // reading, today's sky alone with its ink at the left edge.
+  if (hero >= 0) {
+    const int16_t heroTop = column.top(hero);
+    if (model.hasNow) {
+      tempAt(screen, body.x, heroTop, toybox::kDisplayFont, number(model.now));
+      if (heroSky) {
+        const fui::Rect drawn = toybox::iconInk(*heroSky);
+        iconCentred(screen, *heroSky, static_cast<int16_t>(right - drawn.width / 2),
+                    static_cast<int16_t>(heroTop + capOf(screen, toybox::kDisplayFont) / 2));
+      }
+    } else {
+      const fui::Rect drawn = toybox::iconInk(*heroSky);
+      blit(screen, *heroSky, static_cast<int16_t>(body.x - drawn.x), static_cast<int16_t>(heroTop - drawn.y));
+    }
   }
   if (sky >= 0) textAt(screen, body.x, column.top(sky), body.width, toybox::kUiFont, model.sky);
   drawRangeLine(screen, rangeLine(screen, model, toybox::kUiFont), body.x, column.top(range), toybox::kUiFont);

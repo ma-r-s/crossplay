@@ -501,6 +501,33 @@ void testFirstDayFollowsTheClock() {
   CHECK(weather::firstDay(c, kNovember17 - 5 * kDay) == 0);
 }
 
+// A reading is "now" only on the day it was taken, in the place's own time.
+void testNowIsOnlyTodaysReading() {
+  const weather::Cache c = zurichCache();
+  // The day it was read: the reading, as it was.
+  weather::Now n = weather::nowFor(c, kNovember17 + 3600);
+  CHECK(n.reading);
+  CHECK(n.tempC == c.forecast.nowC);
+  CHECK(n.code == c.forecast.nowCode);
+  // No clock: nothing says it is old, so it stands.
+  CHECK(weather::nowFor(c, 0).reading);
+  // The next day, and three days on: no reading for now, and the sky is
+  // today's row's, as a day.
+  for (const int later : {1, 3}) {
+    n = weather::nowFor(c, kNovember17 + later * kDay);
+    CHECK(!n.reading);
+    CHECK(n.tempC == weather::kNoTemp);
+    CHECK(n.code == c.forecast.days[later].code);
+    CHECK(n.isDay);
+  }
+  // 00:30 in Zurich is already the next day there, though 23:30 UTC is not.
+  CHECK(!weather::nowFor(c, kNovember17 + 10 * 3600 + 23 * 60).reading);
+  // Every day past: no reading and no sky.
+  n = weather::nowFor(c, kNovember17 + 30 * kDay);
+  CHECK(!n.reading);
+  CHECK(n.code == -1);
+}
+
 void testUpdatedLabel() {
   weather::Cache c = zurichCache();
   // 13:07 UTC is 14:07 in Zurich.
@@ -668,6 +695,7 @@ int main() {
   testCacheRefusesDamage();
   testCacheBelongsToItsPlace();
   testFirstDayFollowsTheClock();
+  testNowIsOnlyTodaysReading();
   testUpdatedLabel();
   testWeekdays();
   testSkies();

@@ -124,6 +124,9 @@ struct MainModel {
   // not the coming one.
   bool stale = false;
 
+  // A reading taken today: its temperature is drawn as now. Without one (the
+  // forecast was read on an earlier day, or the reading has no temperature)
+  // no number is drawn, and nowIcon and sky are today's row's.
   int now = 0;
   bool hasNow = false;
   weather::Icon nowIcon = weather::Icon::None;

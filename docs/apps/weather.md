@@ -35,6 +35,12 @@ Celsius or Fahrenheit, and UPDATE NOW.
   are two lines, so neither is ever cut to fit the other. With nothing on the
   card yet the screen says so (`NO FORECAST YET`, `COULD NOT GET THE FORECAST`)
   and offers TRY AGAIN. It is never blank.
+- **A reading from an earlier day is never drawn as now.** The temperature
+  and sky taken with the forecast are "now" only on the day they were taken,
+  in the place's own time (`weather::nowFor`). On a later day, after a failed
+  update or with Wi-Fi declined, there is no number where now goes: today's
+  sky stands at the left edge, then today's words, high, low and chance, all
+  from today's row of the forecast, which is what the card knows about today.
 - **A week that has happened is not drawn as the coming one.** Only today and
   the days after it are rows. When every day on the card is past, the screen
   shows the place, `NO FORECAST FOR TODAY`, when it was read, and UPDATE NOW,

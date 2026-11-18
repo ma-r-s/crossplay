@@ -801,6 +801,33 @@ int firstDay(const Cache& cache, const int64_t nowUtc) {
   return -1;
 }
 
+Now nowFor(const Cache& cache, const int64_t nowUtc) {
+  const Forecast& f = cache.forecast;
+  Now now;
+  bool today = true;
+  if (nowUtc > 0) {
+    int64_t readingDay = 0;
+    int hour = 0, minute = 0;
+    bool dated = parseLocalTime(f.localTime, readingDay, hour, minute);
+    if (!dated && cache.fetchedUtc > 0) {
+      readingDay = floorDiv(cache.fetchedUtc + f.utcOffset, 86400);
+      dated = true;
+    }
+    // A reading nothing dates is not drawn as now either.
+    today = dated && readingDay >= floorDiv(nowUtc + f.utcOffset, 86400);
+  }
+  if (today) {
+    now.reading = true;
+    now.tempC = f.nowC;
+    now.code = f.nowCode;
+    now.isDay = f.isDay;
+    return now;
+  }
+  const int first = firstDay(cache, nowUtc);
+  if (first >= 0) now.code = f.days[first].code;
+  return now;
+}
+
 std::string updatedLabel(const Cache& cache, const int64_t nowUtc, const bool twelveHour) {
   const Forecast& f = cache.forecast;
   int64_t fetchDay = 0;
