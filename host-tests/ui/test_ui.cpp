@@ -177,6 +177,11 @@ class FakeTarget final : public fui::DrawTarget {
   // one paragraph gaining a line while another loses one -- that a check
   // counting lines cannot see at all.
   std::vector<std::pair<std::string, int16_t>> kerns;
+  // One cell per CHARACTER rather than per byte. Off by default like the two
+  // above. The keyboard test needs it: a key cap is one letter, and at a byte
+  // a cell an "ü" or a "й" would read as two letters wide and fail a key it
+  // fits on the panel.
+  bool perCodePoint = false;
 
   fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
     ++measureCalls;
@@ -189,7 +194,14 @@ class FakeTarget final : public fui::DrawTarget {
       }
     }
     if (style.bold) cell = static_cast<int16_t>(cell + boldBonus);
-    int32_t w = static_cast<int32_t>(std::strlen(text)) * cell;
+    int32_t chars = static_cast<int32_t>(std::strlen(text));
+    if (perCodePoint) {
+      chars = 0;
+      for (const char* c = text; *c != 0; ++c) {
+        if ((static_cast<unsigned char>(*c) & 0xC0) != 0x80) ++chars;
+      }
+    }
+    int32_t w = chars * cell;
     if ((kernBonus != 0 && !kernSeq.empty()) || !kerns.empty()) {
       const std::string run(text);
       if (kernBonus != 0 && !kernSeq.empty()) {
@@ -14582,6 +14594,108 @@ void testWikipediaInstallNamesTheLanguage() {
   CHECK(blank.target.drew("Choose the language on the page."));
 }
 
+// --- The keyboard draws every key label whole -------------------------------
+//
+// German search drew its Shift key as "Sh..." (card #651). "Shift" is 53.6px in
+// the body face, and an eleven-key row leaves its one-and-a-half-unit shift
+// key 53.5px inside the button's padding, so the renderer cut it. Nothing
+// asserted anything about it: the label was handed over whole, and it is the
+// renderer that shortens a run wider than its rect, so every "did it draw"
+// check passed.
+//
+// The keyboard decides its own labels, so this drives the component itself
+// rather than one app: every built-in layout and every layer, both theme gaps
+// (0 for Base and Lyra, 10 for RoundedRaff), the Shift label in each of its
+// translations, and glyph cells from narrower to wider than the panel's face.
+// Wikipedia's search and Weather's city search pass exactly these props.
+void testNoKeyboardLabelIsElided() {
+  using Id = fui::KeyboardLayoutId;
+  static const Id kIds[] = {Id::QwertyEn,   Id::AzertyFr,   Id::QwertzDe,   Id::SpanishEs,
+                            Id::CyrillicRu, Id::CyrillicUk, Id::CyrillicBe, Id::CyrillicKk,
+                            Id::HebrewIl,   Id::ArabicAr,   Id::GreekEl};
+  // Every distinct STR_KEY_SHIFT in lib/I18n/translations.
+  static const char* const kShift[] = {"Shift", "Maj", "Mayús", "Posuň", "OOk!", "Maiúsculas"};
+  static const int16_t kGaps[] = {0, 10};
+  static const int16_t kCells[] = {8, 10, 12, 14};
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  int elided = 0;
+  int boards = 0;
+  bool englishSaysShift = false;
+  bool germanSaysShift = false;
+  bool germanCutShift = false;
+  bool germanArrow = false;
+  std::string firstCut;
+  for (const Id id : kIds) {
+    for (int layer = 0; layer < 16; ++layer) {
+      const bool shifted = (layer & 1) != 0;
+      const bool symbols = (layer & 2) != 0;
+      const bool numberRow = (layer & 4) != 0;
+      const bool langKey = (layer & 8) != 0;
+      const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, numberRow, langKey);
+      for (const int16_t gap : kGaps) {
+        for (const int16_t cell : kCells) {
+          for (const char* shift : kShift) {
+            FakeTarget target;
+            target.charW = cell;
+            target.perCodePoint = true;
+            fui::InteractionBuffer<56> table;
+            const fui::DeviceContext ctx = device();
+            const fui::InputSnapshot noInput{};
+            fui::Frame<56> frame(target, ctx, noInput, table);
+            fui::KeyboardProps props;
+            props.layout = &layout;
+            props.keyAction = 1;
+            props.okLabel = "GO";
+            props.shiftLabel = shift;
+            props.modeLabel = symbols ? "abc" : "?123";
+            props.inputMask = static_cast<uint16_t>(fui::InputTouch);
+            props.labelText.font = toybox::kBodyFont;
+            props.altText.font = toybox::kSmallFont;
+            props.gap = gap;
+            props.padding = fui::Insets{0, 0, 0, 0};
+            // WikipediaActivity::keyboardRect(): 94% of the panel, 56px rows.
+            const int16_t rows = layout.rowCount;
+            const int16_t height = static_cast<int16_t>(rows * 56 + (rows - 1) * gap);
+            const fui::Rect kb{14, static_cast<int16_t>(800 - 8 - height), 451, height};
+            fui::keyboard(frame, kb, props);
+            ++boards;
+            for (const auto& run : target.texts) {
+              const int16_t wide = target.measureText(run.style.font, run.text.c_str(), run.style).width;
+              if (run.style.maxLines == 1 && wide > run.rect.width) {
+                if (firstCut.empty()) {
+                  char where[160];
+                  std::snprintf(where, sizeof where, "layout %d layer %d gap %d cell %d: \"%s\" %dpx in %dpx",
+                                static_cast<int>(id), layer, gap, cell, run.text.c_str(), wide, run.rect.width);
+                  firstCut = where;
+                }
+                ++elided;
+                if (id == Id::QwertzDe && run.text == "Shift") germanCutShift = true;
+              }
+            }
+            // Where the label fits it stays: English at the panel's own gap,
+            // and German once its cell is narrow enough.
+            const bool letters = !symbols && std::strcmp(shift, "Shift") == 0;
+            if (letters && gap == 0 && cell == 10 && id == Id::QwertyEn) englishSaysShift = target.drew("Shift");
+            if (letters && gap == 0 && cell == 8 && id == Id::QwertzDe) germanSaysShift = target.drew("Shift");
+            // Where it does not, the key carries the arrow the system keyboard
+            // draws, never a cut word.
+            if (letters && gap == 0 && cell == 12 && id == Id::QwertzDe) {
+              for (const auto& blit : target.blits) germanArrow |= blit.data == arrow.data;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!firstCut.empty()) std::printf("  first elided key label: %s\n", firstCut.c_str());
+  check(elided == 0, "no key label on any built-in keyboard is cut short", __LINE__);
+  check(!germanCutShift, "the German Shift key is never drawn as a cut word", __LINE__);
+  check(boards == 11 * 16 * 2 * 4 * 6, "every layout, layer, gap, cell and Shift label was drawn", __LINE__);
+  check(englishSaysShift, "English still says Shift where it fits", __LINE__);
+  check(germanSaysShift, "German says Shift too where its key is wide enough", __LINE__);
+  check(germanArrow, "a German Shift key too narrow for the word draws the shift arrow", __LINE__);
+}
+
 // --- Notes: every line of a long item is drawn, fits, and is struck --------
 //
 // Mario, 2026-09-28: "a done task that takes two lines doesnt cross both lines,
@@ -15596,6 +15710,7 @@ int main() {
   testWikipediaChooserFitsEveryPack();
   testWikipediaHomeBandNamesTheLanguage();
   testWikipediaInstallNamesTheLanguage();
+  testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();
