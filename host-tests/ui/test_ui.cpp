@@ -505,6 +505,38 @@ std::string bandLabel(const FakeTarget& t, const fui::Rect& band) {
   return "?";
 }
 
+// A text box that crosses a drawn outline without sitting inside it: a title
+// running into a header chip, a label over a button's border. Card #759: the
+// Wikipedia article's title ran into its back chip for weeks, because every
+// probe here asked whether content cleared the CHROME and none asked whether
+// two things inside it cleared each other. Measured on every render, like the
+// chrome probe, so no screen has to remember to ask.
+bool rectsCross(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+bool rectInside(const fui::Rect& inner, const fui::Rect& outer) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.right() <= outer.right() && inner.bottom() <= outer.bottom();
+}
+// Inside the header band only. Everywhere else a text box (the line box, taller
+// than its ink) legitimately crosses outlines: fanned cards, a digit seated on a
+// tile's top edge. In the band every outline is a chip and every text run is a
+// title, a label or a chip's own word, so a crossing is always a defect.
+void checkBandTextClearsChips(const FakeTarget& target, const fui::Rect& band) {
+  if (band.height == 0) return;
+  for (const auto& run : target.texts) {
+    if (run.text.empty() || run.rect.width <= 0 || run.rect.height <= 0 || run.rect.y >= band.bottom()) continue;
+    for (const auto& stroke : target.strokes) {
+      if (stroke.width == 0 || stroke.rect.y >= band.bottom()) continue;
+      if (!rectsCross(run.rect, stroke.rect) || rectInside(run.rect, stroke.rect)) continue;
+      ++checksFailed;
+      std::printf("FAIL band text: \"%s\" [%d,%d %dx%d] runs into a chip [%d,%d %dx%d]\n",
+                  run.text.substr(0, 40).c_str(), run.rect.x, run.rect.y, run.rect.width, run.rect.height,
+                  stroke.rect.x, stroke.rect.y, stroke.rect.width, stroke.rect.height);
+      break;
+    }
+  }
+}
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -546,6 +578,8 @@ struct Rendered {
   // probe above for why this is not a per-screen assertion.
   ~Rendered() {
     const fui::Rect band = bandRectOf(target);
+    ++checksRun;
+    checkBandTextClearsChips(target, band);
     if (band.height == 0) {
       // Not a header render: a popup, a headerless play screen (Forehead's
       // round, every Wavelength screen), or a build that drew nothing. Counted
@@ -4534,6 +4568,60 @@ hnui::ReaderModel articleModel() {
   model.canPagePrev = false;
   model.canPageNext = true;
   return model;
+}
+
+// Mario 2026-11-17, on the review shots: "I see some stuff overlapping". The
+// Wikipedia article's title ran into its outlined back chip, and a reader's
+// page count into its SAVE chip. Both are the header component's placement,
+// so both are measured on the real screens: every text box in the band clears
+// every outlined chip in it.
+std::vector<fui::Rect> bandChips(const Rendered& out) {
+  std::vector<fui::Rect> chips;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.y < toybox::kHeaderHeight && stroke.rect.height >= 24) chips.push_back(stroke.rect);
+  }
+  std::sort(chips.begin(), chips.end(), [](const fui::Rect& a, const fui::Rect& b) { return a.x < b.x; });
+  return chips;
+}
+
+const FakeTarget::TextRun* runOf(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text) return &run;
+  }
+  return nullptr;
+}
+
+void testHeaderTextClearsItsChips() {
+  constexpr int kClear = 6;
+  {
+    Rendered wiki;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(wiki.target, ctx, noInput, wiki.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      wikiui::ArticleChromeModel model;
+      model.title = "Pharming (genetics)";
+      wikiui::buildArticleChrome(screen, model);
+    }
+    const auto chips = bandChips(wiki);
+    const auto* title = runOf(wiki, "Pharming (genetics)");
+    CHECK(title != nullptr && chips.size() >= 2);
+    if (title != nullptr && chips.size() >= 2) {
+      CHECK(title->rect.x >= chips.front().right() + kClear);
+      CHECK(title->rect.right() <= chips.back().x - kClear);
+    }
+  }
+  {
+    Rendered hn;
+    hnui::ReaderModel model = articleModel();
+    model.canSave = true;
+    buildHnReader(hn, model);
+    const auto chips = bandChips(hn);
+    const auto* label = runOf(hn, "1/3");
+    CHECK(label != nullptr && !chips.empty());
+    if (label != nullptr && !chips.empty()) CHECK(label->rect.right() <= chips.back().x - kClear);
+  }
 }
 
 bool drewText(const Rendered& out, const char* needle) {
@@ -14874,6 +14962,7 @@ int main() {
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testTheSudokuGridAndItsHitTestAreExactInverses();
+  testHeaderTextClearsItsChips();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
