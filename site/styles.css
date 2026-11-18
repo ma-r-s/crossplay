@@ -605,6 +605,11 @@ figcaption {
     display: block;
   }
 }
+.shelf-note {
+  margin: 1rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
 .shelf-hint {
   display: none;
   margin: 0.9rem 0 0;
