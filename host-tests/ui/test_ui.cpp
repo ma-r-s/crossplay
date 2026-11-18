@@ -14997,6 +14997,35 @@ void aNoteAsleepIsReadOnlyAndTaller() {
         "asleep, the first page holds MORE rows: the footer's height went to the list", __LINE__);
 }
 
+// Report #652, "How to edit a note?". Changing a note's words happens on the
+// phone page and nowhere else, and the menu row that opens it said TYPE ON
+// YOUR PHONE: nothing on any Notes screen said edit, which is the word he
+// looked for. The row says it now, on a note and on a list alike.
+void theMenuSaysWhereEditingIs() {
+  for (const bool isList : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    notesui::MenuModel model;
+    model.title = "Errands";
+    model.isList = isList;
+    notesui::buildMenu(screen, model);
+
+    const FakeTarget::TextRun* row = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.text.rfind("EDIT", 0) == 0) row = &run;
+    }
+    check(row != nullptr, "a menu row starts with EDIT", __LINE__);
+    if (row == nullptr) continue;
+    check(drewLabelWhole(out, row->text.c_str()), "and is drawn whole", __LINE__);
+    check(out.tap(static_cast<int16_t>(row->rect.x + 20), static_cast<int16_t>(row->rect.y + row->rect.height / 2))
+                  .action == notesui::ActionUsePhone,
+          "and opens the phone page, where editing happens", __LINE__);
+  }
+}
+
 }  // namespace notestest
 
 namespace wordletest {
@@ -15474,6 +15503,7 @@ int main() {
   notestest::anItemCutAtItsCapStillSaysSo();
   notestest::everyItemIsOnThePageItsSaidToBeginOn();
   notestest::aHugeUnbrokenRunIsCheapAndLosesNothing();
+  notestest::theMenuSaysWhereEditingIs();
   heartsDrawsNothingOnTopOfAnythingElse();
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();
@@ -15693,6 +15723,7 @@ int main() {
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyHeadlineIsTheHitTarget();
+  testStudyDeckUnderAWrongClockSaysTheDateNotTheCount();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();
