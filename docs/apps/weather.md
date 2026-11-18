@@ -218,7 +218,7 @@ forecast, and the second Back had the Apps folder up 220 ms later; the Home key
 abandoned it 18 ms after the press and Home was up 650 ms after it, the same
 double-tap window an idle Home takes; with no key at all, the request gave up
 at 20.3 s and kept the cached forecast. Searches starting `zur`, `lis`, `spr`,
-`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla`, `yak` and `kyo`
+`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla`, `yak`, `san` and `kyo`
 answer with fixtures that exercise accents, hyphens and ten results. They
 answer as the service does with `language=en`, which the device always sends:
 "Tok" finds Tokyo, not 東京都. `kyo` is the exception kept on purpose, a place

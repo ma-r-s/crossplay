@@ -152,6 +152,30 @@ SEARCHES = {
         place("Llandudno", 53.32, -3.83, "GB", "United Kingdom", "Wales"),
     ],
     "yak": [place("Yakutsk", 62.03, 129.73, "RU", "Russia", "Sakha Republic")],
+    # Ten places with long names and long regions: page boundaries with
+    # two-line rows, and regions cut at a whole part.
+    "san": [
+        place(n, 10.0 + i, -60.0 - i, cc, country, admin)
+        for i, (n, cc, country, admin) in enumerate(
+            [
+                ("San José", "CR", "Costa Rica", "San José"),
+                ("San José del Cabo", "MX", "Mexico", "Baja California Sur"),
+                ("San Juan", "PR", "Puerto Rico", ""),
+                ("San Sebastián de los Reyes", "ES", "Spain", "Comunidad de Madrid"),
+                ("Santa Cruz de la Sierra", "BO", "Bolivia", "Santa Cruz"),
+                ("San Cristóbal de las Casas", "MX", "Mexico", "Chiapas"),
+                ("San Fernando del Valle de Catamarca", "AR", "Argentina", "Catamarca"),
+                ("Sankt Peter-Ording", "DE", "Germany", "Schleswig-Holstein"),
+                ("Santo Domingo", "DO", "Dominican Republic", "Distrito Nacional"),
+                (
+                    "San Andrés",
+                    "CO",
+                    "Colombia",
+                    "Archipiélago de San Andrés, Providencia y Santa Catalina",
+                ),
+            ]
+        )
+    ],
 }
 
 # Weeks, today first: weather code, high, low, chance (None = null), and the
