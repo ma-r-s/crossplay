@@ -33,6 +33,7 @@
 #include "notes/NotesActivity.h"
 #include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
+#include "rss/RssActivity.h"
 #include "seasalt/SeaSaltActivity.h"
 #include "solitaire/SolitaireActivity.h"
 #include "study/StudyActivity.h"
@@ -91,6 +92,9 @@ constexpr shelf::Item kApps[] = {
     // Card #516. The icon is the Lucide list mark borrowed from Murdle while
     // the screens are being chosen; a Notes mark comes with the real app.
     {"NOTES", &icon_murdle_face_clues_32, &NotesActivity::create},
+    // Appended rather than placed beside Hacker News: a row inserted above
+    // others moves every one of them under a thumb that knows where they were.
+    {"RSS", &icon_rss_32, &RssActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

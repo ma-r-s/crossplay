@@ -47,6 +47,7 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/forehead/ForeheadCore.cpp \
   ../../src/apps_local/forehead/ForeheadScreens.cpp \
   ../../src/apps_local/hackernews/HackerNewsScreens.cpp \
+  ../../src/apps_local/rss/RssScreens.cpp \
   ../../src/apps_local/hex/HexScreens.cpp \
   ../../src/apps_local/hex/HexCore.cpp \
   ../../src/apps_local/instapaper/InstapaperScreens.cpp \
