@@ -213,8 +213,9 @@ export.
   buttons. The side keys are the reader's page keys, so Settings > Controls >
   Layout swaps or disables them here as it does in a book: page forward turns
   the page, page back turns back, and on the last page of the question the
-  next press shows the answer. A long answer opens on the page where the
-  answer itself begins; the question it repeats above it is a page back. A
+  next press shows the answer. A long answer starts on a page of its own and
+  opens there, with the answer at the top; the question it repeats is on the
+  pages before it. A
   swipe up or down, or the pager's arrows, also turn pages, but only within
   the side you are on. Grading is only ever a tap on the four buttons: no
   page turn, at the end of the answer or anywhere, grades a card. A line is

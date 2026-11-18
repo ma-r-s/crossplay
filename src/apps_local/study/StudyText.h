@@ -581,6 +581,15 @@ struct TextPages {
     if (pageOf(y) > last) last = pageOf(y);
     return y;
   }
+  // Where a line that must open a page of its own, and would start at `y`,
+  // starts: the top of the next page, or of this one when nothing is on it
+  // yet (a gap ran onto it) or `y` already is its top.
+  int startPage(int y) const {
+    if (!paging()) return y;
+    const int offset = (y - top) % height;
+    if (offset > 0) y += pageOf(y) > last ? -offset : height - offset;
+    return y;
+  }
   bool visible(const int y) const { return !paging() || pageOf(y) == selected; }
   int screenY(const int y) const { return paging() ? top + (y - top) % height : y; }
 };
@@ -593,7 +602,9 @@ struct TextFlow {
   bool overlong = false;   // set when one was met, broken or not
   // `markPage` is the page of the first line placed while `marking` is set,
   // or -1. The answer face repeats the question above the answer; the card
-  // marks where its own text begins so a long answer opens there.
+  // marks where its own text begins so a long answer opens there. On a paged
+  // face that first marked line also starts a new page, so the answer opens
+  // at the top of its page and the page before it ends with the question.
   bool marking = false;
   int markPage = -1;
   // Where the last line placed ends. A layout's own returned y also carries
@@ -655,8 +666,10 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
     // only that line: a card whose first sentence has furigana and whose
     // second does not should not be double-spaced throughout.
     const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
+    const bool firstMarked = flow != nullptr && flow->marking && flow->markPage < 0;
+    if (pages != nullptr && firstMarked) y = pages->startPage(y);
     if (pages != nullptr) y = pages->placeLine(y, above + lineHeight);
-    if (flow != nullptr && flow->marking && flow->markPage < 0) flow->markPage = flow->pages.pageOf(y);
+    if (firstMarked) flow->markPage = flow->pages.pageOf(y);
     const int drawY = pages != nullptr ? pages->screenY(y) : y;
     const bool shown = pages == nullptr || pages->visible(y);
     if (pages != nullptr && pages->rule >= 0) {

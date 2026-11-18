@@ -483,53 +483,80 @@ void testButtonsPageThenReveal() {
 }
 
 void testAnswerOpensWhereItBegins() {
-  // The answer face repeats the question above the answer. The card marks
-  // the first line of the answer's own text, and a reveal opens on its page.
+  // The answer face repeats the question above the answer. On a paged face
+  // the first line of the answer's own text starts a new page, so the page
+  // before ends with the question, and a reveal opens on the answer's page
+  // with the answer at its top.
   //
   // 50px pages, two lines each. The repeated question is three lines: page 1
   // holds two, page 2 the third (150-170). A 6px gap, then the answer: "xxx"
-  // at 176 fits page 2 (ends 196 of 200), "yyy" moves to page 3.
+  // would fit under "ccc" (176-196) and starts page 3 instead, "yyy" follows
+  // it, and "zzz" runs onto page 4.
   const auto drawAnswer = [](const int page, Recorder& target) {
     study::TextFlow flow = pagedFlow(100, 50, page);
     int y = field(target, flow, 100, 30, "aaa bbb ccc");
     y += 6;
     flow.marking = true;
-    field(target, flow, y, 30, "xxx yyy");
+    field(target, flow, y, 30, "xxx yyy zzz");
     return flow;
   };
   Recorder measure;
   const study::TextFlow flow = drawAnswer(0, measure);
-  CHECK(flow.pages.count() == 3, "the repeated question and the answer run to three pages");
-  CHECK(flow.markPage == 1, "the answer's own text begins on page 2, where its first line lands");
+  CHECK(flow.pages.count() == 4, "the repeated question and the answer run to four pages");
+  CHECK(flow.markPage == 2, "the answer's own text begins on page 3, a page of its own");
   Recorder second;
   drawAnswer(1, second);
-  CHECK(lines(second) == (std::vector<std::string>{"ccc", "xxx"}), "and page 2 is where that line is drawn");
+  CHECK(lines(second) == (std::vector<std::string>{"ccc"}), "the page before it ends with the question's last line");
+  Recorder third;
+  drawAnswer(2, third);
+  CHECK(lines(third) == (std::vector<std::string>{"xxx", "yyy"}), "the answer's page holds the answer");
+  CHECK(!third.texts.empty() && third.texts[0].text == "xxx" && third.texts[0].y == 100,
+        "with its first line at the top of the page");
 
-  // Nothing marked, nothing recorded: a question, a cloze answer.
+  // Nothing marked, nothing recorded and nothing moved: a question, a cloze
+  // answer.
   study::TextFlow plain = pagedFlow(100, 50, 0);
   Recorder unmarked;
   field(unmarked, plain, 100, 30, "aaa bbb ccc");
   CHECK(plain.markPage == -1, "a face with no mark records none");
-  // The first marked line wins; a later one does not move it.
+  // A face that fits draws the same marked or not: no break without pages.
+  Recorder fitsPlain;
+  Recorder fitsMarked;
+  study::TextFlow fitPlain;
+  study::TextFlow fitMarked;
+  int yPlain = field(fitsPlain, fitPlain, 100, 30, "aaa");
+  int yMarked = field(fitsMarked, fitMarked, 100, 30, "aaa");
+  fitMarked.marking = true;
+  yPlain = field(fitsPlain, fitPlain, yPlain + 6, 30, "xxx yyy");
+  yMarked = field(fitsMarked, fitMarked, yMarked + 6, 30, "xxx yyy");
+  bool same = fitsPlain.texts.size() == fitsMarked.texts.size() && yPlain == yMarked;
+  for (size_t i = 0; same && i < fitsPlain.texts.size(); ++i) {
+    same = fitsPlain.texts[i].y == fitsMarked.texts[i].y && fitsPlain.texts[i].text == fitsMarked.texts[i].text;
+  }
+  CHECK(same && fitMarked.markPage == 0, "an answer that fits is drawn exactly as before, on page 1");
+  // The first marked line wins, and only it opens a page: a mark that starts
+  // at the top of page 1 moves nothing, and the lines after it flow on.
   study::TextFlow twice = pagedFlow(100, 50, 0);
   twice.marking = true;
   Recorder early;
   int y = field(early, twice, 100, 30, "aaa");
   field(early, twice, y, 30, "bbb ccc ddd eee");
   CHECK(twice.markPage == 0, "the mark is the first marked line's page");
+  CHECK(twice.pages.count() == 3 && lines(early) == (std::vector<std::string>{"aaa", "bbb"}),
+        "and only the first marked line can open a page");
 
   // A reveal asks for that page, and the page shown resolves to it.
   const study::CardOutcome reveal = study::routeCardInput(view(false, 1, 2), CardInput::KeyNext);
   CHECK(reveal.action == CardAction::Reveal && reveal.page == study::kAnswerStartPage,
         "the press past the question's last page asks for the answer's start");
   const int shown = study::resolveCardPage(reveal.page, flow.markPage, flow.pages.count());
-  CHECK(shown == 1, "which is page 2 of 3 here");
+  CHECK(shown == 2, "which is page 3 of 4 here");
   // From there Up pages back through the repeated question, Down on through
   // the answer.
-  study::CardOutcome out = study::routeCardInput(view(true, shown, 3), CardInput::KeyPrevious);
-  CHECK(out.action == CardAction::Turn && out.page == 0, "Up from the answer's start pages back into the question");
-  out = study::routeCardInput(view(true, shown, 3), CardInput::KeyNext);
-  CHECK(out.action == CardAction::Turn && out.page == 2, "Down pages on through the answer");
+  study::CardOutcome out = study::routeCardInput(view(true, shown, 4), CardInput::KeyPrevious);
+  CHECK(out.action == CardAction::Turn && out.page == 1, "Up from the answer's start pages back into the question");
+  out = study::routeCardInput(view(true, shown, 4), CardInput::KeyNext);
+  CHECK(out.action == CardAction::Turn && out.page == 3, "Down pages on through the answer");
 
   // A one-page answer is unchanged: it opens on its only page. A start past
   // the count is capped, and a page already turned to ignores the start.

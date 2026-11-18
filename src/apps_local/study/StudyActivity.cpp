@@ -1400,9 +1400,10 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   int y = body.y + kCardInset;
 
   y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
-  // The answer's own text starts below the word: the first line of it marks
-  // the page a reveal opens on (drawCard). A field the question face also
-  // showed is drawn unmarked, so the mark cannot land on it.
+  // The answer's own text starts below the word: on a paged face its first
+  // line starts a new page, and that page is where a reveal opens (drawCard).
+  // A field the question face also showed is drawn unmarked, so the mark
+  // cannot land on it.
   textFlow_.marking = answer;
   if (answer) {
     y += 6;
