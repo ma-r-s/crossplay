@@ -812,6 +812,20 @@ found, and what changed.
   article", naming the wrong thing and offering nothing; with one pack on
   the card the same failure went to the install screen with the repair
   line. The chooser now does the same (`test_failed_pack_repairs.py`).
+- *Titles break where their language breaks words.* The device and the
+  component wrap at spaces only and split a word wider than the line
+  anywhere ("Hochleistungsfluessigkeitschrom" over "atographie"). The
+  activity now marks every title it hands the screens with soft hyphens
+  from the pack's own patterns (the Hyphenator the article text uses), and
+  `wikiui::breakTitle` chooses the breaks for the row's width and hands them
+  over as "- " (a word with no break point is split with a hyphen too). The
+  band holds a long one-word title on two lines that way, and whether it
+  holds the title whole is now measured (`articleTitleWhole`): the page keeps
+  its h1 exactly when the band cuts. It used to keep it past 56 bytes, so
+  the 41-byte "Hochleistungs..." title was cut in the band and appeared
+  nowhere whole. A title row also grows to every line its title takes; a
+  three-line cap cut the 100-byte Borat title. The band's width comes from
+  `toybox::bandTitleWidth`, the same props `headerBand()` fits against.
 - *The search keyboard.* A key's own letter is always drawn whole: RoundedRaff's
   10 px gap left a QWERTZ key 23 px inside its padding and W is 23.2, so the
   capital W was drawn as "..." (freeink-sdk `fix/keyboard-letters-whole`: a
@@ -820,3 +834,9 @@ found, and what changed.
   search keyboard passes no "Shift" word, so every letter page in every
   theme and language draws the arrow and the symbol pages their own "#+="
   and "123", which name the page you are on.
+- *Not changed: a heading at the foot of a page above a table.* "Kurzinfo"
+  closes page 8 of Österreich and its table starts page 9. The book
+  engine's grid-table row breaks a page without the keep-with-next carry its
+  paragraph and image paths honour (`ChapterHtmlSlimParser::finishTableRow`,
+  upstream CrossPoint's), and English "Quick facts" is the same `<h2>` over a
+  `<table>`, so it does the same. Upstream's file, so not fixed here.

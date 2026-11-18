@@ -1,6 +1,7 @@
 #include "WikipediaActivity.h"
 
 #include <Arduino.h>
+#include <Epub/hyphenation/Hyphenator.h>
 #include <FontCacheManager.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -153,6 +154,7 @@ bool WikipediaActivity::openPack(const int index) {
   // The search keyboard types the pack's letters: a German pack's titles
   // have umlauts and an eszett, which the English keys cannot reach.
   const std::string lang = wikipedia::packLanguage(m);
+  lang_ = lang;
   keyboard_ = lang == "de"   ? fui::KeyboardLayoutId::QwertzDe
               : lang == "fr" ? fui::KeyboardLayoutId::AzertyFr
               : lang == "es" ? fui::KeyboardLayoutId::SpanishEs
@@ -267,6 +269,41 @@ void WikipediaActivity::onExit() {
 
 bool WikipediaActivity::skipLoopDelay() {
   return view_ == View::Article && section_ && section_->isBuilding() && !section_->isBuildComplete();
+}
+
+std::string WikipediaActivity::hyphenated(const std::string& title, const std::string& lang) {
+  Hyphenator::setPreferredLanguage(lang);
+  std::string out;
+  out.reserve(title.size() + 24);
+  size_t start = 0;
+  while (start <= title.size()) {
+    size_t end = title.find(' ', start);
+    if (end == std::string::npos) end = title.size();
+    // Each run between a hyphen or a slash is a word of its own to the
+    // patterns: "Aufmerksamkeitsdefizit-/Hyperaktivitaetsstoerung" whole got
+    // no break at all, and the screens split it between two letters. A break
+    // after the hyphen or the slash is the screens' own to take.
+    size_t seg = start;
+    while (seg < end) {
+      size_t cut = title.find_first_of("-/", seg);
+      if (cut == std::string::npos || cut > end) cut = end;
+      const std::string word = title.substr(seg, cut - seg);
+      size_t taken = 0;
+      for (const auto& at : Hyphenator::breakOffsets(word, false)) {
+        if (!at.requiresInsertedHyphen || at.byteOffset <= taken || at.byteOffset >= word.size()) continue;
+        out.append(word, taken, at.byteOffset - taken);
+        out += "\xC2\xAD";
+        taken = at.byteOffset;
+      }
+      out.append(word, taken, std::string::npos);
+      if (cut < end) out += title[cut];
+      seg = cut + 1;
+    }
+    if (end == title.size()) break;
+    out += ' ';
+    start = end + 1;
+  }
+  return out;
 }
 
 void WikipediaActivity::go(const View next) {
@@ -440,8 +477,9 @@ void WikipediaActivity::paintOpeningCue(const std::string& title) {
   toybox::Interactions untouched;
   toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
   toybox::Screen screen(frame);
+  const std::string shown = hyphenated(title, lang_);
   wikiui::ArticleChromeModel chrome;
-  chrome.title = title.c_str();
+  chrome.title = shown.c_str();
   chrome.contents = false;  // nothing to jump to until the layout exists
   // The same builder render() uses, so the rect it returns is the viewport the
   // page will be laid out for; the contents icon does not move it.
@@ -469,10 +507,10 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   }
   const std::string html = cacheDir_ + "/article.html";
   // The band carries the title, so the h1 inside the page would say it twice;
-  // it stays only for a title the band cannot hold whole (two lines of the
-  // reader's 12, about 56 characters), which is the running head's one
-  // permitted cut.
-  const bool keepH1 = article_.title.size() > kBandTitleBytes;
+  // it stays only for a title the band cannot hold whole, which is the running
+  // head's one permitted cut. Measured, not counted: "Hochleistungsfluessig-
+  // keitschromatographie" is 41 bytes and was cut on one line with the h1 gone.
+  const bool keepH1 = !bandHoldsTitle();
   const size_t h1 = keepH1 ? std::string::npos : article_.xhtml.find("<h1>");
   const size_t h1End = h1 == std::string::npos ? std::string::npos : article_.xhtml.find("</h1>", h1);
   const size_t stripped = h1End == std::string::npos ? 0 : h1End + 5 - h1;
@@ -514,6 +552,24 @@ bool WikipediaActivity::stageArticle(const uint32_t locator) {
   }
   writeFile(lruPath.c_str(), rebuilt);
   return true;
+}
+
+bool WikipediaActivity::bandHoldsTitle() {
+  // The faces render() binds for an article, and a screen that draws nothing.
+  const int readerFont = SETTINGS.getReaderFontId();
+  fui::GfxRendererTarget target =
+      toybox::makeTarget(renderer, toybox::Faces{NOTOSANS_12_FONT_ID, readerFont, readerFont});
+  const fui::InputSnapshot noInput{};
+  toybox::Interactions untouched;
+  toybox::Frame frame(target, target.deviceContext(), noInput, untouched);
+  toybox::Screen screen(frame);
+  const std::string title = hyphenated(article_.title, lang_);
+  wikiui::ArticleChromeModel model;
+  model.title = title.c_str();
+  model.contents = !article_.headings.empty();
+  const bool whole = wikiui::articleTitleWhole(screen, model);
+  if (!whole) LOG_INF(kTag, "the band cuts \"%s\"; the page keeps its h1", article_.title.c_str());
+  return whole;
 }
 
 bool WikipediaActivity::openLocator(const uint32_t locator, const int page, const std::string& anchor,
@@ -697,8 +753,9 @@ void WikipediaActivity::layOutUnderCue() {
 }
 
 void WikipediaActivity::renderArticle(toybox::Screen& screen) {
+  const std::string title = hyphenated(article_.title, lang_);
   wikiui::ArticleChromeModel model;
-  model.title = article_.title.c_str();
+  model.title = title.c_str();
   model.contents = !article_.headings.empty();
   const fui::Rect body = wikiui::buildArticleChrome(screen, model);
 
@@ -1222,23 +1279,32 @@ void WikipediaActivity::render(RenderLock&&) {
 
   switch (view_) {
     case View::Search: {
+      // Every title as the screens break it: with soft hyphens where the
+      // pack's language breaks words. Reserved whole, so the pointers the
+      // model holds stay put.
+      std::vector<std::string> titles;
+      titles.reserve(wikiui::kMaxResults + wikiui::kMaxRecent + 1);
+      const auto shown = [&](const std::string& title) {
+        titles.push_back(hyphenated(title, lang_));
+        return titles.back().c_str();
+      };
       wikiui::SearchModel model;
       model.query = query_.c_str();
       model.resultCount = static_cast<int>(std::min<size_t>(results_.size(), wikiui::kMaxResults));
       for (int i = 0; i < model.resultCount; ++i) {
-        model.results[i].title = results_[i].title.c_str();
+        model.results[i].title = shown(results_[i].title);
         model.results[i].redirect = results_[i].redirect;
       }
       model.noMatch = !query_.empty() && results_.empty();
       model.moreResults = results_.size() > static_cast<size_t>(wikiui::kMaxResults);
-      model.continueTitle = state_.current.title.empty() ? nullptr : state_.current.title.c_str();
+      model.continueTitle = state_.current.title.empty() ? nullptr : shown(state_.current.title);
       model.continuePage = state_.current.title.empty() ? 0 : state_.currentPage + 1;
       // The trail leaves out the article CONTINUE already names; VALUE is the
       // row in state_.recent, so the activity keeps the map.
       model.recentCount = 0;
       for (size_t i = 0; i < state_.recent.size() && model.recentCount < wikiui::kMaxRecent; ++i) {
         if (!state_.current.title.empty() && state_.recent[i].locator == state_.current.locator) continue;
-        model.recent[model.recentCount].title = state_.recent[i].title.c_str();
+        model.recent[model.recentCount].title = shown(state_.recent[i].title);
         recentRows_[model.recentCount] = static_cast<int>(i);
         ++model.recentCount;
       }
@@ -1259,18 +1325,22 @@ void WikipediaActivity::render(RenderLock&&) {
     case View::Contents: {
       // TOP first (page 1), then every section with its page once the layout
       // has reached it.
+      std::vector<std::string> broken;
       std::vector<const char*> names;
       std::vector<int> pages;
+      broken.reserve(article_.headings.size() + 1);
       names.reserve(article_.headings.size() + 1);
       pages.reserve(article_.headings.size() + 1);
       names.push_back("Top");
       pages.push_back(0);
       for (size_t i = 0; i < article_.headings.size(); ++i) {
-        names.push_back(article_.headings[i].c_str());
+        broken.push_back(hyphenated(article_.headings[i], lang_));
+        names.push_back(broken.back().c_str());
         pages.push_back(i < headingPages_.size() ? headingPages_[i] : -1);
       }
+      broken.push_back(hyphenated(article_.title, lang_));
       wikiui::ContentsModel model;
-      model.title = article_.title.c_str();
+      model.title = broken.back().c_str();
       model.headings = names.data();
       model.pages = pages.data();
       model.count = static_cast<int>(names.size());
@@ -1293,11 +1363,14 @@ void WikipediaActivity::render(RenderLock&&) {
       wikiui::ChooserModel model;
       model.last = chosenRow_;
       model.count = static_cast<int>(std::min<size_t>(packs_.size(), wikiui::kMaxPacks));
+      std::vector<std::string> waits;
+      waits.reserve(wikiui::kMaxPacks);
       for (int i = 0; i < model.count; ++i) {
         model.rows[i].name = packs_[i].name.c_str();
         model.rows[i].code = packCodes_[i].c_str();
         model.rows[i].detail = packDetails_[i].c_str();
-        model.rows[i].continueTitle = packs_[i].continueTitle.empty() ? nullptr : packs_[i].continueTitle.c_str();
+        waits.push_back(hyphenated(packs_[i].continueTitle, packs_[i].pack));
+        model.rows[i].continueTitle = packs_[i].continueTitle.empty() ? nullptr : waits.back().c_str();
       }
       wikiui::buildChooser(screen, model);
       break;

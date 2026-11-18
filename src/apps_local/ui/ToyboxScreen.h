@@ -201,6 +201,38 @@ inline int16_t headerTitleWidth(Screen& screen, const freeink::ui::Rect& band, c
   return width > 0 ? width : 0;
 }
 
+// The props headerBand() hands the component: the theme substitutions
+// Screen::header() is about to make, made first because the fitting needs the
+// real style and the real padding. Taking the theme's title style whole --
+// rather than building one -- is what keeps the band's ink WHITE: titleText.color
+// is White in the tokens precisely because this band is always solid black, and
+// a style assembled field by field here would paint every title in the fork
+// black on black. Public so a screen that sets its own title can measure the
+// width the band will really give it (bandTitleWidth) instead of a copy.
+inline freeink::ui::HeaderProps bandFitted(Screen& screen, const freeink::ui::HeaderProps& props) {
+  namespace fui = freeink::ui;
+  fui::HeaderProps fitted = props;
+  if (fui::textStyleUnset(fitted.titleText)) {
+    fitted.titleText = screen.theme().titleText;
+    fitted.titleText.align = screen.theme().headerTitleAlign;
+  }
+  if (fui::textStyleUnset(fitted.subtitleText)) fitted.subtitleText = screen.theme().smallText;
+  // trailingText too, and it is not a tidy-up: headerTitleWidth measures the
+  // trailing button's LABEL to know how much of the band it takes, and an
+  // unset style measures it at font 0 -- the SMALL slot -- while the component
+  // draws it at BODY. On the Hacker News band those are toybox_10 and
+  // reading_serif_14, so "SAVED" measured 51px against the 91px it really
+  // occupies and the fit believed it had 40px it did not have. The error
+  // points the wrong way: the ladder declines to step down and the renderer
+  // cuts instead.
+  if (fui::textStyleUnset(fitted.trailingText)) fitted.trailingText = screen.theme().bodyText;
+  if (fitted.sidePadding < 0) fitted.sidePadding = screen.theme().headerSidePadding;
+  // A leading button mirrors the trailing one: Wikipedia's back chip sat 4px
+  // from the left edge across the band from a contents chip 12px from the right.
+  fitted.leadingInset = freeink::ui::kHeaderTrailingInset;
+  return fitted;
+}
+
 // The header band. Paint and ink are placed by different rules, and the split
 // is the whole point.
 //
@@ -291,31 +323,7 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   // then never given back.
   const fui::Rect ink = fui::makeRect(band.x, inkTop, band.width, static_cast<int16_t>(band.bottom() - inkTop));
 
-  fui::HeaderProps fitted = props;
-  // The theme substitutions Screen::header() is about to make, made here first
-  // because the fitting needs the real style and the real padding. Taking the
-  // theme's title style whole -- rather than building one -- is what keeps the
-  // band's ink WHITE: titleText.color is White in the tokens precisely because
-  // this band is always solid black, and a style assembled field by field here
-  // would paint every title in the fork black on black.
-  if (fui::textStyleUnset(fitted.titleText)) {
-    fitted.titleText = screen.theme().titleText;
-    fitted.titleText.align = screen.theme().headerTitleAlign;
-  }
-  if (fui::textStyleUnset(fitted.subtitleText)) fitted.subtitleText = screen.theme().smallText;
-  // trailingText too, and it is not a tidy-up: headerTitleWidth measures the
-  // trailing button's LABEL to know how much of the band it takes, and an
-  // unset style measures it at font 0 -- the SMALL slot -- while the component
-  // draws it at BODY. On the Hacker News band those are toybox_10 and
-  // reading_serif_14, so "SAVED" measured 51px against the 91px it really
-  // occupies and the fit believed it had 40px it did not have. The error
-  // points the wrong way: the ladder declines to step down and the renderer
-  // cuts instead.
-  if (fui::textStyleUnset(fitted.trailingText)) fitted.trailingText = screen.theme().bodyText;
-  if (fitted.sidePadding < 0) fitted.sidePadding = screen.theme().headerSidePadding;
-  // A leading button mirrors the trailing one: Wikipedia's back chip sat 4px
-  // from the left edge across the band from a contents chip 12px from the right.
-  fitted.leadingInset = fui::kHeaderTrailingInset;
+  fui::HeaderProps fitted = bandFitted(screen, props);
   const fui::TextStyle asked = fitted.titleText;
   std::string title =
       fittedTitle(screen.target(), fitted.title, headerTitleWidth(screen, ink, fitted), fitted.titleText);
@@ -386,6 +394,12 @@ inline freeink::ui::Rect headerInkRect(Screen& screen) {
   const freeink::ui::Rect band = headerBandRect(screen);
   const int16_t top = band.y > screen.frame().safeRect().y ? band.y : screen.frame().safeRect().y;
   return freeink::ui::makeRect(band.x, top, band.width, static_cast<int16_t>(band.bottom() - top));
+}
+
+// The width headerBand() will fit `props.title` into, from the same props it
+// hands the component.
+inline int16_t bandTitleWidth(Screen& screen, const freeink::ui::HeaderProps& props) {
+  return headerTitleWidth(screen, headerInkRect(screen), bandFitted(screen, props));
 }
 
 // Vertical top for an element of height h centred in the VISIBLE part of the
