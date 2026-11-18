@@ -81,7 +81,12 @@ region, then to its coordinates (`35.69N 139.69E`), so it is never empty.
 
 Unicode gives the stroked and dotless letters (L-stroke, D-stroke, dotless i)
 no decomposition, so a short table in `WeatherCore.cpp` gives them their base
-letter too: "Łódź" shows as "Lódz", which is also what the player typed.
+letter too. A name is folded whole or not at all: when one letter has to be
+reduced to its base, every accented letter is, so "Łódź" shows as "Lodz", what
+the player typed, and never as "Lódz", which is neither Polish nor plain. A
+name the cuts draw whole keeps every accent ("Kraków", "São Tomé"). The
+geocoder is asked for English names (`language=en`), so most names in other
+scripts never reach this: "Tok" finds "Tokyo".
 A letter of a script with no Latin reading (Greek, Cyrillic, CJK) has no base
 and goes. The real fix for all of it is a reading cut that carries more than
 Latin-1; this is the honest best until there is one.
@@ -97,7 +102,7 @@ The main screen and the menu measure the place in `kPlacePass`, lay out and draw
 everything else in Jersey, then draw the place in `kPlacePass` where the layout
 put it. Because the faces and their order live in the builders, the host suite
 binds exactly what the device binds: `everyPlaceIsDrawnInAFaceWithItsLetters`
-draws São Bernardo do Campo, Saint-Étienne-du-Rouvray, Münster and Łódź on every
+draws São Bernardo do Campo, Saint-Étienne-du-Rouvray, Münster and Lodz on every
 screen and fails on a letter drawn in a face without it. The menu once fitted a
 long name down into Jersey's button cut and printed holes; that is the case it
 was written for.
@@ -208,9 +213,11 @@ forecast, and the second Back had the Apps folder up 220 ms later; the Home key
 abandoned it 18 ms after the press and Home was up 650 ms after it, the same
 double-tap window an idle Home takes; with no key at all, the request gave up
 at 20.3 s and kept the cached forecast. Searches starting `zur`, `lis`, `spr`,
-`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla` and `yak` answer
-with fixtures that exercise accents, hyphens, ten results, and names in scripts
-the cuts cannot draw. The
+`tok`, `mos`, `lod`, `ndj`, `sao`, `sai`, `mun`, `bad`, `lla`, `yak` and `kyo`
+answer with fixtures that exercise accents, hyphens and ten results. They
+answer as the service does with `language=en`, which the device always sends:
+"Tok" finds Tokyo, not 東京都. `kyo` is the exception kept on purpose, a place
+answered only in its own script, so the coordinates fallback can be seen. The
 simulator auto-connects only with a saved network in
 `fs_agent/.crosspoint/wifi.json`; `CROSSPOINT_SIM_WIFI_CONNECT=fail` makes it
 refuse.

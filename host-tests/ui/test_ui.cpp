@@ -17505,17 +17505,14 @@ void everyPlaceIsDrawnInAFaceWithItsLetters() {
   const char* const kNames[] = {"S\xC3\xA3o Bernardo do Campo, S\xC3\xA3o Paulo",
                                 "Saint-\xC3\x89tienne-du-Rouvray, Normandy",
                                 "M\xC3\xBCnster, North Rhine-Westphalia",
-                                ("L\xC3\xB3"
-                                 "dz, \xC5\x81odz Voivodeship"),
+                                "Lodz, Lodz Voivodeship",
                                 "Bad M\xC3\xBCnstereifel, North Rhine-Westphalia",
                                 ("Se\xC3\xB1ora de Gu\xC3\xA1nica y Pe\xC3\xB1\xC3\xBA"
                                  "elas, Puerto Rico")};
   for (const char* name : kNames) {
-    // The fake's own check is Latin-1, and the stroked L is what cleanName
-    // turns into a plain one before any screen sees it.
-    std::string place = name;
-    const size_t stroke = place.find("\xC5\x81");
-    if (stroke != std::string::npos) place.replace(stroke, 2, "L");
+    // As cleanName leaves them: Lodz is folded whole, since two of its
+    // letters are not in the reading cuts.
+    const std::string place = name;
 
     weatherui::MainModel main = fullWeek();
     main.place = place.c_str();

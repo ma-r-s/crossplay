@@ -96,16 +96,21 @@ SEARCHES = {
         place("Springfield", lat, lon, "US", "United States", state)
         for state, lat, lon in SPRINGFIELDS
     ],
-    # A place whose name, region and country are all in a script the reading
-    # cuts cannot draw: the screen falls back to its coordinates.
-    "tok": [place("東京都", 35.6895, 139.69171, "JP", "日本", "東京都")],
-    # The name cannot be drawn, the country can.
+    # What the service answers with language=en, which the device always
+    # sends (checked against geocoding-api.open-meteo.com on 2026-11-18):
+    # English names where it has them, so Tokyo is "Tokyo".
+    "tok": [place("Tokyo", 35.6895, 139.69171, "JP", "Japan", "Tokyo")],
     "mos": [
-        place("Москва", 55.75222, 37.61556, "RU", "Russia", "Москва"),
+        place("Moscow", 55.75222, 37.61556, "RU", "Russia", "Moscow"),
         place("Moscow", 46.73239, -117.00017, "US", "United States", "Idaho"),
     ],
-    # Latin Extended-A: two letters keep their base letter, one has none.
-    "lod": [place("Łódź", 51.75, 19.46667, "PL", "Poland", "Łódź Voivodeship")],
+    # The English name is plain, the region keeps its Polish letters, two of
+    # which the reading cuts lack: the region is folded whole, "Lodz Voivodeship".
+    "lod": [place("Lodz", 51.75, 19.46667, "PL", "Poland", "Łódź Voivodeship")],
+    # A place the service has no English name for, answered in its own
+    # script with nothing the cuts can draw: the screen falls back to its
+    # coordinates. Rare with language=en; kept so the fallback can be seen.
+    "kyo": [place("京都市", 35.01, 135.77, "JP", "日本", "京都府")],
     # A name with an emoji and a curly apostrophe, as a careless source sends.
     "ndj": [
         place("N’Djamena \U0001f3d9", 12.10672, 15.0444, "TD", "Chad", "Chari-Baguirmi")

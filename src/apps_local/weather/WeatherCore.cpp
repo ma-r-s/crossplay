@@ -975,8 +975,30 @@ Units defaultUnitsFor(const char* countryCode) {
 
 // --- Text from outside ------------------------------------------------------------
 
+// The base letter a face can draw for `cp` (s for s-comma, z for z-acute, L
+// for L-stroke), or 0 when it has none.
+uint32_t drawableBase(const uint32_t cp, const CanDraw canDraw) {
+  uint32_t base = utf8DecomposedBase(cp);
+  if (base == 0) base = strokeBase(cp);
+  return base != 0 && canDraw(base) ? base : 0;
+}
+
 std::string cleanName(const std::string& raw, const CanDraw canDraw) {
   const std::string folded = utf8FoldTypography(utf8ComposeNfc(raw));
+  // A name is folded whole or not at all. When one of its letters has to be
+  // reduced to its base, every accented letter is: "Lodz", not the "Lódz"
+  // that keeping the drawable o-acute beside a folded L-stroke and z-acute
+  // made, which is neither Polish nor plain.
+  bool foldAll = false;
+  if (canDraw != nullptr) {
+    const unsigned char* q = reinterpret_cast<const unsigned char*>(folded.data());
+    const unsigned char* qend = q + folded.size();
+    while (q < qend && !foldAll) {
+      const uint32_t cp = nextCodepoint(q, qend);
+      if (cp == 0xFFFFFFFFu || !isLetterlike(cp) || canDraw(cp)) continue;
+      foldAll = drawableBase(cp, canDraw) != 0;
+    }
+  }
   std::string out;
   out.reserve(folded.size());
   bool pendingSpace = false;
@@ -999,10 +1021,10 @@ std::string cleanName(const std::string& raw, const CanDraw canDraw) {
       // A letter the face lacks keeps its base letter when it has one the
       // face can draw (s-comma for s, z-acute for z, L-stroke for L);
       // otherwise it goes.
-      uint32_t base = utf8DecomposedBase(cp);
-      if (base == 0) base = strokeBase(cp);
-      if (base == 0 || !canDraw(base)) continue;
-      draw = base;
+      draw = drawableBase(cp, canDraw);
+      if (draw == 0) continue;
+    } else if (foldAll) {
+      if (const uint32_t base = drawableBase(cp, canDraw)) draw = base;
     }
     if (pendingSpace && !out.empty()) out += ' ';
     pendingSpace = false;

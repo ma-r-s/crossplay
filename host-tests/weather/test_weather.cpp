@@ -301,9 +301,18 @@ void testCleanNameKeepsLettersAndDropsTheRest() {
   // Markup is not a name: the symbols go and the words they separated stay apart.
   CHECK_EQ_STR(weather::cleanName("Rio <b>&amp;</b>", latin1), "Rio b amp /b");
   CHECK_EQ_STR(weather::cleanName("Hamburg\xC2\xAE", latin1), "Hamburg");
-  // A letter the face lacks keeps its base letter where it has one.
-  // Łódź: the z-acute decomposes; the L-stroke does not, and keeps its L.
-  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA", latin1), "Lódz");
+  // A letter the face lacks keeps its base letter where it has one, and then
+  // the whole name is folded: Łódź is "Lodz", never the "Lódz" of a drawable
+  // o-acute kept between a folded L-stroke and z-acute.
+  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA", latin1), "Lodz");
+  CHECK_EQ_STR(weather::cleanName("\xC5\x81\xC3\xB3\x64\xC5\xBA Voivodeship", latin1), "Lodz Voivodeship");
+  CHECK_EQ_STR(weather::cleanName("\xC5\xBB\xC3\xB3\xC5\x82w", latin1), "Zolw");  // Żółw
+  // A name the face draws whole keeps every accent.
+  CHECK_EQ_STR(weather::cleanName("Krak\xC3\xB3w", latin1), "Krak\xC3\xB3w");
+  CHECK_EQ_STR(weather::cleanName("S\xC3\xA3o Tom\xC3\xA9", latin1), "S\xC3\xA3o Tom\xC3\xA9");
+  // Letters with no base at all are dropped, not folded, so they do not fold
+  // the drawable rest.
+  CHECK_EQ_STR(weather::cleanName("Z\xC3\xBCrich \xD0\xA6\xD1\x8E\xD1\x80\xD0\xB8\xD1\x85", latin1), "Z\xC3\xBCrich");
   // Dotless i, as in Turkish names, keeps an i rather than vanishing.
   CHECK_EQ_STR(weather::cleanName("Diyarbak\xC4\xB1r", latin1), "Diyarbakir");
   // A letter with no base at all still goes: Greek has no Latin-1 reading.
