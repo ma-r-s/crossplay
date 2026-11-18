@@ -11,7 +11,7 @@
 #
 # None of those four builds was new work. `check.sh --committed` already clones
 # the committed tree detached into TMPDIR, inits submodules, and builds
-# `gh_release_x4pro`, `gh_release_sticky` and `gh_release_papermono` against the shared object cache --
+# `gh_release_x4pro`, `gh_release_sticky`, `gh_release_papermono` and `gh_release_picco` against the shared object cache --
 # the exact two envs crossplay-release.yml recompiled forty minutes later. The
 # binary a user installs already existed on this disk and was thrown away.
 #
@@ -576,7 +576,7 @@ fi
 
 # THE TAG IS PUSHED AFTER PACKAGING, down in `publish`. It used to be
 # pushed here, which put it before every check that can still refuse: the
-# eight-file handover, the three magic numbers, and the probe that reads the
+# sixteen-file handover, the magic numbers, and the probe that reads the
 # version out of the firmware. A packaging failure then left a pushed tag
 # with no release against it -- a version in the history that never shipped,
 # and a delete-and-retag to clear. Nothing between here and there moves HEAD,
@@ -596,7 +596,7 @@ step "package"
 DIST="$REPO/dist"
 run "rm -rf '$DIST' && mkdir -p '$DIST'"
 
-for env_name in gh_release_x4pro gh_release_sticky gh_release_papermono; do
+for env_name in gh_release_x4pro gh_release_sticky gh_release_papermono gh_release_picco; do
   for f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
     if [ "$DRY" = 0 ] && [ ! -f "$IMAGES/$env_name/$f" ]; then
       die "$IMAGES/$env_name/$f is missing. The gate reported success and handed over an incomplete set, which is how v1.12.14 and v1.12.15 shipped without a bootloader."
@@ -647,6 +647,18 @@ run "'$PIO_PY' '$ESPTOOL' --chip esp32s3 merge-bin --format raw \
 run "cp $IMAGES/gh_release_papermono/firmware.bin '$DIST/firmware-papermono.bin'"
 run "cp $IMAGES/gh_release_papermono/firmware.elf '$DIST/crossplay-$TAG-papermono.elf'"
 
+# The BOOX Picco gets its app image and NOTHING MERGED, deliberately. It keeps
+# its maker's partition table (partitions_picco.csv: one app slot at 0xE0000
+# beside a `safeboot` recovery partition), and a -full.bin would carry this
+# build's bootloader and table for offset 0: written there, it replaces the
+# vendor's boot region and lands its app over safeboot. So it is never made.
+# firmware-picco.bin is CROSSPOINT_RELEASE_ASSET for the board and the file a
+# person writes into the app slot by hand or with CrossPoint's web flasher
+# (docs/install.md, BOOX Picco). The device itself never fetches it: one slot
+# means no update over Wi-Fi, and upstream hides Check for updates there.
+run "cp $IMAGES/gh_release_picco/firmware.bin '$DIST/firmware-picco.bin'"
+run "cp $IMAGES/gh_release_picco/firmware.elf '$DIST/crossplay-$TAG-picco.elf'"
+
 # A merged image that is not actually merged is indistinguishable from the app
 # image it replaces until somebody bricks a device with it. Check the three
 # magic numbers rather than trust an exit code.
@@ -663,6 +675,17 @@ if [ "$DRY" = 0 ]; then
     done
   done
   [ "$fail" = 0 ] || die "a published 'full' image that is not merged bricks the device that installs it. Nothing published."
+  # The Picco's one image is an APP image: the app magic at 0 and no partition
+  # table at 0x8000. A merged image under its name is the one file this
+  # release could publish that writes over a vendor's recovery partition.
+  _picco="$DIST/firmware-picco.bin"
+  [ "$(dd if="$_picco" bs=1 count=1 2>/dev/null | xxd -p)" = "e9" ] \
+    || die "firmware-picco.bin does not start with the app image magic (e9). Nothing published."
+  [ "$(dd if="$_picco" bs=1 skip=32768 count=2 2>/dev/null | xxd -p)" != "aa50" ] \
+    || die "firmware-picco.bin carries a partition table at 0x8000, so it is a merged image; written into the Picco's app slot it is not an app, and at 0x0 it replaces the vendor's boot region. Nothing published."
+  for _merged in "$DIST"/*picco*-full.bin; do
+    [ -e "$_merged" ] && die "$(basename "$_merged") exists, and the Picco must never get a merged image. Nothing published."
+  done
   [ -f "$DIST/firmware.bin" ] || die "dist/firmware.bin is missing, and the OTA updater matches that literal name and nothing else."
 
   # THE ONE PROBE THAT READS THE BINARY RATHER THAN A DESCRIPTION OF IT.
@@ -682,7 +705,7 @@ if [ "$DRY" = 0 ]; then
   # The string is the User-Agent that BridgeHttp.cpp and StudySync.cpp build
   # from CROSSPOINT_VERSION, so it is in every release image by construction
   # and is not a debug line a LOG_LEVEL could compile out.
-  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin" "$DIST/firmware-papermono.bin"; do
+  for _img in "$DIST/firmware.bin" "$DIST/firmware-sticky.bin" "$DIST/firmware-papermono.bin" "$DIST/firmware-picco.bin"; do
     # READ THE WHOLE STREAM, and do not reach for `grep -q` here.
     #
     # `strings -a "$_img" | grep -qxF ...` is the obvious spelling and it is
@@ -709,7 +732,7 @@ if [ "$DRY" = 0 ]; then
     applied, forever, with nothing anywhere saying why. Nothing published."
     fi
   done
-  say "  version   both images report $NEXT"
+  say "  version   every image reports $NEXT"
   say "  $(ls "$DIST" | wc -l | tr -d ' ') artefacts, magic numbers verified"
 fi
 
@@ -722,8 +745,8 @@ fi
 step "publish"
 
 # Everything that can refuse has refused by now: the handover matched HEAD,
-# all eight files were present, the three magic numbers checked out, and both
-# images reported $NEXT. This is the first irreversible step.
+# all sixteen files were present, the magic numbers checked out, and every
+# image reported $NEXT. This is the first irreversible step.
 run "git tag '$TAG'"
 run "git push -q origin '$TAG'"
 

@@ -213,6 +213,8 @@ if [ "${1:-}" = "--flash" ]; then
   case "${1:-}" in
     x4pro|sticky|papermono|gh_release_x4pro|gh_release_sticky|gh_release_papermono) FLASH_ENV="$1"; shift ;;
     --*|"") ;;
+    # One app slot and the vendor's partitions: it cannot take a Wi-Fi flash.
+    picco|gh_release_picco) die "--flash: the BOOX Picco has one app slot and cannot flash itself over Wi-Fi; it takes its app slot over USB (docs/install.md, BOOX Picco)" ;;
     *) die "--flash: '$1' is not a device env (x4pro, sticky, papermono, gh_release_x4pro, gh_release_sticky, gh_release_papermono)" ;;
   esac
   # Whatever follows goes to wifi-flash.sh as it is: --ip when discovery
@@ -420,7 +422,7 @@ if [ "$_committed" = "1" ]; then
     rm -rf "$REPO/.pio/ship"
     mkdir -p "$_out"
     _kept=0
-    for _env in gh_release_x4pro gh_release_sticky gh_release_papermono; do
+    for _env in gh_release_x4pro gh_release_sticky gh_release_papermono gh_release_picco; do
       if [ -d "$TRIAL/.pio/build/$_env" ]; then
         mkdir -p "$_out/$_env"
         for _f in firmware.bin firmware.elf partitions.bin bootloader.bin; do
@@ -430,13 +432,15 @@ if [ "$_committed" = "1" ]; then
     done
     # Named against the COMMIT, so a consumer can prove the images it found
     # belong to the commit it means to publish rather than to whatever ran
-    # here last. Four files per release board, twelve for the three, or the
-    # directory is not a release.
-    if [ "$_kept" = 12 ]; then
+    # here last. Four files per release board, sixteen for the four, or the
+    # directory is not a release. (The Picco ships only its firmware.bin and
+    # .elf, but its bootloader and table are kept like any board's, so the
+    # count is one rule and not two.)
+    if [ "$_kept" = 16 ]; then
       echo "CHECKSH-IMAGES: $_out"
     else
       rm -rf "$REPO/.pio/ship"
-      echo "CHECKSH-IMAGES: none ($_kept of 12 files; the device builds were skipped or an env is missing)"
+      echo "CHECKSH-IMAGES: none ($_kept of 16 files; the device builds were skipped or an env is missing)"
     fi
   fi
   exit $_committed_rc
@@ -1074,11 +1078,11 @@ if [ "${1:-}" != "--tests" ]; then
   # would mean committed x4pro builds never took the lock at all.
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
-  BUILD_ENVS="simulator_x4_pro x4pro sticky papermono"
+  BUILD_ENVS="simulator_x4_pro x4pro sticky papermono picco"
   [ -n "${FLASH_MODE:-}" ] && BUILD_ENVS="${FLASH_ENV:-x4pro}"
   # --committed checks the release configurations that ship. A normal run
   # builds the development configurations, including their serial bridge.
-  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky gh_release_papermono"
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky gh_release_papermono gh_release_picco"
 
   # ---- do these builds need to run for THIS change at all? ----------------
   #

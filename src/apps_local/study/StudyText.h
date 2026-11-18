@@ -602,9 +602,12 @@ struct TextFlow {
   bool overlong = false;   // set when one was met, broken or not
   // `markPage` is the page of the first line placed while `marking` is set,
   // or -1. The answer face repeats the question above the answer; the card
-  // marks where its own text begins so a long answer opens there. On a paged
-  // face that first marked line also starts a new page, so the answer opens
-  // at the top of its page and the page before it ends with the question.
+  // marks where its own text begins so a long answer opens there. When the
+  // lines before the mark already ran past one page, that first marked line
+  // also starts a new page, so the answer opens at the top of its page and the
+  // page before it ends with the question. A question that fits on one page
+  // keeps its answer under it: a page holding one line of question and
+  // nothing else is a page turn that shows nothing.
   bool marking = false;
   int markPage = -1;
   // Where the last line placed ends. A layout's own returned y also carries
@@ -667,7 +670,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
     // second does not should not be double-spaced throughout.
     const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
     const bool firstMarked = flow != nullptr && flow->marking && flow->markPage < 0;
-    if (pages != nullptr && firstMarked) y = pages->startPage(y);
+    if (pages != nullptr && firstMarked && pages->last > 0) y = pages->startPage(y);
     if (pages != nullptr) y = pages->placeLine(y, above + lineHeight);
     if (firstMarked) flow->markPage = flow->pages.pageOf(y);
     const int drawY = pages != nullptr ? pages->screenY(y) : y;

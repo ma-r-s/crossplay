@@ -10,7 +10,7 @@
 //
 // There is no settings screen. Nothing here has two defensible values: the
 // order is alphabetical because that is the order a person can predict, a note
-// is as long as it is, and the one thing that looks like a setting -- "type on
+// is as long as it is, and the one thing that looks like a setting -- "edit on
 // your phone" -- is a per-note action that must never become a mode. The rare
 // and destructive things are on a menu sheet over the note they belong to,
 // which is where Wallpapers put its own.

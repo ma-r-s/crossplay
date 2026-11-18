@@ -5465,6 +5465,98 @@ void testStudyHeadlineIsTheHitTarget() {
   }
 }
 
+// The ornament's brackets sit on the page's margin, as every bracketed front
+// door's do. Study's stood 8px from the panel's edges.
+void testStudyDeckBracketsSitOnTheMargin() {
+  int forecast[studyui::kForecastDays] = {289, 4, 0, 12, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0};
+  Rendered out;
+  buildStudyDeck(out, deckWithWork(forecast));
+  int left = 480;
+  int right = -1;
+  int arms = 0;
+  for (const auto& fill : out.target.fills) {
+    const bool arm =
+        (fill.width == 32 && fill.height == toybox::kFrame) || (fill.width == toybox::kFrame && fill.height == 32);
+    if (!arm) continue;
+    ++arms;
+    left = std::min<int>(left, fill.x);
+    right = std::max<int>(right, fill.right());
+  }
+  CHECK(arms == 8);
+  CHECK(left == toybox::kMargin);
+  CHECK(right == 480 - toybox::kMargin);
+}
+
+// Report #727: a Sticky whose clock read February in November counted a deck
+// full of due cards as nothing due, and the screen said so in its largest type.
+// The activity now marks that clock untrusted (study::clockUntrusted); this is
+// what the screen must do with it.
+void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
+  int forecast[studyui::kForecastDays] = {};
+  for (const int fresh : {0, 23}) {
+    Rendered out;
+    // The UI cut's real letters: Jersey at 20 runs about 19 to the capital
+    // (measure.py 20: SYNC TO SET THE CLOCK 392px, REVIEW AFTER SYNC 326px).
+    // At the fake's ten, a door label cut short on the panel fits here.
+    out.target.fontWidths.push_back({toybox::kUiFont, 19});
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.due = 0;
+    model.fresh = fresh;  // new cards are counted whatever the date says
+    model.total = 23;
+    model.forecast = forecast;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(out.target.drew("SYNC TO SET THE CLOCK"));
+    CHECK(!out.target.drew("ALL CLEAR"));
+    CHECK(!out.target.drew("NOTHING DUE TODAY"));
+    CHECK(!out.target.drew("NOTHING TO REVIEW"));
+    CHECK(!out.target.drew("23 TO GO"));
+
+    // The review door is shut and its label is whole on the glass; the
+    // instruction is whole too, on a line wide enough for it.
+    CHECK(drewLabelWhole(out, "REVIEW AFTER SYNC"));
+    CHECK(drewLabelWhole(out, "SYNC TO SET THE CLOCK"));
+    const auto* door = out.target.find("REVIEW AFTER SYNC");
+    CHECK(door != nullptr);
+    if (door != nullptr) {
+      CHECK(out.tap(door->rect.x + 20, door->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // And so is the headline, the other way into a session: a tap there under
+    // a wrong clock opened cards whose answers the review log then refused.
+    const auto* headline = out.target.find("WRONG DATE");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) {
+      CHECK(out.tap(headline->rect.x + 20, headline->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // SYNC, the way out, still answers.
+    const auto* sync = out.target.find("SYNC");
+    CHECK(sync != nullptr);
+    if (sync != nullptr) {
+      const fui::ActionEvent onSync = out.tap(sync->rect.x + 20, sync->rect.y + 10);
+      CHECK(onSync.action == studyui::ActionStudy && onSync.value == 2);
+    }
+  }
+  // With other decks on the card, what waits in them was counted from the
+  // same wrong date, so it is not offered either.
+  {
+    Rendered out;
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.total = 23;
+    model.forecast = forecast;
+    model.deckCount = 2;
+    model.otherWaiting = 3;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(!out.target.drew("3 WAITING IN YOUR OTHER DECK"));
+    CHECK(!out.target.drew("REVIEW ANOTHER DECK"));
+  }
+}
+
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;
@@ -14368,6 +14460,69 @@ void testWikipediaArticleChromeLeavesThePageItsRoom() {
   }
 }
 
+// The article band's two chips mirror each other, and the progress band at
+// the foot keeps the page's margin above the glass. The back chip sat 4px from
+// the left edge beside a contents chip 12px from the right, and the progress
+// band 4px from the bottom.
+void testWikipediaArticleChromeKeepsItsMargins() {
+  wikiui::ArticleChromeModel model;
+  model.title = "Photosynthesis";
+  model.back = true;
+  model.contents = true;
+  wikiui::ArticleFooterModel footer;
+  footer.left = "12 of 87";
+  footer.right = "Light-dependent reactions";
+  footer.page = 12;
+  footer.total = 87;
+  Rendered out;
+  buildWikiArticleChrome(out, model, footer);
+  int leftChip = 480;
+  int rightChip = -1;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.bottom() > toybox::kHeaderHeight) continue;
+    leftChip = std::min<int>(leftChip, stroke.rect.x);
+    rightChip = std::max<int>(rightChip, stroke.rect.right());
+  }
+  CHECK(leftChip < 60 && rightChip > 420);
+  CHECK(leftChip == 480 - rightChip);
+  CHECK(out.tap(leftChip + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionPrevious);
+  int barBottom = -1;
+  for (const auto& fill : out.target.fills) {
+    if (fill.y > 700 && fill.height >= 1 && fill.height <= 5) barBottom = std::max<int>(barBottom, fill.bottom());
+  }
+  CHECK(barBottom > 700);
+  CHECK(barBottom <= 800 - toybox::kMargin);
+}
+
+// The recent trail is divided, not underlined: the last row's own rule sat 8px
+// over the count line's hairline and read as a double line.
+void testWikipediaRecentTrailIsDivided() {
+  wikiui::SearchModel home;
+  home.continueTitle = "Photosynthesis";
+  static const char* kRecent[] = {"Ray Charles", "Polish-Russian War (1654-1667)", "Kluane", "Bern", "Tokyo"};
+  for (int i = 0; i < 5; ++i) home.recent[i].title = kRecent[i];
+  home.recentCount = 5;
+  home.footer = "50,034 ARTICLES, MAY 2026";
+  Rendered out;
+  buildWikiSearch(out, home);
+  const FakeTarget::TextRun* caption = out.target.find("RECENT");
+  const FakeTarget::TextRun* count = out.target.find(home.footer);
+  CHECK(caption != nullptr && count != nullptr);
+  if (caption == nullptr || count == nullptr) return;
+  std::vector<int> rules;
+  for (const auto& fill : out.target.fills) {
+    if (fill.height == toybox::kHairline && fill.width > 300) rules.push_back(fill.y);
+  }
+  std::sort(rules.begin(), rules.end());
+  int rows = 0;
+  for (int i = 0; i < 5; ++i) rows += out.target.find(kRecent[i]) != nullptr ? 1 : 0;
+  CHECK(rows >= 2);
+  int between = 0;
+  for (const int y : rules) between += y > caption->rect.bottom() && y < count->rect.y - 8 ? 1 : 0;
+  CHECK(between == rows - 1);
+  for (size_t i = 1; i < rules.size(); ++i) CHECK(rules[i] - rules[i - 1] >= toybox::kGutter);
+}
+
 void testWikipediaContentsRowsCarryTheHeading() {
   static const char* kHeadings[] = {"Quick facts",     "Overview",    "Light-dependent reactions",
                                     "Carbon fixation", "History",     "Evolution",
@@ -15194,6 +15349,35 @@ void aNoteAsleepIsReadOnlyAndTaller() {
         "asleep, the first page holds MORE rows: the footer's height went to the list", __LINE__);
 }
 
+// Report #652, "How to edit a note?". Changing a note's words happens on the
+// phone page and nowhere else, and the menu row that opens it said TYPE ON
+// YOUR PHONE: nothing on any Notes screen said edit, which is the word he
+// looked for. The row says it now, on a note and on a list alike.
+void theMenuSaysWhereEditingIs() {
+  for (const bool isList : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    notesui::MenuModel model;
+    model.title = "Errands";
+    model.isList = isList;
+    notesui::buildMenu(screen, model);
+
+    const FakeTarget::TextRun* row = nullptr;
+    for (const auto& run : out.target.texts) {
+      if (run.text.rfind("EDIT", 0) == 0) row = &run;
+    }
+    check(row != nullptr, "a menu row starts with EDIT", __LINE__);
+    if (row == nullptr) continue;
+    check(drewLabelWhole(out, row->text.c_str()), "and is drawn whole", __LINE__);
+    check(out.tap(static_cast<int16_t>(row->rect.x + 20), static_cast<int16_t>(row->rect.y + row->rect.height / 2))
+                  .action == notesui::ActionUsePhone,
+          "and opens the phone page, where editing happens", __LINE__);
+  }
+}
+
 }  // namespace notestest
 
 namespace wordletest {
@@ -15448,6 +15632,102 @@ void testRssPostsRowsOpenTheirOwnPost() {
   CHECK(sawDot);
 }
 
+// Every page of every list length, built the way the activity builds it: the
+// window rssui::pageWindow names, handed to the real list. 1.15.0 built the
+// window from the page it was on, while the list fills its last page from
+// `count - visible`, so whenever the length was not a multiple of the page
+// the last page started before the window and drew nothing at all: its posts
+// could not be reached (All, one feed and Saved, and the feeds list too).
+void testRssEveryPageDrawsItsRows() {
+  FakeTarget measure;
+  struct Shape {
+    bool feeds;
+    int perPage;
+  };
+  const Shape shapes[] = {
+      {false, rssVisibleRows()},
+      {true, fui::listVisibleRows(rssui::feedsBand(device()), rssui::feedRowHeight(measure, toybox::themeTokens()),
+                                  toybox::themeTokens().listRowGap)},
+  };
+  for (const Shape& shape : shapes) {
+    const int perPage = shape.perPage;
+    CHECK(perPage >= 4);
+    const fui::ActionId open = shape.feeds ? rssui::ActionOpenFeed : rssui::ActionOpenPost;
+    for (int count = 1; count <= 3 * perPage + 1; ++count) {
+      const int pages = (count + perPage - 1) / perPage;
+      for (int page = 0; page < pages; ++page) {
+        const int topIndex = page * perPage;
+        const rssui::PageWindow window = rssui::pageWindow(count, perPage, topIndex);
+        RssRows rows(window.first, window.count, !shape.feeds);
+        rssui::ListModel model;
+        model.tab = shape.feeds ? rssui::Tab::Feeds : rssui::Tab::All;
+        model.items = rows.items.empty() ? nullptr : rows.items.data();
+        model.count = count;
+        model.windowFirst = window.first;
+        model.windowCount = window.count;
+        model.topIndex = topIndex;
+        Rendered out;
+        if (shape.feeds) {
+          buildRssFeeds(out, model);
+        } else {
+          buildRssPosts(out, model);
+        }
+        std::vector<bool> shown(static_cast<size_t>(count), false);
+        int drawn = 0;
+        bool inWindow = true;
+        for (int y = 0; y < device().height; ++y) {
+          const fui::ActionEvent event = out.tap(240, y);
+          if (event.action != open) continue;
+          if (event.value < window.first || event.value >= window.first + window.count) {
+            inWindow = false;
+            continue;
+          }
+          if (!shown[static_cast<size_t>(event.value)]) ++drawn;
+          shown[static_cast<size_t>(event.value)] = true;
+        }
+        const bool full = drawn == std::min(count, perPage);
+        const bool reachesEnd = page != pages - 1 || shown[static_cast<size_t>(count - 1)];
+        // One line per failing shape, not one per row of it.
+        if (!full || !reachesEnd || !inWindow) {
+          ++checksFailed;
+          std::printf("FAIL rss %s: %d rows, page %d of %d drew %d rows (want %d)%s%s\n",
+                      shape.feeds ? "feeds" : "posts", count, page + 1, pages, drawn, std::min(count, perPage),
+                      reachesEnd ? "" : ", the last row unreachable", inWindow ? "" : ", a row outside the window");
+        }
+        ++checksRun;
+      }
+    }
+  }
+}
+
+// The scroll track stands half a gutter off the row outlines. It stood 2px
+// off, which reads as the track touching them.
+void testRssScrollTrackHasItsAir() {
+  const int perPage = rssVisibleRows();
+  RssRows rows(0, perPage, true);
+  rssui::ListModel model;
+  model.items = rows.items.data();
+  model.count = perPage * 3;
+  model.windowCount = perPage;
+  Rendered out;
+  buildRssPosts(out, model);
+  const fui::Rect band = rssui::postsBand(device());
+  int rowRight = -1;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.y >= band.y && stroke.rect.width > band.width / 2)
+      rowRight = std::max<int>(rowRight, stroke.rect.right());
+  }
+  int trackX = -1;
+  for (const auto& fill : out.target.fills) {
+    if (fill.width == toybox::themeTokens().listScrollWidth && fill.height > 20 && fill.y >= band.y) trackX = fill.x;
+  }
+  CHECK(rowRight > 0 && trackX > 0);
+  CHECK(trackX - rowRight == toybox::spaceBetween);
+  // And the headline fitted to the row is the one the row draws: the room the
+  // track takes is the theme's, not a guess beside it.
+  CHECK(trackX + toybox::themeTokens().listScrollWidth <= band.x + band.width);
+}
+
 void testRssSegments() {
   RssRows rows(0, 2, true);
   const fui::DeviceContext ctx = device();
@@ -15671,6 +15951,7 @@ int main() {
   notestest::anItemCutAtItsCapStillSaysSo();
   notestest::everyItemIsOnThePageItsSaidToBeginOn();
   notestest::aHugeUnbrokenRunIsCheapAndLosesNothing();
+  notestest::theMenuSaysWhereEditingIs();
   heartsDrawsNothingOnTopOfAnythingElse();
   heartsPassOwnsTheTable();
   heartsScoreSaysWhatHappened();
@@ -15711,6 +15992,8 @@ int main() {
   testTriviaDrawsNoOptionsWithoutAQuestion();
   testWikipediaSearchRowsCarryTheirIndex();
   testWikipediaArticleChromeLeavesThePageItsRoom();
+  testWikipediaArticleChromeKeepsItsMargins();
+  testWikipediaRecentTrailIsDivided();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
   testWikipediaChooserCardsOpenTheirPack();
@@ -15819,6 +16102,8 @@ int main() {
   testHnNotice();
   testHnEveryNoticeCarriesAWayOff();
   testRssPostsRowsOpenTheirOwnPost();
+  testRssEveryPageDrawsItsRows();
+  testRssScrollTrackHasItsAir();
   testRssSegments();
   testRssFeedsScreen();
   testRssEmptyStates();
@@ -15894,7 +16179,9 @@ int main() {
   testABoardShowsWhoYouArePlaying();
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
+  testStudyDeckBracketsSitOnTheMargin();
   testStudyHeadlineIsTheHitTarget();
+  testStudyDeckUnderAWrongClockSaysTheDateNotTheCount();
   testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();

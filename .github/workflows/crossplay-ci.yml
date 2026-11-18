@@ -137,7 +137,7 @@ jobs:
       # RELEASE images rather than the dev ones is also strictly better: it is
       # the stack of the binary a user actually runs.
       - name: Build everything
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e gh_release_papermono -e simulator_x4_pro
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e gh_release_papermono -e gh_release_picco -e simulator_x4_pro
 
       # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
       # stack and crashed on the first device that ever ran it. Nothing here
@@ -161,6 +161,9 @@ jobs:
 
       - name: Stack fits its task (papermono)
         run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_papermono
+
+      - name: Stack fits its task (picco)
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_picco
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until

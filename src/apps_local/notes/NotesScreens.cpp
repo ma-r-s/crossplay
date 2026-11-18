@@ -947,7 +947,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       // ALWAYS offered, even with no Wi-Fi: tapping it is what OFFERS to join
       // one. A row disabled with "join Wi-Fi first" would send a person to
       // Settings to do by hand the job this row is holding the tools for.
-      {"TYPE ON YOUR PHONE", model.phoneHint, ActionUsePhone},
+      // Named for what it is for: changing the note's words happens on the
+      // phone page and nowhere else, and "edit" is the word people look for.
+      {"EDIT ON YOUR PHONE", model.phoneHint, ActionUsePhone},
       // The kind is inferred from the file, so it can be inferred wrong: a
       // shopping list typed as plain lines on a computer opens as a note with
       // nothing to tick. This is how a person fixes that without knowing that a

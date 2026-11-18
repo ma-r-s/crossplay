@@ -589,7 +589,7 @@ void NotesActivity::startPhone() {
     startActivityForResult(makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput),
                            [this](const ActivityResult& result) {
                              if (result.isCancelled || WiFi.status() != WL_CONNECTED) {
-                               showNotice("Typing on your phone needs Wi-Fi. Nothing changed.");
+                               showNotice("Editing on your phone needs Wi-Fi. Nothing changed.");
                                return;
                              }
                              startPhone();
