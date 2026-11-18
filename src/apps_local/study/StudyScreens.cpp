@@ -1,5 +1,6 @@
 #include "StudyScreens.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "../../components/icons/listIcons.h"
@@ -230,9 +231,10 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     nextLine += 24;
   }
   // A warning rides the scope line rather than getting one of its own. At four
-  // doors this screen has no spare row: above the ornament the brackets start
-  // 5px below the line before it, and below the caption is the top door. The
-  // nudge it displaces is routine; a warning is neither routine nor silent.
+  // doors this screen has no spare row: the ornament gives up height to keep
+  // its brackets clear of the line above, and below the caption is the top
+  // door. The nudge it displaces is routine; a warning is neither routine nor
+  // silent.
   char warning[48] = "";
   // A wrong clock is not here: the headline says it.
   if (model.writeFailed) {
@@ -244,9 +246,12 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // Scope, on its own line so it cannot push the headline out of its box: the
   // counts above are this deck's, and with more than one on the card they read
   // as the whole account's.
+  // The bottom of the last line drawn above the ornament.
+  int wordsBottom = body.y + nextLine;
   if (warning[0] != '\0') {
     fui::TextStyle warn = small;
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), warning, warn);
+    wordsBottom = body.y + nextLine + 22;
   } else if (model.deckCount > 1 && !model.clockUnset) {
     // Not under a wrong clock: what waits in the other decks was counted from
     // that same wrong date.
@@ -263,6 +268,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
       std::snprintf(elsewhere, sizeof(elsewhere), "TODAY'S COUNTS ARE FOR THIS DECK");
     }
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), elsewhere, scope);
+    wordsBottom = body.y + nextLine + 22;
   }
 
   // The ornament, bracketed the way the board is. With three doors below
@@ -272,7 +278,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // was drawn straight through the top one.
   const int doorsHere = 2 + (model.deckCount > 1 ? 1 : 0) + (model.paired ? 1 : 0);
   const int doorBand = doorsHere * toybox::kRowHeight + (doorsHere - 1) * toybox::kMargin;
-  const int panelTop = body.y + 210;
+  // The top arm stands 18 above the panel and at least as far below the words
+  // above it as the caption stands below the bottom arm.
+  const int panelTop = std::max(body.y + 210, wordsBottom + 16 + 18);
   // The brackets hang 36px below the panel, so the caption clears them by
   // 44 -- less and a bottom arm is drawn through the text (the ui suite
   // checks exactly this).

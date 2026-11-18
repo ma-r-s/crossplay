@@ -137,7 +137,8 @@ void chrome(toybox::Screen& screen, const char* title, const char* trailingLabel
     header.titleText = screen.theme().titleText;
     header.titleText.align = screen.theme().headerTitleAlign;
     header.titleText.bold = true;
-    const int16_t width = toybox::headerTitleWidth(screen, toybox::headerInkRect(screen), header);
+    const int16_t width =
+        toybox::headerTitleWidth(screen, toybox::headerInkRect(screen), toybox::bandProps(screen, header));
     if (screen.target().measureText(header.titleText.font, title, header.titleText).width > width) {
       header.titleText.font = toybox::kSmallFont;
       header.titleText.maxLines = 2;
