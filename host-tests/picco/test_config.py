@@ -192,8 +192,8 @@ class EveryWriteStaysInTheSlot(unittest.TestCase):
             (ROOT / "site/index.html").read_text(),
         )
         install = (ROOT / "site/assets/install.js").read_text()
-        read = install.find("loader.readFlash(OFF_PARTITIONS")
-        guard = install.find("if (hasVendorRecovery(table))")
+        read = install.find(".readFlash(OFF_PARTITIONS")
+        guard = install.find("if (table && hasVendorRecovery(table))")
         write = install.find("loader.writeFlash(")
         self.assertTrue(
             0 < read < guard < write,
