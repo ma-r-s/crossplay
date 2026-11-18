@@ -57,11 +57,15 @@ class FakeEnv:
     def AddPreAction(self, target, action):
         self.pre_actions.setdefault(target, []).append(action)
 
+    def AddPostAction(self, target, action):
+        self.pre_actions.setdefault("post " + target, []).append(action)
+
 
 def picco_upload_env(build_dir, app_offset="0xe0000", uploadcmd=ESPTOOL_CMD):
     framework = "/fw/framework-arduinoespressif32"
     env = FakeEnv(
         BUILD_DIR=build_dir,
+        PROGNAME="firmware",
         UPLOADER="esptool",
         UPLOADCMD=uploadcmd,
         ESP32_APP_OFFSET=app_offset,
@@ -159,7 +163,7 @@ class AppSlotUpload(unittest.TestCase):
             upload(env, self.image)
 
     def test_whole_chip_and_filesystem_targets_are_refused_before_anything_runs(self):
-        for target in ("erase", "erase_upload", "uploadfs", "uploadfsota"):
+        for target in ("erase", "erase_upload", "uploadfs", "uploadfsota", "__debug"):
             with self.subTest(target=target):
                 env = picco_upload_env(self.tmp.name)
                 run_script(env, UPSTREAM.read_text())
@@ -192,6 +196,23 @@ class AppSlotUpload(unittest.TestCase):
         run_script(env, GUARD.read_text(), ["upload"])
         with self.assertRaises(SystemExit):
             upload(env, self.image)
+
+    def test_the_factory_image_is_removed_after_the_build(self):
+        # builder/main.py merges FLASH_EXTRA_IMAGES and the app into
+        # firmware.factory.bin after firmware.bin is built. With the extras
+        # stripped that is 0xE0000 bytes of 0xFF and the app: at 0x0, where
+        # its name says it goes, it erases the vendor's boot region.
+        env = picco_upload_env(self.tmp.name)
+        run_script(env, UPSTREAM.read_text())
+        run_script(env, GUARD.read_text(), ["upload"])
+        factory = os.path.join(self.tmp.name, "firmware.factory.bin")
+        with open(factory, "wb") as f:
+            f.write(b"\xff" * 16)
+        actions = env.pre_actions.get("post $BUILD_DIR/${PROGNAME}.bin", [])
+        self.assertTrue(actions, "nothing runs after firmware.bin is built")
+        for action in actions:
+            action([], [], env)
+        self.assertFalse(os.path.exists(factory))
 
 
 INI = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";",))

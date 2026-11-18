@@ -38,6 +38,11 @@ int main() {
          "the Picco bezel insets are the Sticky's (both the SDK's unmeasured default)");
 
   EXPECT(p.input.up >= 0 && p.input.down >= 0, "the Picco has the two page keys, Up and Down");
+  // The pins docs/buttons.md and docs/picco.md name. A sync that moves one
+  // changes what those docs say, and what GPIO5 turns out to be.
+  EXPECT(p.input.up == 21 && p.input.down == 9, "Up is GPIO21 and Down is GPIO9");
+  EXPECT(p.input.power == 2 && p.input.confirm == 5 && p.input.toggleSwitch == 6,
+         "Power is GPIO2, the provisional Confirm is GPIO5, the slide switch is GPIO6");
   EXPECT(p.input.back < 0 && p.input.left < 0 && p.input.right < 0,
          "the Picco has no Back, Left or Right key (Back is the left-edge swipe)");
   EXPECT(p.input.power >= 0, "the Picco power key is wired");

@@ -39,10 +39,17 @@ cp "$ROOT/scripts_local/lib-sim.sh" "$REPO/scripts_local/lib-sim.sh"
 printf '\xe9fake-app' > "$REPO/.pio/build/x4pro/firmware.bin"
 : > "$WORK/home/.platformio/packages/tool-esptoolpy/esptool.py"
 
+# After the table read resets the chip, the port can come back under another
+# name (FAKE_PORT_AFTER), or not at all (FAKE_GONE_AFTER=1).
 cat > "$WORK/bin/ioreg" <<'IOREG'
 #!/bin/bash
+port="$FAKE_PORT"
+if grep -q read_flash "$FAKE_CALLS" 2>/dev/null; then
+  [ "${FAKE_GONE_AFTER:-0}" = 1 ] && exit 0
+  port="${FAKE_PORT_AFTER:-$FAKE_PORT}"
+fi
 printf '    "USB Serial Number" = "%s"\n' "$FAKE_SERIAL"
-printf '    "IODialinDevice" = "%s"\n' "$FAKE_PORT"
+printf '    "IODialinDevice" = "%s"\n' "$port"
 IOREG
 cat > "$WORK/home/.platformio/penv/bin/python" <<'PY'
 #!/bin/bash
@@ -69,10 +76,11 @@ run() {
   : > "$WORK/calls"
   local port="$WORK/dev/cu.usbmodem$RANDOM"
   : > "$port"
+  LAST_PORT="$port"
   ( cd "$REPO" && \
     PATH="$WORK/bin:$PATH" HOME="$WORK/home" TMPDIR="$WORK" \
     FAKE_SERIAL="$serial" FAKE_PORT="$port" FAKE_TABLE="$table" FAKE_CALLS="$WORK/calls" \
-    FAKE_READ_FAILS="${READ_FAILS:-0}" \
+    FAKE_READ_FAILS="${READ_FAILS:-0}" FAKE_PORT_AFTER="${PORT_AFTER:-}" FAKE_GONE_AFTER="${GONE_AFTER:-0}" \
     bash "$REPO/scripts_local/usb-flash.sh" "$@" > "$WORK/out" 2>&1 )
   RC=$?
   CALLS="$(cat "$WORK/calls")"
@@ -108,6 +116,20 @@ else bad "--env gh_release_picco should be refused before any esptool run (rc=$R
 READ_FAILS=1 run "$MAC" stock
 if [ "$RC" != 0 ] && ! printf '%s\n' "$CALLS" | grep -q write_flash; then ok
 else bad "a failed table read must stop the flash (rc=$RC): $CALLS"; fi
+
+# 6. The reset moved the device to another port name: the write follows the
+#    device, never the name the table was read on.
+NEWPORT="$WORK/dev/cu.usbmodem-moved"
+: > "$NEWPORT"
+PORT_AFTER="$NEWPORT" run "$MAC" stock
+if [ "$RC" = 0 ] && printf '%s\n' "$CALLS" | grep -q -- "--port $NEWPORT .*write_flash" \
+   && ! printf '%s\n' "$CALLS" | grep -q -- "--port $LAST_PORT .*write_flash"; then ok
+else bad "after the table read the write must go to the port the same device has now (rc=$RC): $CALLS"; fi
+
+# 7. The device never came back: nothing is written anywhere.
+GONE_AFTER=1 run "$MAC" stock
+if [ "$RC" != 0 ] && ! printf '%s\n' "$CALLS" | grep -q write_flash; then ok
+else bad "a device that does not come back after the read must not be written (rc=$RC): $CALLS"; fi
 
 echo "usbflash: $((checks - failed))/$checks passed"
 [ "$failed" -eq 0 ]

@@ -196,13 +196,22 @@ if grep -q safeboot "$PTABLE"; then
   echo "       Nothing was written. A Picco takes its app slot only: docs/install.md, BOOX Picco." >&2
   exit 2
 fi
-# A reset on the S3's own USB re-enumerates the port: let it drop, then wait
-# for it back. A USB-UART bridge keeps its port and passes straight through.
+# A reset on the S3's own USB re-enumerates the port, and port names follow USB
+# position rather than the device, so the write must not trust the old name:
+# let the port drop, then look the SAME serial up again and write to whatever
+# port it has now. A USB-UART bridge keeps its port and is found at once.
 sleep 1
+PORT=""
 for _ in $(seq 1 20); do
-  [ -e "$PORT" ] && break
+  PORT="$(inventory | awk -v m="$MAC" -F'\t' '$1==m {print $2}' | head -1 | sed 's|/dev/tty|/dev/cu|')"
+  [ -n "$PORT" ] && [ -e "$PORT" ] && break
+  PORT=""
   sleep 0.5
 done
+if [ -z "$PORT" ]; then
+  echo "error: $MAC did not come back on USB after its table was read; nothing was written." >&2
+  exit 1
+fi
 echo "writing over the cable (no pairing code, no Developer Mode) ..."
 # ONE esptool invocation for the write, not two. A first run that leaves the
 # chip in the bootloader (--after no_reset) makes the second run's --before

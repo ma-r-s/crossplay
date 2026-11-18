@@ -101,6 +101,11 @@ class GateAndRelease(unittest.TestCase):
         self.assertRegex(gate, r"for _env in [^\n]*\bgh_release_picco\b")
         self.assertIn('if [ "$_kept" = 16 ]', gate)
 
+    def test_the_nightly_build_compiles_and_stack_checks_the_picco(self):
+        ci = (ROOT / ".github/workflows/crossplay-ci.yml").read_text()
+        self.assertRegex(ci, r"pio run[^\n]*-e gh_release_picco(?: |$)")
+        self.assertIn("--build-dir .pio/build/gh_release_picco", ci)
+
     def test_ship_publishes_the_app_image_and_never_a_merged_one(self):
         ship = code("scripts_local/ship.sh")
         self.assertRegex(ship, r"for env_name in [^\n]*\bgh_release_picco\b")

@@ -15,10 +15,16 @@
 # upstream's fix, then fails here loudly instead of writing over the vendor's
 # partitions.
 #
-# Four other targets write flash without going through the upload command at
+# Five other targets write flash without going through the upload command at
 # all, and are refused outright for these envs:
 #   erase, erase_upload  erase the WHOLE chip: bootloader, NVS and safeboot
 #   uploadfs, uploadfsota  write a filesystem image into the `spiffs` partition
+#   __debug  `pio debug`, which loads the image through GDB and OpenOCD
+#
+# And one file is removed after every build: firmware.factory.bin, the merged
+# image the platform makes for "flash this at 0x0". With the extra images
+# stripped it is 0xE0000 bytes of 0xFF and then the app, so written where its
+# name says it goes it erases the vendor's bootloader, table, NVS and safeboot.
 #
 # host-tests/appslot runs upstream's script and this one against the flag
 # layout platform-espressif32's builder/main.py produces.
@@ -28,7 +34,7 @@ Import("env")  # noqa: F821  -- injected by SCons/PlatformIO
 
 from SCons.Script import COMMAND_LINE_TARGETS  # noqa: E402
 
-REFUSED_TARGETS = ("erase", "erase_upload", "uploadfs", "uploadfsota")
+REFUSED_TARGETS = ("erase", "erase_upload", "uploadfs", "uploadfsota", "__debug")
 # The upload command platform-espressif32 builds for esptool. The app goes at
 # $ESP32_APP_OFFSET, which the platform takes from the table's ota_0 row; every
 # other image rides in $UPLOADERFLAGS as an "<offset> <path>" pair.
@@ -110,7 +116,18 @@ if wanted:
     _refuse(
         "`-t %s` writes outside the app slot at 0xE0000 (an erase takes the vendor's "
         "bootloader, NVS and safeboot with it; a filesystem upload writes the spiffs "
-        "partition). Only `-t upload` is allowed for this env." % wanted[0]
+        "partition; a debug session loads the image through OpenOCD). Only `-t upload` "
+        "is allowed for this env." % wanted[0]
     )
 
+
+def drop_factory_image(source, target, env):  # noqa: ARG001 -- SCons action signature
+    factory = env.subst("$BUILD_DIR/${PROGNAME}.factory.bin")
+    if os.path.isfile(factory):
+        os.remove(factory)
+        print("app_slot_guard: removed %s; this board takes firmware.bin at 0xE0000 only" % os.path.basename(factory))
+
+
 env.AddPreAction("upload", check_upload)  # noqa: F821
+# After the platform's own post-action on firmware.bin, which writes the file.
+env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", drop_factory_image)  # noqa: F821
