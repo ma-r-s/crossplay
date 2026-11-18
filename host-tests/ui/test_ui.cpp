@@ -15197,6 +15197,74 @@ void testRssPostsRowsOpenTheirOwnPost() {
   CHECK(sawDot);
 }
 
+// Every page of every list length, built the way the activity builds it: the
+// window rssui::pageWindow names, handed to the real list. 1.15.0 built the
+// window from the page it was on, while the list fills its last page from
+// `count - visible`, so whenever the length was not a multiple of the page
+// the last page started before the window and drew nothing at all: its posts
+// could not be reached (All, one feed and Saved, and the feeds list too).
+void testRssEveryPageDrawsItsRows() {
+  FakeTarget measure;
+  struct Shape {
+    bool feeds;
+    int perPage;
+  };
+  const Shape shapes[] = {
+      {false, rssVisibleRows()},
+      {true, fui::listVisibleRows(rssui::feedsBand(device()), rssui::feedRowHeight(measure, toybox::themeTokens()),
+                                  toybox::themeTokens().listRowGap)},
+  };
+  for (const Shape& shape : shapes) {
+    const int perPage = shape.perPage;
+    CHECK(perPage >= 4);
+    const fui::ActionId open = shape.feeds ? rssui::ActionOpenFeed : rssui::ActionOpenPost;
+    for (int count = 1; count <= 3 * perPage + 1; ++count) {
+      const int pages = (count + perPage - 1) / perPage;
+      for (int page = 0; page < pages; ++page) {
+        const int topIndex = page * perPage;
+        const rssui::PageWindow window = rssui::pageWindow(count, perPage, topIndex);
+        RssRows rows(window.first, window.count, !shape.feeds);
+        rssui::ListModel model;
+        model.tab = shape.feeds ? rssui::Tab::Feeds : rssui::Tab::All;
+        model.items = rows.items.empty() ? nullptr : rows.items.data();
+        model.count = count;
+        model.windowFirst = window.first;
+        model.windowCount = window.count;
+        model.topIndex = topIndex;
+        Rendered out;
+        if (shape.feeds) {
+          buildRssFeeds(out, model);
+        } else {
+          buildRssPosts(out, model);
+        }
+        std::vector<bool> shown(static_cast<size_t>(count), false);
+        int drawn = 0;
+        bool inWindow = true;
+        for (int y = 0; y < device().height; ++y) {
+          const fui::ActionEvent event = out.tap(240, y);
+          if (event.action != open) continue;
+          if (event.value < window.first || event.value >= window.first + window.count) {
+            inWindow = false;
+            continue;
+          }
+          if (!shown[static_cast<size_t>(event.value)]) ++drawn;
+          shown[static_cast<size_t>(event.value)] = true;
+        }
+        const bool full = drawn == std::min(count, perPage);
+        const bool reachesEnd = page != pages - 1 || shown[static_cast<size_t>(count - 1)];
+        // One line per failing shape, not one per row of it.
+        if (!full || !reachesEnd || !inWindow) {
+          ++checksFailed;
+          std::printf("FAIL rss %s: %d rows, page %d of %d drew %d rows (want %d)%s%s\n",
+                      shape.feeds ? "feeds" : "posts", count, page + 1, pages, drawn, std::min(count, perPage),
+                      reachesEnd ? "" : ", the last row unreachable", inWindow ? "" : ", a row outside the window");
+        }
+        ++checksRun;
+      }
+    }
+  }
+}
+
 void testRssSegments() {
   RssRows rows(0, 2, true);
   const fui::DeviceContext ctx = device();
@@ -15563,6 +15631,7 @@ int main() {
   testHnNotice();
   testHnEveryNoticeCarriesAWayOff();
   testRssPostsRowsOpenTheirOwnPost();
+  testRssEveryPageDrawsItsRows();
   testRssSegments();
   testRssFeedsScreen();
   testRssEmptyStates();

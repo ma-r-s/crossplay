@@ -1,5 +1,7 @@
 #include "RssScreens.h"
 
+#include <algorithm>
+
 #include "../hackernews/HackerNewsScreens.h"
 #include "../ui/ToyboxText.h"
 
@@ -102,6 +104,19 @@ fui::Rect postsBand(const fui::DeviceContext& device) { return bandAbove(device,
 fui::Rect feedsBand(const fui::DeviceContext& device) {
   // The way to the phone sits between the rows and the segments.
   return bandAbove(device, 2 * (kFooterHeight + toybox::kGutter));
+}
+
+PageWindow pageWindow(const int listCount, const int visible, const int topIndex) {
+  // The activity pages onto page boundaries (0, 6, 12 of 14), and the list
+  // fills its last page from listCount - visible (8 of 14) so that page is
+  // full. A window starting at the boundary started after the list's first
+  // row, and the list draws nothing before its window: the last page of any
+  // list whose length is not a multiple of the page came out empty.
+  const int rows = std::max(visible, 1);
+  PageWindow window;
+  window.first = listCount > rows ? std::min(std::max(topIndex, 0), listCount - rows) : 0;
+  window.count = std::max(0, std::min(listCount - window.first, rows));
+  return window;
 }
 
 int16_t postRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tokens) {
