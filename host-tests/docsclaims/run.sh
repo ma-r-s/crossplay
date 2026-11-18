@@ -403,6 +403,14 @@ if m:
           "docs/buttons.md Back-only sentence is stale",
           f"says {m.group(1)} of {m.group(2)}, real {back_only} of {len(button_use)}")
 
+m = re.search(r"^> ([A-Z][a-z-]+) apps read Up/Down today", buttons, re.M)
+check(bool(m), "docs/buttons.md no longer says how many apps read Up/Down",
+      "the paragraph under the census table")
+if m:
+    up_down = sum(1 for s in button_use.values() if s & {"Up", "Down"})
+    check(word_number(m.group(1)) == up_down, "docs/buttons.md Up/Down sentence is stale",
+          f"says {m.group(1)}, real {up_down}")
+
 # ---------------------------------------------------------------------------
 # docs/contributing/README.md is the index of its own directory. It went stale
 # by omission: landing-and-integration.md existed and nothing linked it.

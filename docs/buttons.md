@@ -140,7 +140,7 @@ Eighteen of the thirty-nine directories use Back and nothing else.
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we
 > had built, and that the only apps touching them were the reader-shaped ones.
-> Sixteen apps read Up/Down today and eight of them are games: Checkers,
+> Seventeen apps read Up/Down today and eight of them are games: Checkers,
 > Connect Four, Forehead, Picross, Sea Salt, Toy Battle, Wavelength and Yahtzee,
 > alongside Hacker News, Instapaper, Notes, Reading Stats, RSS, Wallpapers,
 > Weather (its pages of places), Wikipedia and xkcd.
