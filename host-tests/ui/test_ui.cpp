@@ -41,6 +41,8 @@
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/readingstats/ReadingStatsScreens.h"
+#include "../../src/apps_local/readingstats/ReadingStatsTitles.h"
 #include "../../src/apps_local/rss/RssScreens.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/solitaire/SolitaireScreens.h"
@@ -15401,6 +15403,282 @@ void testRssHeadlineRoomFollowsTheSite() {
   CHECK(none < rssui::postsBand(ctx).width);
 }
 
+// --- Reading Stats -------------------------------------------------------
+
+namespace rstats {
+
+// A fortnight ending on a Wednesday: this week is the last four columns.
+rstatsui::MainModel weekModel(const rstatsui::BookRow* books, const int count) {
+  rstatsui::MainModel model;
+  model.anySession = true;
+  model.year = 2026;
+  model.weekSeconds = 214 * 60;
+  model.streak = 9;
+  const char letters[] = "TFSSMTWTFSSMTW";
+  const uint32_t minutes[] = {28, 0, 120, 83, 0, 53, 46, 39, 32, 101, 124, 41, 34, 15};
+  for (int i = 0; i < rstatsui::kChartCells; ++i) {
+    model.chart[i].seconds = minutes[i] * 60;
+    model.chart[i].letter = letters[i];
+    model.chart[i].thisWeek = i >= 10;
+    model.chart[i].today = i == 13;
+  }
+  model.books = books;
+  model.bookCount = count;
+  return model;
+}
+
+const rstatsui::BookRow kBooks[] = {
+    {"The Left Hand of Darkness", "16 NOV"},
+    {"The Hitchhiker's Guide to the Galaxy", "2 NOV"},
+    {"Le Comte de Monte-Cristo", "1 OCT"},
+    {"The Strange Case of Dr Jekyll and Mr Hyde", "8 SEP"},
+    {"Master and Margarita", "19 AUG"},
+    {"Godel, Escher, Bach", "2 JUL"},
+    {"Zen and the Art of Motorcycle Maintenance", "14 JUN"},
+    {"Sapiens", "30 APR"},
+    {"Cien anos de soledad", "21 MAR"},
+    {"Norwegian Wood", "3 FEB"},
+    {"Frankenstein", "9 JAN"},
+};
+constexpr int kBookCount = static_cast<int>(sizeof(kBooks) / sizeof(kBooks[0]));
+
+void buildMain(Rendered& out, const rstatsui::MainModel& model, rstatsui::Titles& titles) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rstatsui::buildMain(screen, model, titles);
+}
+
+void buildBooks(Rendered& out, const rstatsui::BooksModel& model, rstatsui::Titles& titles) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rstatsui::buildBooks(screen, model, titles);
+}
+
+const FakeTarget::TextRun* runOf(const Rendered& out, const char* exact) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == exact) return &run;
+  }
+  return nullptr;
+}
+
+bool overlaps(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+
+}  // namespace rstats
+
+void testReadingStatsMainSaysTheWeekTheStreakAndTheYear() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, rstats::kBookCount), titles);
+  CHECK(drewText(out, "READING STATS"));
+  CHECK(rstats::runOf(out, "3 HR 34 MIN") != nullptr);
+  CHECK(rstats::runOf(out, "THIS WEEK") != nullptr);
+  CHECK(rstats::runOf(out, "9 DAY STREAK") != nullptr);
+  CHECK(rstats::runOf(out, "FINISHED IN 2026") != nullptr);
+  CHECK(rstats::runOf(out, "11 BOOKS") != nullptr);
+  // Every column with reading carries its number, and the empty ones none.
+  CHECK(rstats::runOf(out, "124") != nullptr && rstats::runOf(out, "28") != nullptr);
+  CHECK(rstats::runOf(out, "0") == nullptr);
+  // Today's letter is knocked out of black; no other letter is.
+  int whiteLetters = 0;
+  for (const auto& run : out.target.texts) {
+    if (run.text.size() == 1 && run.color == fui::Color::White) ++whiteLetters;
+  }
+  CHECK(whiteLetters == 1);
+}
+
+void testReadingStatsThisWeekIsSolidAndLastWeekDithered() {
+  Rendered out;
+  rstatsui::Titles titles;
+  const rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, 2);
+  rstats::buildMain(out, model, titles);
+  int dithered = 0;
+  for (const fui::Paint& paint : out.target.fillPaints) {
+    if (paint.kind == fui::PaintKind::Dither) ++dithered;
+  }
+  int earlierDays = 0;
+  for (const rstatsui::Day& day : model.chart) {
+    if (!day.thisWeek && day.seconds >= 60) ++earlierDays;
+  }
+  CHECK(earlierDays == 8);
+  CHECK(dithered == earlierDays);
+}
+
+void testReadingStatsChartNumbersNeverCollide() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, 0);
+  // The widest numbers a column can carry, side by side.
+  for (rstatsui::Day& day : model.chart) day.seconds = 999 * 60;
+  model.chart[5].seconds = 1439 * 60;  // a whole day: hours, not four digits
+  rstats::buildMain(out, model, titles);
+  std::vector<fui::Rect> numbers;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "999" || run.text == "23H") numbers.push_back(run.rect);
+  }
+  CHECK(numbers.size() == 14);
+  CHECK(rstats::runOf(out, "1439") == nullptr);
+  bool apart = true;
+  for (size_t i = 0; i < numbers.size(); ++i) {
+    for (size_t j = i + 1; j < numbers.size(); ++j) apart = apart && !rstats::overlaps(numbers[i], numbers[j]);
+  }
+  CHECK(apart);
+}
+
+void testReadingStatsDoorOpensTheYearAndNothingSitsOnIt() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, rstats::kBookCount), titles);
+  const fui::DeviceContext ctx = device();
+  const int doorY = ctx.height - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(ctx.width / 2, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(out.tap(toybox::kMargin + 4, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(out.tap(ctx.width - toybox::kMargin - 4, doorY).action == rstatsui::ActionAllBooks);
+  CHECK(rstats::runOf(out, "ALL 11 BOOKS") != nullptr);
+  // The rows the screen showed are the newest, in order, and none of them
+  // reaches the door or the foot of the panel.
+  CHECK(titles.count >= 2 && titles.count < rstats::kBookCount);
+  const fui::Rect door =
+      fui::makeRect(toybox::kMargin, static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight),
+                    static_cast<int16_t>(ctx.width - 2 * toybox::kMargin), toybox::kPillHeight);
+  for (int i = 0; i < titles.count; ++i) {
+    CHECK(std::string(titles.slots[i].title) == rstats::kBooks[i].title);
+    CHECK(!rstats::overlaps(titles.slots[i].box, door));
+    CHECK(titles.slots[i].box.right() <= ctx.width - toybox::kMargin);
+  }
+  // Each title sits beside its own date, on the same row.
+  for (int i = 0; i < titles.count; ++i) {
+    const auto* date = rstats::runOf(out, rstats::kBooks[i].date);
+    CHECK(date != nullptr && date->rect.y >= titles.slots[i].box.y - 10 &&
+          date->rect.bottom() <= titles.slots[i].box.bottom() + 10);
+    CHECK(date != nullptr && date->rect.right() <= titles.slots[i].box.x);
+  }
+}
+
+void testReadingStatsAShortYearHasNoDoor() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstats::buildMain(out, rstats::weekModel(rstats::kBooks, 2), titles);
+  CHECK(!out.has(rstatsui::ActionAllBooks));
+  CHECK(titles.count == 2);
+  CHECK(rstats::runOf(out, "2 BOOKS") != nullptr);
+  Rendered one;
+  rstatsui::Titles oneTitle;
+  rstats::buildMain(one, rstats::weekModel(rstats::kBooks, 1), oneTitle);
+  CHECK(rstats::runOf(one, "1 BOOK") != nullptr);
+}
+
+void testReadingStatsFirstRunSaysWhatWillAppear() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model;
+  model.year = 2026;
+  rstats::buildMain(out, model, titles);
+  CHECK(rstats::runOf(out, "0 MIN") != nullptr);
+  CHECK(rstats::runOf(out, "NO STREAK") != nullptr);
+  CHECK(rstats::runOf(out, "MINUTES READ SHOW UP HERE") != nullptr);
+  CHECK(rstats::runOf(out, "NONE YET") != nullptr);
+  CHECK(titles.count == 0);
+  CHECK(!out.has(rstatsui::ActionAllBooks));
+}
+
+void testReadingStatsWithoutAClockShowsOnlyHowToSetIt() {
+  Rendered out;
+  rstatsui::Titles titles;
+  rstatsui::MainModel model = rstats::weekModel(rstats::kBooks, rstats::kBookCount);
+  model.clockSet = false;
+  rstats::buildMain(out, model, titles);
+  CHECK(rstats::runOf(out, "NO DATE YET") != nullptr);
+  CHECK(rstats::runOf(out, "JOIN WI-FI TO SET IT") != nullptr);
+  CHECK(rstats::runOf(out, "THIS WEEK") == nullptr);
+  CHECK(rstats::runOf(out, "FINISHED IN 2026") == nullptr);
+  CHECK(titles.count == 0);
+  // Every line of it fits the panel at the fake ten pixels a character.
+  for (const auto& run : out.target.texts) {
+    CHECK(static_cast<int>(run.text.size()) * out.target.charW <= device().width - 2 * toybox::kMargin);
+  }
+}
+
+void testReadingStatsBooksPageThroughTheYear() {
+  const int perPage = rstatsui::booksPerPage(device());
+  CHECK(perPage >= 8);
+  CHECK(perPage < rstats::kBookCount);
+  Rendered first;
+  rstatsui::Titles page1;
+  rstatsui::BooksModel model;
+  model.year = 2026;
+  model.books = rstats::kBooks;
+  model.count = rstats::kBookCount;
+  model.pageLabel = "1/2";
+  rstats::buildBooks(first, model, page1);
+  CHECK(page1.count == perPage);
+  CHECK(drewText(first, "1/2"));
+  CHECK(rstats::runOf(first, "11 BOOKS") != nullptr);
+  CHECK(page1.slots[perPage - 1].box.bottom() <= device().height - toybox::kMargin);
+
+  Rendered second;
+  rstatsui::Titles page2;
+  model.first = perPage;
+  model.pageLabel = "2/2";
+  rstats::buildBooks(second, model, page2);
+  CHECK(page2.count == rstats::kBookCount - perPage);
+  CHECK(std::string(page2.slots[0].title) == rstats::kBooks[perPage].title);
+}
+
+// The title fitter, at the fake metric: lines within the box, never more than
+// it holds, broken at spaces in Latin and between characters in CJK.
+void testReadingStatsTitlesFitTheirBox() {
+  FakeTarget target;
+  target.lineH = 20;
+  const int16_t width = 200;  // twenty fake characters
+  const rstatsui::TitleLayout shortOne = rstatsui::layOutTitle(target, "Dune", width, 58);
+  CHECK(shortOne.lines == 1 && shortOne.text[0] == "Dune" && shortOne.whole);
+
+  const rstatsui::TitleLayout twoLines = rstatsui::layOutTitle(target, "The Left Hand of Darkness and More", width, 58);
+  CHECK(twoLines.lines == 2 && twoLines.whole);
+  CHECK(twoLines.text[0] == "The Left Hand of" && twoLines.text[1] == "Darkness and More");
+
+  // No space anywhere: CJK breaks between characters (3 bytes, 30 fake px each).
+  const std::string cjk =
+      "\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e";
+  const rstatsui::TitleLayout broken = rstatsui::layOutTitle(target, cjk.c_str(), 180, 58);
+  CHECK(broken.lines == 2 && broken.whole);
+  // ...at the LARGEST cut. Breaking between characters is CJK's ordinary line
+  // break, not the smallest cut's last resort for a word too wide for its line;
+  // a fitter that saw one long word would only manage it at the smallest.
+  CHECK(broken.font == fui::FONT_SLOT_TITLE);
+  CHECK(broken.text[0] == "\xe6\xba\x90\xe6\xb0\x8f\xe7\x89\xa9\xe8\xaa\x9e\xe6\xba\x90\xe6\xb0\x8f");
+
+  // Past what the box can hold: the lines stay in it and the last says so.
+  std::string longest;
+  for (int i = 0; i < 40; ++i) longest += "word ";
+  const rstatsui::TitleLayout cut = rstatsui::layOutTitle(target, longest.c_str(), width, 58);
+  CHECK(!cut.whole);
+  CHECK(cut.lines * cut.lineHeight <= 58);
+  bool narrow = true;
+  for (int i = 0; i < cut.lines; ++i) {
+    narrow = narrow && target.measureText(cut.font, cut.text[i].c_str(), fui::TextStyle{}).width <= width;
+  }
+  CHECK(narrow);
+  CHECK(cut.text[cut.lines - 1].size() >= 3 &&
+        cut.text[cut.lines - 1].compare(cut.text[cut.lines - 1].size() - 3, 3, "...") == 0);
+
+  // And drawn, every line lands inside the box.
+  FakeTarget drawn;
+  const fui::Rect box = fui::makeRect(90, 400, width, 58);
+  rstatsui::drawTitle(drawn, box, twoLines);
+  CHECK(drawn.texts.size() == 2);
+  for (const auto& run : drawn.texts) {
+    CHECK(run.rect.y >= box.y && run.rect.bottom() <= box.bottom() && run.rect.x == box.x &&
+          run.rect.width == box.width);
+  }
+}
+
 int main() {
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
@@ -15721,6 +15999,16 @@ int main() {
   everyBandCarriesItsRule();
   yahtzeeScreensClearTheChrome();
   yahtzeeDiceClearTheHeader();
+
+  testReadingStatsMainSaysTheWeekTheStreakAndTheYear();
+  testReadingStatsThisWeekIsSolidAndLastWeekDithered();
+  testReadingStatsChartNumbersNeverCollide();
+  testReadingStatsDoorOpensTheYearAndNothingSitsOnIt();
+  testReadingStatsAShortYearHasNoDoor();
+  testReadingStatsFirstRunSaysWhatWillAppear();
+  testReadingStatsWithoutAClockShowsOnlyHowToSetIt();
+  testReadingStatsBooksPageThroughTheYear();
+  testReadingStatsTitlesFitTheirBox();
 
   std::printf("chrome probe: %d header renders measured, %d renders had no band\n", chromeScreensMeasured,
               chromeScreensSkipped);
