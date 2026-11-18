@@ -770,3 +770,19 @@ that cannot draws the arrow the system keyboard uses (freeink-sdk
 minutes": the time depends on the language and the route, the page works
 it out from the measured rates and shows it beside the choice, and the
 device knows neither.
+
+**The second review (1.16.0).** What a cold UX review of the German work
+found, and what changed.
+
+- *The Kurzinfo box.* Every country's box nests a table of its flag and
+  arms with their names in the row under them, and the converter read that
+  row as a fact ("Flagge | Wappen", 442 rows of the 50,000). A row under
+  pictures set side by side in a nested table is their captions, unless its
+  key says it is one (a header cell, bold, "Key:"), which keeps a duchy's
+  "Landeshauptstadt" under its arms. A value's lines used to be joined with
+  commas, which left "Amtssprachen:, Kroatisch" and ", - anerkannte
+  Minderheitssprachen" (706 and 41 values): a label now runs into what it
+  labels, a later label opens a group after a semicolon, a dashed line
+  follows the one above after a dash, and a whole parenthesis belongs to the
+  line above (3,068 values read "652.015, (1. Jan. 2024)"). The counts are
+  over the whole pack, before and after (`zim_article.join_items`).

@@ -273,6 +273,72 @@ class GermanArticles(unittest.TestCase):
         self.assertIn("<tr><th>Ordnung</th><td>Raubtiere</td></tr>", xhtml)
         self.assertNotIn("Deutsches Reich", xhtml)
 
+    def test_captions_under_a_row_of_pictures_are_not_facts(self):
+        # Every country's box puts the flag and the arms in one row and
+        # "Flagge" | "Wappen" in the row under it: 416 rows of the German
+        # pack read as a fact named Flagge whose value was Wappen.
+        _, _, xhtml, _ = convert("oesterreich", "\u00d6sterreich")
+        self.assertNotIn("<th>Flagge</th>", xhtml)
+        self.assertNotIn("<td>Wappen</td>", xhtml)
+        self.assertIn('<h2 id="s1">Kurzinfo</h2><table><tr><th>Amtssprache</th>', xhtml)
+        self.assertIn("<tr><th>Hauptstadt</th><td>Wien</td></tr>", xhtml)
+
+    def test_a_fact_under_pictures_in_a_nested_box_stays(self):
+        # A duchy's box is one nested table: the arms and the flag, then its
+        # facts with their keys in bold. A key that says it is one stays.
+        html = (
+            '<div class="mw-parser-output"><section data-mw-section-id="0">'
+            '<table class="infobox"><tbody><tr><td><table><tbody>'
+            "<tr><th>Wappen</th><th>Flagge</th></tr>"
+            '<tr><td data-had-file="1">a</td><td data-had-file="1">b</td></tr>'
+            "<tr><td><b>Landeshauptstadt</b></td><td>Hechingen</td></tr>"
+            "<tr><td><b>Regierungsform</b></td><td>Monarchie</td></tr>"
+            "</tbody></table></td></tr></tbody></table>"
+            "<p><b>T</b> ist ein Test.</p></section></div>"
+        )
+        _, _, xhtml = zim_article.zim_xhtml(html, "T", DE)
+        xhtml = xhtml.decode("utf-8")
+        self.assertIn("<tr><th>Landeshauptstadt</th><td>Hechingen</td></tr>", xhtml)
+        self.assertIn("<tr><th>Regierungsform</th><td>Monarchie</td></tr>", xhtml)
+
+    def test_infobox_lines_join_as_the_box_reads_them(self):
+        _, _, xhtml, _ = convert("oesterreich", "\u00d6sterreich")
+        self.assertIn(
+            "<tr><th>Amtssprache</th><td>Deutsch \u2013 regionale Amtssprachen: Kroatisch, "
+            "Slowenisch, Ungarisch \u2013 anerkannte Minderheitssprachen: u. a. "
+            "\u00f6sterreichische Geb\u00e4rdensprache, Romani</td></tr>",
+            xhtml,
+        )
+        facts = xhtml[xhtml.index("Kurzinfo") : xhtml.index("</table>")]
+        self.assertNotIn(":,", facts)
+        self.assertNotIn(", \u2013", facts)
+        join = zim_article.join_items
+        # a label runs into its value; a later label opens a group
+        self.assertEqual(
+            join(["International:", "www.greenpeace.org", "Deutschland:", "www.greenpeace.de"]),
+            "International: www.greenpeace.org; Deutschland: www.greenpeace.de",
+        )
+        # a parenthesis belongs to the line above
+        self.assertEqual(
+            join(["522.904 Einwohner", "(Stand: 14. Oktober 2010)"]),
+            "522.904 Einwohner (Stand: 14. Oktober 2010)",
+        )
+        # a name that starts with a parenthesis is an item of its own
+        self.assertEqual(
+            join(["L-Natriumglutamat", "(S)-Natriumglutamat"]),
+            "L-Natriumglutamat, (S)-Natriumglutamat",
+        )
+        # every line a bullet: a plain list
+        self.assertEqual(join(["\u2013 A", "\u2013 B"]), "A, B")
+        self.assertEqual(join(["\u2013 A", "(a)", "\u2013 B"]), "A (a), B")
+        # a dash before a digit is a sign, alone or first
+        self.assertEqual(join(["- 0,2 %"]), "- 0,2 %")
+        self.assertEqual(join(["- 5 bis 69 m", "(NAP)"]), "- 5 bis 69 m (NAP)")
+        # a label over a dashed line: one space, no dash
+        self.assertEqual(join(["2008\u20132011:", "\u2013 Es wird"]), "2008\u20132011: Es wird")
+        # plain lines stay a comma list
+        self.assertEqual(join(["Paramount Pictures", "20th Century Fox"]), "Paramount Pictures, 20th Century Fox")
+
     def test_an_infobox_line_break_is_a_comma(self):
         _, _, xhtml, _ = convert("titanic", "Titanic (1997)")
         self.assertIn(

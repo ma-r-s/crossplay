@@ -40,6 +40,9 @@ ARTICLES = {
     "Borat_–_Kulturelle_Lernung_von_Amerika,_um_Benefiz_für_glorreiche_Nation_von_Kasachstan_zu_machen": "borat",
     # formulas
     "Nullstelle": "nullstelle",
+    # a country's box: flag and arms over their captions, a value of lines
+    # with dashed sub-items and labels ("- regionale Amtssprachen:")
+    "\u00d6sterreich": "oesterreich",
 }
 BUDGET = 40_000
 

@@ -316,6 +316,15 @@ def _row_table(tr):
     return p
 
 
+def _names_a_field(cell):
+    """A key cell that says it is one: a header cell, bold, or "Key:"."""
+    return (
+        cell.tag == "th"
+        or cell.first("b") is not None
+        or cell.text().rstrip().endswith(":")
+    )
+
+
 def _mark_cell(node):
     """The table cell a picture stood in, so an infobox row that was a picture
     and its caption is not read as a key and a value."""
@@ -323,6 +332,67 @@ def _mark_cell(node):
         node = node.parent
     if node is not None and node.tag in ("td", "th"):
         node.attrs["data-had-file"] = "1"
+
+
+_BULLET = re.compile("^[\u2013\u2014-] +(?=[^\\d\\s])")
+
+
+def _aside(t):
+    """A line that is one parenthesis from end to end, "(Stand: 2010)", and not
+    a name that starts with one, "(S)-Natriumglutamat"."""
+    if not (t.startswith("(") and t.endswith(")")):
+        return False
+    depth = 0
+    for i, ch in enumerate(t):
+        depth += ch == "("
+        depth -= ch == ")"
+        if depth == 0:
+            return i == len(t) - 1
+    return False
+
+
+def join_items(items):
+    """The lines of an infobox value as one line. A comma between items, as
+    the box reads them, except where a line is not an item of its own:
+
+    - a label ("Offizielle Hymne:") runs into what it labels, with a space,
+      and one that is not the first opens a group, after a semicolon;
+    - a line that starts with a dash is a sub-item ("- regionale
+      Amtssprachen:") and follows the line above after a dash, its own dash
+      gone; a value whose every line starts with one is a plain list;
+    - a parenthesis ("(Stand: 2010)") belongs to the line above.
+
+    Counted over the German pack before it was written: 706 values had
+    "label:, item", 41 a ", - " seam, 3,068 a ", (" seam. A single line is
+    returned as it came, and a dash before a digit is a sign ("- 0,2 %"),
+    never a bullet.
+    """
+    items = [t for t in items if t]
+    if len(items) < 2:
+        return items[0] if items else ""
+    # a list of bullets, asides between them or not
+    bulleted = all(_BULLET.match(t) or _aside(t) for t in items) and any(
+        _BULLET.match(t) for t in items
+    )
+    out = ""
+    for i, t in enumerate(items):
+        dashed = bool(_BULLET.match(t))
+        if dashed and (i > 0 or bulleted):
+            t = _BULLET.sub("", t)
+        if i == 0:
+            out = t
+            continue
+        prev_label = out.endswith(":")
+        if prev_label or _aside(t):
+            sep = " "
+        elif dashed and not bulleted:
+            sep = " \u2013 "
+        elif t.endswith(":"):
+            sep = "; "
+        else:
+            sep = ", "
+        out += sep + t
+    return out
 
 
 def prune(node, stats):
@@ -918,15 +988,33 @@ class Converter:
         return rows
 
     def _fact_cells(self, table):
+        # The row before, per table it belongs to. A table nested in the box
+        # that sets pictures side by side puts their captions in the row
+        # under them, plain words; in the box's own rows a fact follows the
+        # pictures ("Staat:" | "Italien" under a town's arms and map), and so
+        # does a key in bold or a header cell in a nested one
+        # ("Landeshauptstadt" under a duchy's arms and flag).
+        pictures_above = {}
         for tr in table.find_all("tr"):
             cells = [
                 c for c in tr.children if isinstance(c, Node) and c.tag in ("td", "th")
             ]
+            own = _row_table(tr)
+            under_pictures = pictures_above.get(id(own), False)
+            pictures_above[id(own)] = (
+                own is not table
+                and len(cells) >= 2
+                and all("data-had-file" in c.attrs for c in cells)
+            )
             # a cell spanning the box is a picture, a caption or a group name;
-            # a cell that held a picture is a caption ("Flagge" | "Wappen")
+            # a cell that held a picture is a caption, and so is a row under
+            # a row of pictures ("Flagge" | "Wappen" under the flag and the
+            # arms, in every country's box)
             if any(c.attrs.get("colspan") not in (None, "", "1") for c in cells):
                 continue
             if any("data-had-file" in c.attrs for c in cells):
+                continue
+            if under_pictures and cells and not _names_a_field(cells[0]):
                 continue
             # two headers side by side head the pictures under them
             if cells and all(c.tag == "th" for c in cells):
@@ -935,7 +1023,6 @@ class Converter:
             # two plain cells side by side are two sides compared
             # ("Konfliktparteien": one army | the other), not a key and its
             # value: only a header cell or a "Key:" cell names a field there.
-            own = _row_table(tr)
             if len(cells) == 2 and own is not table and _headed(own):
                 key = cells[0]
                 if key.tag != "th" and not key.text().rstrip().endswith(":"):
@@ -950,8 +1037,7 @@ class Converter:
             s = self.plain(cell)
         finally:
             self.line_break = " "
-        texts = [t.strip(" ,;") for t in s.split(_ITEM)]
-        return ", ".join(t for t in texts if t)
+        return join_items(t.strip(" ,;") for t in s.split(_ITEM))
 
     def emit_facts(self):
         if not self.facts_rows:
