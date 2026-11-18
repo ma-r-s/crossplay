@@ -154,6 +154,13 @@ classify() {
     # did, by listing *.md after the directory branches in a case that could
     # only ever match inert ones.
     *.md|LICENSE|.clang-format|.clangd)               echo "no no"   ;;
+    # Upstream's license texts (CrossPoint 2.0, #4064) and the attribute that
+    # keeps git from re-flowing their whitespace. Prose and a diff setting.
+    licenses/*|.gitattributes)                        echo "no no"   ;;
+    # Upstream's BOOX Picco partition table. No env in this fork builds a
+    # Picco (platformio.ini), so nothing reads it; whether CrossPlay supports
+    # the Picco is Mario's call, and adding an env moves this row.
+    partitions_picco.csv)                             echo "no no"   ;;
 
     # THE ONE WORKFLOW THAT PUBLISHES. crossplay-release.yml builds both
     # devices, merges the images and uploads the assets a person downloads;

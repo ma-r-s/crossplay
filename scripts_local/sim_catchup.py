@@ -481,12 +481,15 @@ def main(env):
         marker="sys/statvfs.h",
     )
 
+    # storageRoot() is the simulator's own (crosspoint_simulator::storageRoot,
+    # pulled in by a using-declaration); before 4c78f3ff it was a file-local
+    # configuredStorageRoot().
     patch(
         src / "HalStorage.cpp",
         "bool HalStorage::begin() {",
         "bool HalStorage::freeBytes(uint64_t &out) {\n"
         "  struct statvfs st {};\n"
-        "  if (statvfs(configuredStorageRoot().c_str(), &st) != 0) return false;\n"
+        "  if (statvfs(storageRoot().c_str(), &st) != 0) return false;\n"
         "  out = static_cast<uint64_t>(st.f_bavail) *\n"
         "        static_cast<uint64_t>(st.f_frsize);\n"
         "  return true;\n"
@@ -613,16 +616,9 @@ def main(env):
         "WebServer request-argument members",
         marker="_currentArgCount",
     )
-    # The plugin endpoints walk a String character by character.
-    patch(
-        src / "WString.h",
-        "  size_t length() const { return s.length(); }",
-        "  size_t length() const { return s.length(); }\n"
-        "  const char *begin() const { return s.c_str(); }\n"
-        "  const char *end() const { return s.c_str() + s.length(); }",
-        "String::begin/end (range-for)",
-        marker="const char *begin() const",
-    )
+    # String::begin/end (the plugin endpoints walk a String character by
+    # character) came off this list in the CrossPoint 2.0 sync: the simulator
+    # at 4c78f3ff has its own, and a second pair no longer compiles.
     # Upstream's per-book content keys (lib/DeviceSecret, lib/Epub/BookKey,
     # 2026-10) keep a device secret in NVS. The simulator's nvs.h and
     # esp_random.h shadow sim-stubs/, so they are patched here. A blob read
@@ -725,6 +721,84 @@ def main(env):
         "inline bool isEegoA4() { return false; }",
         "BoardConfig::isEegoA4 (never, on a host)",
         marker="isEegoA4",
+    )
+    # Upstream's power-button classifier (#4407, 2026-11-15) asks the board how
+    # its buttons report: CrossPointSettings::hasPowerDoubleClick() and
+    # MappedInputManager compare BoardConfig::ACTIVE.inputStyle with
+    # DigitalConfirmPowerHold, the Sticky's shared key. The simulator at
+    # 84c3421d (2026-11-10) predates it. The enum is the SDK's, names and order;
+    # the member is APPENDED with a default, like displayWidth above, so every
+    # positional profile initialiser keeps compiling. DigitalButtons is the X4
+    # Pro's own value (XTEINK_X4_PRO in the SDK), the board this simulator is.
+    patch(
+        src / "BoardConfig.h",
+        "struct BoardProfile {",
+        "enum class InputStyle : uint8_t {\n"
+        "  XteinkAdcLadder,\n"
+        "  DigitalButtons,\n"
+        "  DigitalConfirmBackHold,\n"
+        "  DigitalConfirmPowerHold,\n"
+        "  DigitalFiveKey,\n"
+        "  DigitalTwoButton,\n"
+        "  OnePageAdcLadder,\n"
+        "};\n"
+        "\n"
+        "struct BoardProfile {",
+        "BoardConfig::InputStyle (enum)",
+        marker="enum class InputStyle",
+    )
+    patch(
+        src / "BoardConfig.h",
+        "  float uiScale = 1.0f;\n};",
+        "  float uiScale = 1.0f;\n  InputStyle inputStyle = InputStyle::DigitalButtons;\n};",
+        "BoardProfile inputStyle (the X4 Pro's DigitalButtons)",
+        marker="InputStyle inputStyle",
+    )
+    # Two HalDisplay calls upstream added after the simulator's 84c3421d: the
+    # reader's ReaderRefreshScope (#4362) tells the panel a book page is up, so
+    # a panel with a reading waveform can use it, and the Picco's charge strip
+    # paints through a retained grayscale overlay. A host window has neither
+    # waveform nor retained overlay, so the first does nothing and the second
+    # answers false, which is the "not shown" both callers already handle by
+    # falling back to a plain refresh.
+    patch(
+        src / "HalDisplay.h",
+        "  const char* controllerName() const;",
+        "  const char* controllerName() const;\n"
+        "  void setReaderRefresh(bool) {}\n"
+        "  bool displayRetainedGrayscaleOverlay(uint16_t, uint16_t, uint16_t, uint16_t, bool) { return false; }",
+        "HalDisplay::setReaderRefresh + displayRetainedGrayscaleOverlay (no waveform on a host)",
+        marker="setReaderRefresh",
+    )
+    # main.cpp powers the panel controller down between inputs (EEGO A4, #4494);
+    # a host window has no controller to rest.
+    patch(
+        src / "HalDisplay.h",
+        "  const char* controllerName() const;",
+        "  const char* controllerName() const;\n  void controllerIdle() {}",
+        "HalDisplay::controllerIdle (no controller on a host)",
+        marker="controllerIdle",
+    )
+    # The EEGO A4 wake-hold check (#4407) reads the power key directly, past the
+    # debounce. lib/hal answers isPressed(BTN_POWER) when emulated; so does this.
+    patch(
+        src / "HalGPIO.h",
+        "  bool isPressed(uint8_t buttonIndex) const;",
+        "  bool isPressed(uint8_t buttonIndex) const;\n"
+        "  bool isPowerButtonPhysicallyPressed() const { return isPressed(BTN_POWER); }",
+        "HalGPIO::isPowerButtonPhysicallyPressed (the debounced key, on a host)",
+        marker="isPowerButtonPhysicallyPressed",
+    )
+    # OPDS reads WWW-Authenticate through getCombinedHeader(), which joins
+    # repeated headers with ", " (the SDK's SecureHttpClient). The simulator's
+    # client keeps one value per name, so the joined value is that one value.
+    patch(
+        src / "SecureHttpClient.h",
+        "  std::string getHeader(const std::string& name) const { return http_.getHeader(name); }",
+        "  std::string getHeader(const std::string& name) const { return http_.getHeader(name); }\n"
+        "  std::string getCombinedHeader(const char* lowercaseName) const { return http_.getHeader(lowercaseName); }",
+        "SecureHttpClient::getCombinedHeader (one value per name on a host)",
+        marker="getCombinedHeader",
     )
     # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
     # asks for them on every board, and a host has none.

@@ -3,7 +3,7 @@
 Two owners share this directory, and the split is deliberate.
 
 **Upstream's reference docs keep upstream's filenames**, so merges from
-CrossPoint stay cheap: `activity-manager.md`, `comparison.md`, `dictionary.md`,
+CrossPoint stay cheap: `activity-manager.md`, `comparison.md`, `controls.md`, `dictionary.md`,
 `file-formats.md`, `fix-bricked-xteink.md`, `focus-reading.md`,
 `hyphenation-trie-format.md`, `i18n.md`, `plugin-events.md`, `sd-card-fonts.md`,
 `sd-plugins.md`, `translators.md`, `troubleshooting.md`, `webserver*.md`,

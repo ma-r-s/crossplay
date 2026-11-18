@@ -62,10 +62,10 @@ mirrors the half of it the wrap needs.
 
 | | Status |
 | --- | --- |
-| English / Latin | **Yes**, built-in serif, or a large headword face built from any TTF. |
+| English / Latin | **Yes**, built-in font, or a large headword face built from any TTF. |
 | Chinese, simplified or traditional | **Yes.** Five CJK faces built from the TTFs in your Anki media folder, randomised per card, or any TTF via `--font`. A deck whose media holds none of those five gets the bundled Noto Sans CJK instead, on the installer page and on the sync bridge alike; a deck with no CJK characters gets no face build at all, whatever fonts its media folder happens to carry. |
 | Japanese | **Yes**, kanji and both kana, and **furigana is drawn as ruby**: see below. |
-| Korean | **Yes**, with a Korean TTF via `--font`. Hangul used to be classified as Latin, which routed it to the built-in serif (1070 glyphs, none of them Hangul) so a Korean deck converted with no error and no readable card. It now goes into the deck's own face and asks the font pipeline for the `hangul` interval. |
+| Korean | **Yes**, with a Korean TTF via `--font`. Hangul used to be classified as Latin, which routed it to the built-in font (1070 glyphs, none of them Hangul) so a Korean deck converted with no error and no readable card. It now goes into the deck's own face and asks the font pipeline for the `hangul` interval. |
 | Arabic, Hebrew | **No.** Both need bidirectional layout and contextual shaping, and the renderer has neither: it walks a string placing one glyph after another left to right. This is a real piece of work, not a missing font. |
 | Cyrillic, Greek, Devanagari, Thai and the rest | **Not supported, not refused.** Nothing stops the converter; the fonts and, for the Indic and Thai scripts, the shaping are not there. The converter names any such script in its output rather than letting it arrive as a screen of nothing. |
 
@@ -86,7 +86,7 @@ of the deck's own face.
 | --- | --- |
 | ` 漢字[かんじ]` in a field | **Yes.** Parsed into base and reading, and carried to the card as a segment rather than as brackets. |
 | `{{furigana:Field}}` | **This is what the card does.** |
-| `{{kanji:Field}}` | **Applied** to every slot drawn in the built-in serif, which has no CJK: a reading there would be boxes above boxes. |
+| `{{kanji:Field}}` | **Applied** to every slot drawn in the built-in font, which has no CJK: a reading there would be boxes above boxes. |
 | `{{kana:Field}}` | **Applied** to the reading slots, so a reading line says `わたしはがくせいです` rather than repeating the source. |
 | The Japanese Support add-on's Expression / Reading / Meaning | **Yes**, and this is the case that needed care: the add-on writes Expression as plain kanji and puts the furigana in Reading. Anki's own template draws the second one, so the converter promotes it: otherwise the most common Japanese note type in existence converts with no furigana anywhere. |
 | A hint, footnote or cloze hole that merely looks like `x[y]` | **Not read as furigana.** A reading has to contain kana. That one rule separates a real reading from `see also[1]`, from `[hint]`, and (the collision that matters) from a cloze card's `[...]`, where reading a hole as a reading would print the answer directly above the gap hiding it. |

@@ -185,12 +185,32 @@ def what_is_new(pr):
             found.append(m.group(1).strip())
             continue
         if NEW_HEAD.match(line):
+            # BULLETS FIRST, every other line only if there are none.
+            #
+            # This used to take every non-empty line to the next heading and
+            # strip a leading dash off it, which reads as "be forgiving about
+            # the marker". It is forgiving about the CONTENT: v1.13.5 shipped
+            # with a quote of Mario, a sentence of analysis and four rows of a
+            # markdown table as four separate bullets, because the pull request
+            # put its one real bullet under the heading and kept explaining
+            # afterwards. Nothing was malformed and nothing was too long, so
+            # the 1200-character gate passed it.
+            #
+            # A pull request that writes bullets means the bullets. One that
+            # writes a bare sentence and nothing else still works, which is the
+            # shape the loose version existed for.
+            section = []
             for nxt in lines[i + 1 :]:
                 if nxt.startswith("#"):
                     break
-                t = nxt.strip().lstrip("-* ").strip()
-                if t:
-                    found.append(t)
+                section.append(nxt)
+            bullets = [
+                ln.strip()[1:].strip() for ln in section if ln.strip()[:2] in ("- ", "* ")
+            ]
+            if bullets:
+                found.extend(b for b in bullets if b)
+            else:
+                found.extend(t for t in (ln.strip() for ln in section) if t)
     return found or None
 
 

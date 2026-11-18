@@ -90,6 +90,9 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Notes**       | Lists you tick with one hand, kept as plain text files on the card.      |
 | **RSS**         | The sites you read, newest first, as text. Feeds are added from a phone. |
 
+Don't want all of them? Tap GAMES or APPS at the top of the list on your device and
+untick what you don't play.
+
 And the reader is still CrossPoint's reader: the EPUB engine, sync and the file
 browser are theirs and stay theirs.
 

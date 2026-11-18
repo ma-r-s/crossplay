@@ -303,7 +303,7 @@ worker.onmessage = function (event) {
         " the chosen font cannot draw. They would come out blank."
       );
     },
-    "a Latin glyph the built-in serif cannot draw": function (n) {
+    "a Latin glyph the built-in font cannot draw": function (n) {
       return (
         n +
         (n === 1 ? " card uses a character" : " cards use characters") +

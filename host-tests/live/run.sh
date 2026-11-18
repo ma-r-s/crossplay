@@ -66,8 +66,10 @@ src = re.sub(r"//[^\n]*", "", open(sys.argv[1]).read())
 calls = re.findall(r"startDeepSleepArmed\(([^;{}]*)\);", src)
 bad = [c for c in calls if c.strip() == "kTimerWakeMicros"]
 fails = 0
-if len(calls) != 4:
-    print("FAIL live  found %d startDeepSleepArmed calls in main.cpp, expected 4 (enterDeepSleep, the timer wake, and the two re-sleeps); read the new one and add it here" % len(calls))
+# Five since CrossPoint 2.0's EEGO A4 wake-hold check (#4407) added a third
+# re-sleep beside the ghost-wake and USB-power ones.
+if len(calls) != 5:
+    print("FAIL live  found %d startDeepSleepArmed calls in main.cpp, expected 5 (enterDeepSleep, the timer wake, and the three re-sleeps); read the new one and add it here" % len(calls))
     fails += 1
 for c in bad:
     print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s): 0 on a release build, so Live's alarm is dropped (card #620)" % c.strip())
@@ -79,10 +81,81 @@ for c in calls:
     if not any(a in c for a in allowed):
         print("FAIL live  main.cpp sleeps with startDeepSleepArmed(%s), which is not Live's number" % c.strip())
         fails += 1
+# And nothing sleeps around it: a bare powerManager.startDeepSleep() outside
+# startDeepSleepArmed() arms no timer at all, which is the same dropped alarm.
+armed_body = re.search(r"static void startDeepSleepArmed\([^)]*\)\s*\{(.*?)\n\}", src, re.S)
+outside = src.replace(armed_body.group(0), "") if armed_body else src
+for direct in re.findall(r"powerManager\.startDeepSleep\(([^;]*)\);", outside):
+    print("FAIL live  main.cpp calls powerManager.startDeepSleep(%s) directly, which drops Live's alarm; use startDeepSleepArmed" % direct)
+    fails += 1
 m = re.search(r"resleepTimerMicros\(\)\s*\{(.*?)\n\}", src, re.S)
 if not m or "live::engine::resleepSeconds()" not in m.group(1):
     print("FAIL live  resleepTimerMicros() no longer asks live::engine::resleepSeconds()")
     fails += 1
 print("live-sleep-paths: %d calls, %d failed" % (len(calls), fails))
+sys.exit(1 if fails else 0)
+PY
+
+# THE ALARM REACHES A REAL TIMER, through every layer under main.cpp.
+#
+# CrossPoint 2.0 gave HalPowerManager::startDeepSleep a second argument of its
+# own, `bool wakeOnHeldButton`, in the slot where this fork passes Live's
+# `uint64_t timerWakeMicros`. Either call shape compiles against the other
+# declaration: upstream's `startDeepSleep(gpio, true)` against ours arms a
+# ONE-MICROSECOND timer (the device wakes the instant it sleeps), and ours
+# against theirs turns Live's alarm into "wake on a held button" with no timer
+# at all. Nothing on a laptop can run deep sleep, so the chain is read: the
+# declaration keeps the timer in the second slot and deletes the bool-only
+# shape, the definition hands the timer to the SDK on BOTH of its exits, the
+# SDK arms the RTC with it, and main.cpp passes Live's number in the timer
+# slot rather than anywhere else.
+python3 - ../../lib/hal/HalPowerManager.h ../../lib/hal/HalPowerManager.cpp ../../src/main.cpp \
+  ../../freeink-sdk/libs/hardware/PowerManager/src/PowerManager.cpp <<'PY'
+import re
+import sys
+
+def code(path):
+    return re.sub(r"//[^\n]*", "", open(path).read())
+
+hdr, cpp, main, sdk = (code(p) for p in sys.argv[1:5])
+fails = 0
+
+def check(ok, what):
+    global fails
+    if not ok:
+        fails += 1
+        print("FAIL live  " + what)
+
+check(re.search(r"void\s+startDeepSleep\(\s*HalGPIO&\s*gpio,\s*uint64_t\s+timerWakeMicros\s*=\s*0,\s*bool\s+wakeOnHeldButton\s*=\s*false\s*\)\s*const;", hdr) is not None,
+      "HalPowerManager.h no longer declares startDeepSleep(gpio, uint64_t timerWakeMicros = 0, bool wakeOnHeldButton = false)")
+check(re.search(r"void\s+startDeepSleep\(\s*HalGPIO&\s*gpio,\s*bool\s+\w*\s*\)\s*const\s*=\s*delete;", hdr) is not None,
+      "HalPowerManager.h no longer deletes startDeepSleep(gpio, bool): upstream's call shape would compile into a 1us timer")
+
+m = re.search(r"void\s+HalPowerManager::startDeepSleep\(\s*HalGPIO&\s*gpio,\s*const\s+uint64_t\s+timerWakeMicros,\s*const\s+bool\s+wakeOnHeldButton\s*\)\s*const\s*\{(.*?)\n\}", cpp, re.S)
+check(m is not None, "HalPowerManager::startDeepSleep(gpio, timerWakeMicros, wakeOnHeldButton) definition not found")
+body = m.group(1) if m else ""
+check(re.search(r"deepSleepUntilPowerButtonOrTimer\(\s*timerWakeMicros\s*\)", body) is not None,
+      "the ordinary exit no longer hands timerWakeMicros to deepSleepUntilPowerButtonOrTimer")
+held = re.search(r"if\s*\(\s*wakeOnHeldButton\s*\)\s*\{(.*?)\}", body, re.S)
+check(held is not None and re.search(r"armTimerWakeup\(\s*timerWakeMicros\s*\).*deepSleep\(\)", held.group(1), re.S) is not None,
+      "the wakeOnHeldButton exit sleeps without arming timerWakeMicros first")
+
+timer = re.search(r"void\s+PowerManager::armTimerWakeup\(\s*const\s+uint64_t\s+micros\s*\)\s*\{(.*?)\n\}", sdk, re.S)
+check(timer is not None and "esp_sleep_enable_timer_wakeup(micros)" in timer.group(1),
+      "freeink-sdk PowerManager::armTimerWakeup no longer arms esp_sleep_enable_timer_wakeup(micros)")
+both = re.search(r"void\s+PowerManager::deepSleepUntilPowerButtonOrTimer\(\s*const\s+uint64_t\s+micros\s*\)\s*\{(.*?)\n\}", sdk, re.S)
+check(both is not None and "armTimerWakeup(micros)" in both.group(1) and "deepSleep()" in both.group(1),
+      "freeink-sdk deepSleepUntilPowerButtonOrTimer no longer arms the timer before sleeping")
+
+check(re.search(r"static\s+void\s+startDeepSleepArmed\(\s*bool\s*\)\s*=\s*delete;", main) is not None,
+      "main.cpp no longer deletes startDeepSleepArmed(bool): a bool in the timer slot is a 1us timer")
+armed = re.search(r"static\s+void\s+startDeepSleepArmed\((.*?)\)\s*\{(.*?)\n\}", main, re.S)
+check(armed is not None, "main.cpp startDeepSleepArmed not found")
+if armed:
+    calls = re.findall(r"powerManager\.startDeepSleep\(([^;]*)\);", armed.group(2))
+    device = [c for c in calls if c.count(",") >= 1]
+    check(len(device) == 1 and [a.strip() for a in device[0].split(",")][:2] == ["gpio", "timerMicros"],
+          "startDeepSleepArmed does not pass timerMicros as startDeepSleep's second argument: %s" % calls)
+print("live-timer-chain: %d failed" % fails)
 sys.exit(1 if fails else 0)
 PY

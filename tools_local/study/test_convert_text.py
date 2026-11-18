@@ -186,7 +186,7 @@ check(conv.trim_to_bytes("中文字", 5) == "…" or
 # The classification decides which glyph file a character lands in, which
 # decides which face gets built for it. Hangul is the reason this is tested:
 # it is in no CJK range, so the old predicate called it Latin and routed every
-# Korean deck to the built-in serif -- 1070 glyphs, no Hangul, no error and no
+# Korean deck to the built-in font -- 1070 glyphs, no Hangul, no error and no
 # readable card.
 
 import scripts  # noqa: E402
@@ -205,7 +205,7 @@ check(scripts.script_of("\u4e00") == "han" and scripts.script_of("\u3400") == "h
 # General Punctuation (curly quotes, dashes, ellipsis) is ordinary English
 # typography, not a foreign script -- found live while reconverting a real
 # deck whose "meaning" field used a curly quote and got reported as "a
-# script the reader has no face for", when the built-in serif draws it fine.
+# script the reader has no face for", when the built-in font draws it fine.
 check(scripts.script_of("\u201c") == "latin", "a curly opening quote is latin")
 check(scripts.script_of("\u201d") == "latin", "and a curly closing quote")
 check(scripts.script_of("\u2014") == "latin", "an em dash is latin")
