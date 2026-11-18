@@ -32,9 +32,9 @@ constexpr int COVER_ROW_EXTRA_HEIGHT = 8;
 CoverGridHomeUi::CoverGridHomeUi(GfxRenderer& renderer)
     : UiAppHost(renderer), coverCache(renderer), renderer(renderer) {}
 
-void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool continuing) {
+void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, const SlotTab slot, bool continuing) {
   books = &recent;
-  hasOpds = opds;
+  slotTab = slot;
   hasContinueReading = continuing;
   if (!recent.empty()) coverCache.begin();
   resetUi();
@@ -288,7 +288,7 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
   int count = 0;
   for (int i = 0; i < 5; ++i) {
-    if (i == 2 && !hasOpds) continue;
+    if (i == 2 && slotTab == SlotTab::NONE) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
@@ -318,15 +318,16 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
     // fork-local seam: past upstream's tabs come the shelf's folders.
-    const int upstreamTabs = self.hasOpds ? 5 : 4;
+    const int upstreamTabs = self.slotTab == SlotTab::NONE ? 4 : 5;
     if (index >= upstreamTabs) {
       const UIIcon folder = shelf::folders()[index - upstreamTabs].icon;
       self.renderer.drawIcon(folder == UIIcon::Games ? ShelfGamesIcon : ShelfAppsIcon, iconRect.x, iconRect.y,
                              iconRect.width);
       return true;
     }
-    const int icon = !self.hasOpds && index >= 2 ? index + 1 : index;
-    self.renderer.drawIcon(ICONS[icon], iconRect.x, iconRect.y, iconRect.width);
+    const int icon = self.slotTab == SlotTab::NONE && index >= 2 ? index + 1 : index;
+    const uint8_t* bitmap = icon == 2 && self.slotTab == SlotTab::OPDS ? BookIcon : ICONS[icon];
+    self.renderer.drawIcon(bitmap, iconRect.x, iconRect.y, iconRect.width);
     return true;
   };
   // No pill fill; the underline marks the selected tab.

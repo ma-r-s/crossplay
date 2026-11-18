@@ -722,6 +722,84 @@ def main(env):
         "BoardConfig::isEegoA4 (never, on a host)",
         marker="isEegoA4",
     )
+    # Upstream's power-button classifier (#4407, 2026-11-15) asks the board how
+    # its buttons report: CrossPointSettings::hasPowerDoubleClick() and
+    # MappedInputManager compare BoardConfig::ACTIVE.inputStyle with
+    # DigitalConfirmPowerHold, the Sticky's shared key. The simulator at
+    # 84c3421d (2026-11-10) predates it. The enum is the SDK's, names and order;
+    # the member is APPENDED with a default, like displayWidth above, so every
+    # positional profile initialiser keeps compiling. DigitalButtons is the X4
+    # Pro's own value (XTEINK_X4_PRO in the SDK), the board this simulator is.
+    patch(
+        src / "BoardConfig.h",
+        "struct BoardProfile {",
+        "enum class InputStyle : uint8_t {\n"
+        "  XteinkAdcLadder,\n"
+        "  DigitalButtons,\n"
+        "  DigitalConfirmBackHold,\n"
+        "  DigitalConfirmPowerHold,\n"
+        "  DigitalFiveKey,\n"
+        "  DigitalTwoButton,\n"
+        "  OnePageAdcLadder,\n"
+        "};\n"
+        "\n"
+        "struct BoardProfile {",
+        "BoardConfig::InputStyle (enum)",
+        marker="enum class InputStyle",
+    )
+    patch(
+        src / "BoardConfig.h",
+        "  float uiScale = 1.0f;\n};",
+        "  float uiScale = 1.0f;\n  InputStyle inputStyle = InputStyle::DigitalButtons;\n};",
+        "BoardProfile inputStyle (the X4 Pro's DigitalButtons)",
+        marker="InputStyle inputStyle",
+    )
+    # Two HalDisplay calls upstream added after the simulator's 84c3421d: the
+    # reader's ReaderRefreshScope (#4362) tells the panel a book page is up, so
+    # a panel with a reading waveform can use it, and the Picco's charge strip
+    # paints through a retained grayscale overlay. A host window has neither
+    # waveform nor retained overlay, so the first does nothing and the second
+    # answers false, which is the "not shown" both callers already handle by
+    # falling back to a plain refresh.
+    patch(
+        src / "HalDisplay.h",
+        "  const char* controllerName() const;",
+        "  const char* controllerName() const;\n"
+        "  void setReaderRefresh(bool) {}\n"
+        "  bool displayRetainedGrayscaleOverlay(uint16_t, uint16_t, uint16_t, uint16_t, bool) { return false; }",
+        "HalDisplay::setReaderRefresh + displayRetainedGrayscaleOverlay (no waveform on a host)",
+        marker="setReaderRefresh",
+    )
+    # main.cpp powers the panel controller down between inputs (EEGO A4, #4494);
+    # a host window has no controller to rest.
+    patch(
+        src / "HalDisplay.h",
+        "  const char* controllerName() const;",
+        "  const char* controllerName() const;\n  void controllerIdle() {}",
+        "HalDisplay::controllerIdle (no controller on a host)",
+        marker="controllerIdle",
+    )
+    # The EEGO A4 wake-hold check (#4407) reads the power key directly, past the
+    # debounce. lib/hal answers isPressed(BTN_POWER) when emulated; so does this.
+    patch(
+        src / "HalGPIO.h",
+        "  bool isPressed(uint8_t buttonIndex) const;",
+        "  bool isPressed(uint8_t buttonIndex) const;\n"
+        "  bool isPowerButtonPhysicallyPressed() const { return isPressed(BTN_POWER); }",
+        "HalGPIO::isPowerButtonPhysicallyPressed (the debounced key, on a host)",
+        marker="isPowerButtonPhysicallyPressed",
+    )
+    # OPDS reads WWW-Authenticate through getCombinedHeader(), which joins
+    # repeated headers with ", " (the SDK's SecureHttpClient). The simulator's
+    # client keeps one value per name, so the joined value is that one value.
+    patch(
+        src / "SecureHttpClient.h",
+        "  std::string getHeader(const std::string& name) const { return http_.getHeader(name); }",
+        "  std::string getHeader(const std::string& name) const { return http_.getHeader(name); }\n"
+        "  std::string getCombinedHeader(const char* lowercaseName) const { return http_.getHeader(lowercaseName); }",
+        "SecureHttpClient::getCombinedHeader (one value per name on a host)",
+        marker="getCombinedHeader",
+    )
     # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
     # asks for them on every board, and a host has none.
     patch(

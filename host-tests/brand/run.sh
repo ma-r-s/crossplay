@@ -294,6 +294,16 @@ for subdir, exts in SCAN:
 check(not found, "no unexplained CrossPoint literal reaches a user",
       "\n       " + "\n       ".join(found) if found else "")
 
+# A served page's <title> is the tab a person reads, so no ALLOWED phrase
+# excuses one: "CrossPoint plugin" (upstream's Calibre plugin) once let
+# RunnerPage.html ship as "CrossPoint Plugin Runner".
+titled = []
+for rel in walk("src/network/html", (".html",)):
+    for m in re.finditer(r"<title>(.*?)</title>", read(rel), flags=re.IGNORECASE | re.DOTALL):
+        if "crosspoint" in m.group(1).lower():
+            titled.append(f"{rel}  <title>{m.group(1).strip()}</title>")
+check(not titled, "no served page is titled CrossPoint", "; ".join(titled))
+
 # The translated strings are the words drawn on the panel, and USER_GUIDE.md is
 # compiled into the EPUB that ships to the device. Both are checked whole, not
 # by their first line, because an upstream merge rewrites them wholesale.
