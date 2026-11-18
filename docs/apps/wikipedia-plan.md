@@ -812,3 +812,11 @@ found, and what changed.
   article", naming the wrong thing and offering nothing; with one pack on
   the card the same failure went to the install screen with the repair
   line. The chooser now does the same (`test_failed_pack_repairs.py`).
+- *The search keyboard.* A key's own letter is always drawn whole: RoundedRaff's
+  10 px gap left a QWERTZ key 23 px inside its padding and W is 23.2, so the
+  capital W was drawn as "..." (freeink-sdk `fix/keyboard-letters-whole`: a
+  letter wider than the padded room takes the key's full width, one wider
+  than the key steps down to the hint's face). Shift reads one way: the
+  search keyboard passes no "Shift" word, so every letter page in every
+  theme and language draws the arrow and the symbol pages their own "#+="
+  and "123", which name the page you are on.

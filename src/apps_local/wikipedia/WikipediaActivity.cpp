@@ -395,7 +395,11 @@ void WikipediaActivity::drawKeyboard() {
   props.layout = &layout;
   props.keyAction = wikiui::ActionKey;
   props.okLabel = "GO";
-  props.shiftLabel = tr(STR_KEY_SHIFT);
+  // No word on Shift: the letter pages draw the keyboard's arrow in every
+  // theme and language, and the symbol pages their own "#+=" and "123", which
+  // say which page you are on. "Shift" fitted English at no gap only, filling
+  // the key edge to edge, and gave way to the arrow wherever it did not, so
+  // the same key read three ways.
   props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
   props.inputMask = static_cast<uint16_t>(fui::InputTouch);
   props.selectedIndex = -1;

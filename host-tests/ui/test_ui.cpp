@@ -14755,6 +14755,62 @@ void testWikipediaInstallNamesTheLanguage() {
   CHECK(blank.target.drew("Choose the language on the page."));
 }
 
+// --- The Wikipedia keyboard's Shift reads one way everywhere ------------------
+//
+// Card #651's review: German letters drew an arrow, English letters the word
+// "Shift" (filling the key edge to edge in Classic) or the arrow (RoundedRaff),
+// and both symbol pages "Shift", the second one not saying which page it was.
+// The search keyboard passes no Shift word now (test_keyboard_props.py holds
+// it to that), so this pins what the component draws without one: the arrow
+// on every letter page, at both theme gaps and every cell, and on the symbol
+// pages the two different labels the layouts carry.
+void testWikipediaShiftReadsOneWayEverywhere() {
+  using Id = fui::KeyboardLayoutId;
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  static const Id kIds[] = {Id::QwertyEn, Id::QwertzDe, Id::AzertyFr, Id::SpanishEs};
+  for (const Id id : kIds) {
+    for (const int16_t gap : {static_cast<int16_t>(0), static_cast<int16_t>(10)}) {
+      for (const int16_t cell : {static_cast<int16_t>(10), static_cast<int16_t>(12), static_cast<int16_t>(14)}) {
+        std::string symbolPage[2];
+        for (int layer = 0; layer < 4; ++layer) {
+          const bool shifted = (layer & 1) != 0;
+          const bool symbols = (layer & 2) != 0;
+          FakeTarget target;
+          target.charW = cell;
+          target.perCodePoint = true;
+          fui::InteractionBuffer<56> table;
+          const fui::DeviceContext ctx = device();
+          const fui::InputSnapshot noInput{};
+          fui::Frame<56> frame(target, ctx, noInput, table);
+          fui::KeyboardProps props;
+          const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, true, false);
+          props.layout = &layout;
+          props.keyAction = 1;
+          props.okLabel = "GO";
+          props.modeLabel = symbols ? "abc" : "?123";
+          props.labelText.font = toybox::kBodyFont;
+          props.altText.font = toybox::kSmallFont;
+          props.gap = gap;
+          props.padding = fui::Insets{0, 0, 0, 0};
+          const int16_t height = static_cast<int16_t>(layout.rowCount * 56 + (layout.rowCount - 1) * gap);
+          fui::keyboard(frame, fui::Rect{14, static_cast<int16_t>(792 - height), 451, height}, props);
+          bool drewArrow = false;
+          for (const auto& blit : target.blits) drewArrow |= blit.data == arrow.data;
+          CHECK(!target.drew("Shift"));
+          if (!symbols) {
+            CHECK(drewArrow);
+          } else {
+            CHECK(!drewArrow);
+            symbolPage[shifted ? 1 : 0] = target.drew("#+=") ? "#+=" : (target.drew("123") ? "123" : "");
+          }
+        }
+        // each symbol page names the other, so the key says which page this is
+        CHECK(symbolPage[0] == "#+=" && symbolPage[1] == "123");
+      }
+    }
+  }
+}
+
 // --- The install screen: every state, nothing cut, nothing on anything ------
 //
 // Card #651's review: in the "could not be shared" state the parts line was
@@ -14890,6 +14946,10 @@ void testNoKeyboardLabelIsElided() {
             FakeTarget target;
             target.charW = cell;
             target.perCodePoint = true;
+            // A face's W is wider than its average letter: 23.2px in the
+            // panel's body face, which an eleven-key row at RoundedRaff's gap
+            // cut to "..." while every uniform cell here fitted.
+            target.kerns = {{"W", static_cast<int16_t>(cell * 3 / 4)}};
             fui::InteractionBuffer<56> table;
             const fui::DeviceContext ctx = device();
             const fui::InputSnapshot noInput{};
@@ -16091,6 +16151,7 @@ int main() {
   testWikipediaHomeBandNamesTheLanguage();
   testWikipediaInstallNamesTheLanguage();
   testWikipediaInstallFitsEveryState();
+  testWikipediaShiftReadsOneWayEverywhere();
   testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
