@@ -121,15 +121,9 @@ void WikipediaActivity::onEnter() {
   // Jersey string on the home was missing, the serif prose intact.
   toybox::ensureFonts(renderer);
   keyboardShown_ = false;
-  packs_ = wikipedia::Pack::discover();
-  if (packs_.empty()) {
-    enterInstall();
-  } else if (packs_.size() == 1) {
-    // One pack opens as it always has: no chooser for a choice of one.
-    if (!openPack(0)) enterInstall(packs_[0].pack);
-  } else {
-    showChooser();
-  }
+  // No pack: the install screen. One: it opens as it always has, no chooser
+  // for a choice of one. More: the chooser.
+  showChooser();
 }
 
 bool WikipediaActivity::openPack(const int index) {
