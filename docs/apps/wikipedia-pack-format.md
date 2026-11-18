@@ -44,14 +44,16 @@ where it always has, so a card that has it needs nothing done. Every other
 language is a pack of exactly this format in a folder of `/wikipedia/` named
 by its code: `/wikipedia/de/manifest.json`, `/wikipedia/de/shards/000.blk`,
 `/wikipedia/de/state.json`. A folder name is lowercase letters, digits and
-`-`, at most 15 (`WikipediaCore::isPackDirName`), never `shards` or
-`overlay`. The device lists the root pack first and the folders after it by
-name, at most six; with one pack it opens it as it always did, with more it
-opens on the chooser. `install.json` stays at `/wikipedia/install.json`.
+`-`, starting with a letter, at most 15 (`WikipediaCore::isPackDirName`),
+never `shards` or `overlay`. The device lists the root pack first and the
+folders after it by name; with one pack it opens it as it always did, with
+more it opens on the chooser, which shows the first six (`install.json`
+lists them all). `install.json` stays at `/wikipedia/install.json`.
 
 The device keeps each pack's laid-out articles apart: the root pack's in
 `/.crosspoint/wikipedia/` as before, every other in
-`/.crosspoint/wikipedia/<code>/`, so switching language costs no cache. The
+`/.crosspoint/wikipedia/lang-<code>/` (a name no numbered article of the
+root's can have), so switching language costs no cache. The
 pack opened last is `/.crosspoint/wikipedia/chosen` (`dir:` and the folder,
 empty for the root), which is the card the chooser fills.
 
