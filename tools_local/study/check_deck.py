@@ -9,7 +9,7 @@ them and asks the questions a screenshot cannot answer at scale:
     correctly four times out of five and as a blank the fifth. That is the
     worst possible failure mode: rare, unreproducible, and indistinguishable
     from a bug in the app.
-  * is every codepoint in the Latin fields present in the built-in serif? The
+  * is every codepoint in the Latin fields present in the built-in font? The
     pinyin carries tone marks, and a missing one is a box in the middle of a
     reading.
   * does the headword fit across the screen at 100px?
@@ -204,9 +204,9 @@ def read_cpfont(path):
     return advances, adv_y
 
 
-def builtin_serif_coverage(repo_root):
-    """Codepoints the built-in Noto Serif can draw, from its generated table."""
-    header = repo_root / "lib/EpdFont/builtinFonts/notoserif_16_regular.h"
+def builtin_font_coverage(repo_root):
+    """Codepoints the built-in Noto Sans can draw, from its generated table."""
+    header = repo_root / "lib/EpdFont/builtinFonts/notosans_16_regular.h"
     if not header.exists():
         return None
     covered = set()
@@ -280,10 +280,10 @@ def main():
         headword_fonts[family] = read_cpfont(hw)
         sentence_fonts[family] = read_cpfont(st)
 
-    serif = builtin_serif_coverage(repo_root)
+    serif = builtin_font_coverage(repo_root)
     on_question = sentence_on_question(args.deck)
     print(f"deck   {args.deck}")
-    print(f"faces  {', '.join(families) if families else 'built-in serif only'}")
+    print(f"faces  {', '.join(families) if families else 'built-in font only'}")
     print(
         f"sentence  {'on the question face too' if on_question else 'on the answer face only'}"
     )
@@ -295,7 +295,7 @@ def main():
         "a character no installed font can draw at all": [],
         "a reading or meaning the device cannot draw": [],
         "a glyph the headword face cannot draw": [],
-        "a Latin glyph the built-in serif cannot draw": [],
+        "a Latin glyph the built-in font cannot draw": [],
         "headword too wide for the screen": [],
         f"sentence wrapping past {MAX_SENTENCE_LINES} lines": [],
         f"an unbreakable run longer than the {LINE_BYTES}-byte line buffer": [],
@@ -342,7 +342,7 @@ def main():
                 )
                 break
 
-        # With no font families installed, the built-in serif is all there is,
+        # With no font families installed, the built-in font is all there is,
         # and it has no CJK. The per-family checks below simply do not run in
         # that case, so a Japanese deck with no fonts built used to be told
         # "every card renders" and would have drawn blank on the device.
@@ -356,7 +356,7 @@ def main():
 
         # Only the headword and the sentence are drawn in the deck's own face.
         # Everything else -- reading, meaning, part of speech, the sentence's
-        # gloss -- goes through the built-in serif, which has no CJK at all.
+        # gloss -- goes through the built-in font, which has no CJK at all.
         # Nothing checked that: the serif check below skips CJK by design and
         # the face checks above only look at two fields, so a Japanese deck
         # whose readings were katakana rendered them as boxes on the device
@@ -386,7 +386,7 @@ def main():
                     continue
                 bad = {c for c in visible(text) if not needs_deck_face(c) and ord(c) not in serif}
                 if bad:
-                    problems["a Latin glyph the built-in serif cannot draw"].append(
+                    problems["a Latin glyph the built-in font cannot draw"].append(
                         f"note {index} {name}: {''.join(sorted(bad))!r}"
                     )
                     break
@@ -421,7 +421,7 @@ def main():
         noun = "face" if len(families) == 1 else "faces"
         print(f"checked {notes} notes across {len(families)} {noun}\n")
     else:
-        print(f"checked {notes} notes against the built-in serif\n")
+        print(f"checked {notes} notes against the built-in font\n")
     if notes >= 10 and identical_faces > notes * 0.3:
         problems[
             "the question and the answer are the same text, deck-wide"

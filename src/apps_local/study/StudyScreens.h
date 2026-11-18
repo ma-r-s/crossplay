@@ -166,14 +166,14 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model);
 // ---- Pairing, in the same chrome. The builders draw the band, the words
 // and the confirm pill; they return the rects for the two things only the
 // activity can draw -- the QR bitmap (QrUtils wants the renderer) and the
-// username (NotoSerif via UITheme: the toybox cuts are ASCII-subset, and a
+// username (Noto Sans via UITheme: the toybox cuts are ASCII-subset, and a
 // CJK account name in them would blind the anti-hijack gate).
 
 // Draws everything but the QR itself; returns the box the QR goes in.
 fui::Rect buildPairQr(toybox::Screen& screen, const char* code);
 
 struct PairConfirmLayout {
-  fui::Rect username;  // the activity draws the account name here, in serif
+  fui::Rect username;  // the activity draws the account name here, in Noto Sans
   fui::Rect pill;      // the tap gate; the activity keeps it for hit-testing
 };
 PairConfirmLayout buildPairConfirm(toybox::Screen& screen);

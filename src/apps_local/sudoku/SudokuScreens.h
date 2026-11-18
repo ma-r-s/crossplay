@@ -13,6 +13,13 @@ namespace sudokuui {
 
 namespace fui = freeink::ui;
 
+// The grid's geometry, here so host-tests/ui measures what the builder draws.
+inline constexpr int16_t kCell = 50;
+inline constexpr int16_t kGridSide = kCell * sudoku::kSize;
+// The rule between boxes: between the 1px cell line and the 9px board frame,
+// so the nine boxes read as boxes rather than as more cells.
+inline constexpr int16_t kBoxRule = 5;
+
 enum : fui::ActionId {
   ActionMenuRow = 1,
   // The headline: the largest thing on the front door is also the commonest tap.

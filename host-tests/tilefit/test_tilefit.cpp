@@ -65,10 +65,10 @@ EpdFont serifSmall(&instrument_10);
 EpdFont serifTile(&instrument_13);
 EpdFont ui20(&toybox_20);
 EpdFont display30(&toybox_30);
-EpdFontFamily serifSmallFamily(&serifSmall);
-EpdFontFamily serifTileFamily(&serifTile);
-EpdFontFamily uiFamily(&ui20);
-EpdFontFamily displayFamily(&display30);
+EpdFontFamily serifSmallFamily(10, &serifSmall);
+EpdFontFamily serifTileFamily(13, &serifTile);
+EpdFontFamily uiFamily(20, &ui20);
+EpdFontFamily displayFamily(30, &display30);
 
 // Records what was drawn and measures it the way the panel would.
 class FontTarget final : public fui::DrawTarget {

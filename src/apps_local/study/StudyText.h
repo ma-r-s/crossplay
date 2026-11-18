@@ -650,7 +650,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
 // characters -- a bare kana or kanji headword, the ordinary case for every
 // Japanese and Chinese deck -- left the buffer permanently empty, nothing was
 // ever weighed, and a font that drew the card perfectly was rejected as
-// drawing nothing. Every such headword then fell back to the built-in serif,
+// drawing nothing. Every such headword then fell back to the built-in face,
 // which has none of them, and drew as a literal question mark.
 template <typename Measure>
 bool fitsAsDrawn(const int fontId, const char* text, const int maxWidth, Measure measure, char* buffer,

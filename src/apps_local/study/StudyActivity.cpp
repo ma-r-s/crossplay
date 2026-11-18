@@ -55,19 +55,21 @@ constexpr int kPillPadding = 18;
 // screen.
 constexpr int kPhotoTapHalfWidth = 90;
 
-// Latin type. The built-in serif covers U+0100-U+017F and U+01C4-U+021F, so
-// every tone-marked pinyin vowel in the deck draws -- checked against the
-// deck's own 131-codepoint Latin set before relying on it.
-constexpr int kReadingFontId = NOTOSERIF_18_FONT_ID;
-constexpr int kMeaningFontId = NOTOSERIF_16_FONT_ID;
-constexpr int kSmallFontId = NOTOSERIF_12_FONT_ID;
+// Latin type: the reader's built-in Noto Sans, the one built-in family since
+// CrossPoint 2.0 moved Noto Serif to the SD card. It carries exactly the
+// codepoints the serif did (1072 at 14pt), including U+0100-U+017F and
+// U+01C4-U+021F, so every tone-marked pinyin vowel in the deck draws --
+// checked against the deck's own 131-codepoint Latin set before relying on it.
+constexpr int kReadingFontId = NOTOSANS_18_FONT_ID;
+constexpr int kMeaningFontId = NOTOSANS_16_FONT_ID;
+constexpr int kSmallFontId = NOTOSANS_12_FONT_ID;
 
-// The built-in serif sizes, largest first: the steps a card takes down when
-// it does not fit its body. 12pt is the floor; below it the panel's dither
-// eats the strokes.
-constexpr int kSerifLadder[] = {NOTOSERIF_18_FONT_ID, NOTOSERIF_16_FONT_ID, NOTOSERIF_14_FONT_ID, NOTOSERIF_12_FONT_ID};
-constexpr int kSerifSteps = static_cast<int>(sizeof(kSerifLadder) / sizeof(kSerifLadder[0]));
-constexpr int kMaxFontStep = kSerifSteps - 1;
+// The built-in sizes, largest first: the steps a card takes down when it does
+// not fit its body. 12pt is the floor; below it the panel's dither eats the
+// strokes.
+constexpr int kLatinLadder[] = {NOTOSANS_18_FONT_ID, NOTOSANS_16_FONT_ID, NOTOSANS_14_FONT_ID, NOTOSANS_12_FONT_ID};
+constexpr int kLatinSteps = static_cast<int>(sizeof(kLatinLadder) / sizeof(kLatinLadder[0]));
+constexpr int kMaxFontStep = kLatinSteps - 1;
 
 // Longest line the wrapper assembles. The widest field in the deck is 178
 // bytes; 256 leaves room, and two of these are live at once.
@@ -702,7 +704,7 @@ bool StudyActivity::loadCurrent() {
     const int pick = fonts_.presentFamily(static_cast<int>(nextRandom(shuffle_) % static_cast<uint32_t>(present)));
     fontsReady_ = fonts_.load(renderer, pick) || fonts_.loadPreferred(renderer, pick) >= 0;
   } else {
-    fontsReady_ = false;  // no families at all: the built-in serif draws everything
+    fontsReady_ = false;  // no families at all: the built-in face draws everything
   }
   if (fontsReady_) {
     // A cloze card has no headword: both of its faces are drawn at sentence
@@ -1158,7 +1160,7 @@ int StudyActivity::layoutClozeCard(const Rect& body, const bool measureOnly) {
 
 void StudyActivity::drawCard(const Rect& body) {
   // Fit before drawing. A card is laid out at the built-in sizes it asks for
-  // and, while it would run past the foot of the body, again one serif size
+  // and, while it would run past the foot of the body, again one built-in size
   // smaller, down to 12pt. Whatever still does not fit stops at the foot under
   // a mark that says there is more, rather than printing over the grading
   // buttons (report box #669: a long answer ran through AGAIN/HARD/GOOD/EASY
@@ -1180,7 +1182,7 @@ void StudyActivity::drawCard(const Rect& body) {
   }
   clipBottom_ = INT_MAX;
   if (clipped_) {
-    // The built-in serif has the ellipsis; the toybox cuts do not.
+    // The built-in face has the ellipsis; the toybox cuts do not.
     const char* more = "\xe2\x80\xa6";
     const int width = renderer.getTextWidth(kMeaningFontId, more);
     renderer.drawText(kMeaningFontId, (renderer.getScreenWidth() - width) / 2,
@@ -1189,10 +1191,10 @@ void StudyActivity::drawCard(const Rect& body) {
 }
 
 int StudyActivity::sized(const int fontId) const {
-  for (int i = 0; i < kSerifSteps; ++i) {
-    if (kSerifLadder[i] == fontId) {
+  for (int i = 0; i < kLatinSteps; ++i) {
+    if (kLatinLadder[i] == fontId) {
       const int stepped = i + fontStep_;
-      return kSerifLadder[stepped < kSerifSteps ? stepped : kSerifSteps - 1];
+      return kLatinLadder[stepped < kLatinSteps ? stepped : kLatinSteps - 1];
     }
   }
   return fontId;
@@ -1208,7 +1210,7 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   // single character of this text would leave the card blank -- a missing glyph
   // simply is not painted -- and stale or mis-built fonts on a card are a
   // normal state of someone setting up. Measured width zero means nothing would
-  // have appeared; the built-in serif always has something to say.
+  // have appeared; the built-in face always has something to say.
   if (fontsReady_) {
     const char* headwordText = note_.field(study::Field::Headword);
     if (*headwordText != '\0' && !fitsAsDrawn(headwordFont, headwordText, maxWidth)) {
@@ -1631,7 +1633,7 @@ void StudyActivity::render(RenderLock&&) {
     toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
     toybox::Screen screen(frame);
     const studyui::PairConfirmLayout layout = studyui::buildPairConfirm(screen);
-    // The account name in serif: the toybox cuts are ASCII-subset, and the
+    // The account name in the built-in face: the toybox cuts are ASCII-subset, and the
     // gate is only a gate if the name is legible whatever alphabet it uses.
     UITheme::drawCenteredWrappedText(
         renderer, Rect{layout.username.x, layout.username.y, layout.username.width, layout.username.height},

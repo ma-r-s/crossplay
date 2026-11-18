@@ -26,7 +26,6 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
-#include "activities/plugins/PluginCatalogActivity.h"  // anyPluginInstalled()
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -34,7 +33,7 @@
 // How many rows indexToMenuItem() walks. Never the recent books, in any theme,
 // including RoundedRaff's Continue Reading row: the dispatch has already
 // subtracted the books. See HomeShelfRows.h.
-int HomeActivity::upstreamMenuRows() const { return homeshelf::upstreamRows(hasLibrarySlot()); }
+int HomeActivity::upstreamMenuRows() const { return homeshelf::upstreamRows(slotItem() != HomeMenuItem::NONE); }
 
 int HomeActivity::getMenuItemCount() const {
   // --- fork-local seam ---------------------------------------------------
@@ -46,7 +45,7 @@ int HomeActivity::getMenuItemCount() const {
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
-  if (hasLibrarySlot()) {
+  if (slotItem() != HomeMenuItem::NONE) {
     count++;
   }
   return count;
@@ -198,7 +197,7 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
         if (FsHelpers::hasReflowableBookExtension(book.path)) {
           Epub epub(book.path, "/.crosspoint");
           // Skip loading css since we only need metadata here
-          epub.load(false, true);
+          const bool cacheLoaded = epub.load(false, true);
 
           // Try to generate thumbnail image for Continue Reading card
           if (!showingLoading) {
@@ -206,7 +205,10 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
             popupRect = GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
           }
           GUI.fillPopupProgress(renderer, popupRect, 10 + progress * (90 / recentBooks.size()));
-          bool success = epub.generateThumbBmp(thumbHeight);
+          // Without a book cache (e.g. after "Delete Book Cache") there is no cached metadata,
+          // so read the cover location straight from the EPUB.
+          bool success =
+              cacheLoaded ? epub.generateThumbBmp(thumbHeight) : epub.generateThumbBmpFromSource(thumbHeight);
           if (!success) {
             RECENT_BOOKS.updateBook(book.path, book.title, book.author, "");
             book.coverBmpPath = "";
@@ -250,7 +252,10 @@ void HomeActivity::onEnter() {
   Activity::onEnter();
 
   hasOpdsServers = OPDS_STORE.hasServers();
-  hasPlugins = anyPluginInstalled();
+  // Plugin System is the global opt-in. Once enabled, expose the Plugins entry
+  // even when no SD plugins are installed yet so Plugin Hub can be installed
+  // from inside the Plugins screen (or users can sideload plugins manually).
+  hasPlugins = SETTINGS.pluginsEnabled != 0;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -263,11 +268,16 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
+    const HomeMenuItem slot = slotItem();
+    coverGridUi->begin(recentBooks,
+                       slot == HomeMenuItem::PLUGINS        ? CoverGridHomeUi::SlotTab::PLUGINS
+                       : slot == HomeMenuItem::OPDS_BROWSER ? CoverGridHomeUi::SlotTab::OPDS
+                                                            : CoverGridHomeUi::SlotTab::NONE,
+                       hasContinueReading);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, slotItem());
 
   // fork-local seam: goHome() restores the selection by matching the departing
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
@@ -275,7 +285,7 @@ void HomeActivity::onEnter() {
   // the shelf was what we came back from: see shelf::takeHomeReturn().
   if (shelf::takeHomeReturn()) {
     if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
-      selectorIndex = homeshelf::selectorForFolder(shelfRow, base, hasLibrarySlot());
+      selectorIndex = homeshelf::selectorForFolder(shelfRow, base, slotItem() != HomeMenuItem::NONE);
     }
   }
 
@@ -311,6 +321,7 @@ bool HomeActivity::storeCoverBuffer() {
     return false;
   }
   coverBufferSize = needed;
+  coverBufferInverted = display.isInverted();
   if (!renderer.copyRegionToBuffer(coverRectX, coverRectY, coverRectW, coverRectH, coverBuffer, coverBufferSize)) {
     free(coverBuffer);
     coverBuffer = nullptr;
@@ -340,19 +351,22 @@ void HomeActivity::loop() {
 
   auto activateSelection = [this] {
     if (selectorIndex < recentBooks.size()) {
-      onSelectBook(recentBooks[selectorIndex].path);
+      onRecentBookSelected(recentBooks[selectorIndex].path);
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
+    switch (indexToMenuItem(menuIndex, slotItem())) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
       case HomeMenuItem::LIBRARY:
         onLibraryOpen();
         break;
-      case HomeMenuItem::OPDS_BROWSER:  // the library slot
-        hasPlugins ? onPluginsOpen() : onOpdsBrowserOpen();
+      case HomeMenuItem::PLUGINS:
+        onPluginsOpen();
+        break;
+      case HomeMenuItem::OPDS_BROWSER:
+        onOpdsBrowserOpen();
         break;
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
@@ -362,8 +376,8 @@ void HomeActivity::loop() {
         break;
       default: {
         // fork-local seam: anything past upstream's rows is a shelf folder.
-        const int shelfRow = homeshelf::folderAt(selectorIndex, static_cast<int>(recentBooks.size()), hasLibrarySlot(),
-                                                 shelf::folderCount());
+        const int shelfRow = homeshelf::folderAt(selectorIndex, static_cast<int>(recentBooks.size()),
+                                                 slotItem() != HomeMenuItem::NONE, shelf::folderCount());
         if (shelfRow >= 0) shelf::openFolder(shelfRow, renderer, mappedInput);
         break;
       }
@@ -400,7 +414,7 @@ void HomeActivity::loop() {
   // book directly (recentBooks is most-recent-first and already pruned of
   // files missing from the SD card).
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) && hasContinueReading && !recentBooks.empty()) {
-    onSelectBook(recentBooks[0].path);
+    onRecentBookSelected(recentBooks[0].path);
     return;
   }
 
@@ -520,35 +534,48 @@ void HomeActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   if (coverGridUi) {
-    coverGridUi->setSelection(selectorIndex);
-    UITheme::getInstance().drawCoverGridHome(*coverGridUi);
-    // Front Left/Right walk the tabs, so their hints read Left/Right; the
-    // side page buttons (unhinted) walk the covers.
-    const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
-                                              tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH
-                                                                   : HalDisplay::FAST_REFRESH);
+    const auto drawGrid = [&] {
+      renderer.clearScreen();
+      coverGridUi->setSelection(selectorIndex);
+      UITheme::getInstance().drawCoverGridHome(*coverGridUi);
+      // Front Left/Right walk the tabs, so their hints read Left/Right; the
+      // side page buttons (unhinted) walk the covers.
+      const auto labels = mappedInput.mapLabels(hasContinueReading ? tr(STR_RESUME) : "", tr(STR_SELECT),
+                                                tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    };
+    drawGrid();
     // Slot heights are recorded during the draw above; a change (first layout
     // pass, orientation switch) means the paths must point at those sizes and
-    // any missing thumbs must be generated. Refreshing the paths right away
-    // lets the next pass draw already-cached thumbs before generation runs.
-    const bool coverSpecChanged = coverGridUi->takeThumbHeightChanged();
-    if (coverSpecChanged) {
+    // any missing thumbs must be generated. Resolve the covers before the
+    // panel is touched and redraw into the framebuffer, so Home paints once
+    // instead of three e-ink refreshes (placeholder, placeholder, covers).
+    if (coverGridUi->takeThumbHeightChanged()) {
       coverGridUi->refreshCoverPaths();
       recentsLoaded = false;
     }
-    if (!firstRenderDone) {
-      firstRenderDone = true;
-      requestUpdate();
-    } else if (!recentsLoaded && !recentsLoading) {
+    if (!recentsLoaded && !recentsLoading) {
       loadRecentCovers(CoverGridHomeUi::THUMB_HEIGHT);
       coverGridUi->refreshCoverPaths();
-      requestUpdate();
+      drawGrid();
+      if (coverGridUi->takeThumbHeightChanged()) {
+        coverGridUi->refreshCoverPaths();
+        recentsLoaded = false;
+        requestUpdate();
+      }
     }
+    renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH
+                                                                   : HalDisplay::FAST_REFRESH);
+    firstRenderDone = true;
     return;
   }
-  bool bufferRestored = coverBufferStored && restoreCoverBuffer();
+  // A cover snapshot from the other output polarity holds the other byte form (night mode keeps images pre-inverted so
+  // they stay positive): pasting it back after a theme switch showed the cover as a negative. Redraw it instead.
+  if (coverBufferStored && coverBufferInverted != display.isInverted()) {
+    freeCoverBuffer();
+    coverRendered = false;
+  }
+  bool bufferRestored = coverRendered && coverBufferStored && restoreCoverBuffer();
 
   // Band spans topPadding..homeTopPadding: the cover tile starts at the fixed
   // homeTopPadding, so the height must shrink by topPadding or the band (and a
@@ -563,9 +590,9 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
 
-  if (hasLibrarySlot()) {
+  if (slotItem() != HomeMenuItem::NONE) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Plugins);
+    menuIcons.insert(menuIcons.begin() + 2, hasPlugins ? Plugins : Book);
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
@@ -652,17 +679,15 @@ void HomeActivity::render(RenderLock&&) {
 
   renderer.displayBuffer(cleanInitialRefresh && !firstRenderDone ? HalDisplay::HALF_REFRESH : HalDisplay::FAST_REFRESH);
 
-  if (!firstRenderDone) {
-    firstRenderDone = true;
-    requestUpdate();
-  } else if (!recentsLoaded && !recentsLoading) {
+  firstRenderDone = true;
+  if (!recentsLoaded && !recentsLoading) {
     recentsLoading = true;
     const int themeThumbHeight = GUI.homeCoverThumbHeight(renderer);
     loadRecentCovers(themeThumbHeight > 0 ? themeThumbHeight : metrics.homeCoverHeight);
   }
 }
 
-void HomeActivity::onSelectBook(const std::string& path) { activityManager.goToReader(path); }
+void HomeActivity::onRecentBookSelected(const std::string& path) { activityManager.goToReader(path); }
 
 void HomeActivity::onFileBrowserOpen() { activityManager.goToFileBrowser(); }
 
@@ -674,4 +699,4 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
-void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(); }

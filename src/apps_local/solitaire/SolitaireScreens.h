@@ -27,6 +27,10 @@ namespace fui = freeink::ui;
 // against each other is the shape half this app's chrome bugs came in.
 inline constexpr int16_t kHeaderBand = 56;
 
+// How much of a covered open card shows: enough for the rank and pip CardArt
+// draws in its top corners. The top open card of a column never gets less.
+inline constexpr int16_t kOpenCardStrip = 30;
+
 enum : fui::ActionId {
   ActionPile = 1,    // value is a pile index
   ActionButton = 2,  // value is a Button below

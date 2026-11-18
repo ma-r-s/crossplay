@@ -65,9 +65,13 @@ void DictionaryWordSelectActivity::performLookup() {
       popup = Popup::None;
       page.reset();
     }
+    if (SETTINGS.vocabularyHistoryEnabled &&
+        !VocabularyStore::append(vocabulary, lookupText, headword, definition, dict.definitionsAreHtml())) {
+      LOG_ERR("VOCAB", "Could not save successful dictionary lookup");
+    }
     auto activity = makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, std::move(headword),
                                                                     std::move(definition), dict.definitionsAreHtml());
-    if (!activity) {
+    if (!activity || !activity->enableLookup(dict, std::move(lookupText))) {
       LOG_ERR("DICT", "OOM: definition activity");
       popup = Popup::Error;
       popupMsg = StrId::STR_DICT_LOW_MEMORY;
@@ -75,7 +79,10 @@ void DictionaryWordSelectActivity::performLookup() {
       requestUpdate();
       return;
     }
-    startActivityForResult(std::move(activity), [this](const ActivityResult&) { finish(); });
+    startActivityForResult(std::move(activity), [this](const ActivityResult& result) {
+      setResult(ActivityResult{result});
+      finish();
+    });
     return;
   }
   // Name the failure: a genuine miss is "Not found"; a word that WAS found but
@@ -130,9 +137,7 @@ void DictionaryWordSelectActivity::loop() {
   }
   if (popup == Popup::NotFound || popup == Popup::Error) {
     if (millis() - popupTime >= POPUP_DURATION_MS) {
-      ActivityResult res;
-      res.isCancelled = true;
-      setResult(std::move(res));
+      result.isCancelled = popup == Popup::Error;
       finish();
     }
   }

@@ -42,6 +42,10 @@ class LibraryListActivity final : public UiTabListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   void onRowLongPress(int index) override;
+#if FREEINK_CAP_TOUCH
+  bool canSwipeDelete(int index) const override { return !groupsCollapsed && index >= 0 && index < listCount(); }
+  void swipeDelete(int index) override;
+#endif
   int tabCount() const override;
   int activeTab() const override;
   const char* tabLabel(int index) const override;
@@ -131,6 +135,9 @@ class LibraryListActivity final : public UiTabListActivity {
   // read order; the modification-time list follows with those books skipped.
   // Entries below pinnedCount() are store rows; the rest go through rowFor().
   int pinnedCount() const;
+  // Setting: the Recent tab lists opened books only.
+  bool openedOnly() const;
+  const RecentBook* storeBook(int entry) const;
   // Re-match the store against the index (chunked scan). Call whenever the
   // index or the store changes.
   void resolvePinned();

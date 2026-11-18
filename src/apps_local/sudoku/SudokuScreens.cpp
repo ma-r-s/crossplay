@@ -28,8 +28,6 @@ namespace sk = sudoku;
 // label to say what it is, and the digits sit where a phone keypad puts them.
 // ---------------------------------------------------------------------------
 
-constexpr int16_t kCell = 50;
-constexpr int16_t kGridSide = kCell * sk::kSize;
 constexpr int16_t kBoardOuter = kGridSide + 2 * toybox::kBoardFrame;
 // From the whole chrome, band and rule alike. kHeaderHeight + kMargin looks
 // like a generous margin and is a nine-pixel gap, because the rule under the
@@ -216,12 +214,12 @@ void drawGrid(toybox::Screen& screen, const BoardModel& model) {
   }
 
   // The rules on top of the cells, so no cell can overdraw a line: hairlines
-  // between cells, the heavier rule between boxes. Drawn after the loop for
+  // between cells, kBoxRule between boxes. Drawn after the loop for
   // the same reason the chess selection frame is: anything that crosses a cell
   // boundary needs its own pass.
   for (int index = 1; index < sk::kSize; ++index) {
     const bool boxEdge = index % sk::kBoxSize == 0;
-    const int16_t weight = boxEdge ? toybox::kRule : toybox::kHairline;
+    const int16_t weight = boxEdge ? kBoxRule : toybox::kHairline;
     const int16_t offset = static_cast<int16_t>(index * kCell - weight / 2);
     screen.target().fill(fui::makeRect(static_cast<int16_t>(gridLeft(device) + offset), gridTop(), weight, kGridSide),
                          fui::Paint::solid(fui::Color::Black));

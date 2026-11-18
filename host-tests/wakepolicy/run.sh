@@ -121,12 +121,20 @@ check(len(enter_sleep) == 1, "the unattended boot leaves through enterDeepSleep(
       % len(enter_sleep))
 
 # 7. savedLight is built from the real settings, not from constants. A literal
-#    here would make the policy correct and the inputs a lie.
+#    here would make the policy correct and the inputs a lie. Since CrossPoint
+#    2.0 a slide switch bound to the light (upstream's Picco) decides a user
+#    boot from its position, so the two user-boot fields may be that switch OR
+#    the setting -- but each must still READ the setting, and the switch must
+#    be the board's real one, not a constant.
 for field, source in (("lightOn", "SETTINGS.frontlightOn"),
                       ("restoreOnWake", "SETTINGS.frontlightRestoreOnWake"),
                       ("silentRebootLightOn", "silentRebootLightOn")):
-    check(re.search(r"\.%s\s*=\s*%s\b" % (field, re.escape(source)), src) is not None,
+    m = re.search(r"\.%s\s*=\s*([^,\n]*)," % field, src)
+    check(m is not None and re.search(re.escape(source) + r"\b", m.group(1)) is not None,
           "savedLight.%s comes from %s" % (field, source))
+on = re.search(r"\.lightOn\s*=\s*([^,\n]*),", src)
+check(on is not None and ("switchOwnsLight" not in on.group(1) or "gpio.isToggleSwitchOn()" in on.group(1)),
+      "savedLight.lightOn under a slide switch is the switch's real position")
 
 # 8. startDeepSleepArmed is [[noreturn]], which is what makes "a boot that
 #    sleeps again cannot reach the light" a compiler-enforced fact rather than

@@ -1,12 +1,14 @@
 #include "ClippingSync.h"
 
 #include <ArduinoJson.h>
+#include <BuildScratch.h>
 #include <HalMemory.h>
 #include <KOReaderCredentialStore.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <SecureHttpClient.h>
 #include <Utf8.h>
+#include <strings.h>
 
 #include <cstring>
 
@@ -14,7 +16,7 @@
 
 namespace {
 // One item per response: 4 KiB text may occupy 24 KiB when JSON-escaped.
-// Reuse one checked heap buffer for requests and responses; it cannot fit on the task stack.
+// Reuse one buffer for requests and responses; C3 borrows it from the framebuffer.
 constexpr size_t BUFFER_SIZE = 32 * 1024;
 
 bool request(freeink::SecureHttpClient& http, const std::string& url, char* buffer, JsonDocument& doc,
@@ -32,8 +34,16 @@ bool request(freeink::SecureHttpClient& http, const std::string& url, char* buff
     LOG_ERR("CLIP", "Invalid sync URL");
     return false;
   }
+  // addHeader() appends, so a configured Authorization header replaces Basic auth instead of duplicating it.
+  bool customAuthorization = false;
+  for (const auto& header : KOREADER_STORE.getCustomHeaders()) {
+    if (header.name.empty()) continue;
+    http.addHeader(header.name, header.value);
+    if (strcasecmp(header.name.c_str(), "Authorization") == 0) customAuthorization = true;
+  }
   http.addHeader("x-auth-user", KOREADER_STORE.getUsername());
   http.addHeader("x-auth-key", KOREADER_STORE.getMd5Password());
+  if (!customAuthorization) http.addHeader("Authorization", KOREADER_STORE.getBasicAuthorization());
   http.addHeader("Content-Type", "application/json");
   size_t received = 0;
   const int status = http.sendRequest(upload ? "PUT" : "GET", reinterpret_cast<const uint8_t*>(buffer), payloadSize,
@@ -136,7 +146,13 @@ bool clippingSync::run(const std::string& bookPath, const std::string& documentH
     ~Unload() { CLIPPINGS.unload(); }
   } unload;
 
+#if defined(CONFIG_IDF_TARGET_ESP32C3) && CONFIG_IDF_TARGET_ESP32C3
+  const auto releaseScratch = [](char* buffer) { buildscratch::release(reinterpret_cast<uint8_t*>(buffer)); };
+  std::unique_ptr<char[], decltype(releaseScratch)> buffer(reinterpret_cast<char*>(buildscratch::claim(BUFFER_SIZE)),
+                                                           releaseScratch);
+#else
   auto buffer = makeUniqueNoThrow<char[]>(BUFFER_SIZE);
+#endif
   auto http = makeUniqueNoThrow<freeink::SecureHttpClient>();
   const auto heap = HalMemory::getDefaultHeap();
   if (!buffer || !http || heap.freeBytes < 40000 || heap.largestBlockBytes < 20000) {
