@@ -45,7 +45,10 @@ Celsius or Fahrenheit, and UPDATE NOW.
   the days after it are rows. When every day on the card is past, the screen
   shows the place, `NO FORECAST FOR TODAY`, when it was read, and UPDATE NOW,
   and no week.
-- **The city is typed once, on the keyboard Wikipedia's search uses**, and
+- **The city is typed once, on the keyboard Wikipedia's search uses**: the
+  same code, `ui/ToyboxKeyboard.h`, so its Shift key draws the keyboard's own
+  arrow in every theme and its symbol pages "#+=" and "123", as Wikipedia's
+  does, and
   chosen from Open-Meteo's own geocoder (ten places at most, each with its
   region so three Springfields can be told apart). The places come a page at a
   time: the side keys and a vertical swipe turn the page, and a row of page

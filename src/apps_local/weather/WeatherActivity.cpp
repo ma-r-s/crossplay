@@ -3,7 +3,6 @@
 #include <Arduino.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
-#include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <WiFi.h>
@@ -16,12 +15,11 @@
 #include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
-#include "../../components/UITheme.h"
-#include "../../fontIds.h"
 #include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../rss/RssFetch.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxKeyboard.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace fui = freeink::ui;
@@ -701,49 +699,15 @@ weatherui::MainModel WeatherActivity::mainModel() {
 }
 
 fui::Rect WeatherActivity::keyboardRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  const int rows = layout.rowCount;
-  const int gap = metrics.keyboardKeySpacing;
-  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
-  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
-  return fui::Rect{static_cast<int16_t>((pageWidth - width) / 2), static_cast<int16_t>(pageHeight - 8 - height),
-                   static_cast<int16_t>(width), static_cast<int16_t>(height)};
+  return toybox::searchKeyboardRect(
+      renderer, fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false));
 }
 
-// The keyboard Wikipedia's search draws, with its own table: it registers more
-// hit rects than a toybox screen holds, and it is routed first.
+// Wikipedia's search keyboard, the same code (ui/ToyboxKeyboard.h).
 void WeatherActivity::drawKeyboard() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  kbInteractions_.beginPublishCycle();
-  fui::GfxRendererTarget target(renderer);
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
-  const fui::DeviceContext device = target.deviceContext();
-  const fui::InputSnapshot noInput{};
-  fui::Frame<56> frame(target, device, noInput, kbInteractions_);
-
-  fui::KeyboardProps props;
-  const fui::KeyboardLayout& layout =
-      fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false);
-  props.layout = &layout;
-  props.keyAction = weatherui::ActionKey;
-  props.okLabel = "GO";
-  props.shiftLabel = tr(STR_KEY_SHIFT);
-  props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
-  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
-  props.selectedIndex = -1;
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
-  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-  props.padding = fui::Insets{0, 0, 0, 0};
-  const fui::Rect kb = keyboardRect();
-  props.bottomHitOverflow = static_cast<int16_t>(renderer.getScreenHeight() - kb.bottom());
-  fui::keyboard(frame, kb, props);
-  kbInteractions_.publish();
+  toybox::drawSearchKeyboard(
+      renderer, fui::builtinKeyboardLayout(fui::KeyboardLayoutId::QwertyEn, shifted_, symbols_, true, false), symbols_,
+      weatherui::ActionKey, kbInteractions_);
   kbGate_.markBuilt();
 }
 

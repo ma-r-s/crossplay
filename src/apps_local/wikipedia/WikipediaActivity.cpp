@@ -21,6 +21,7 @@
 #include "../../fontIds.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
+#include "../ui/ToyboxKeyboard.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace fui = freeink::ui;
@@ -401,53 +402,15 @@ void WikipediaActivity::openRandom() {
 }
 
 fui::Rect WikipediaActivity::keyboardRect() const {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const int pageWidth = renderer.getScreenWidth();
-  const int pageHeight = renderer.getScreenHeight();
-  const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false);
-  const int rows = layout.rowCount;
-  const int gap = metrics.keyboardKeySpacing;
-  const int height = rows * metrics.keyboardKeyHeight + (rows > 1 ? (rows - 1) * gap : 0);
-  const int width = pageWidth * metrics.keyboardWidthPercent / 100;
-  const int x = (pageWidth - width) / 2;
-  const int y = pageHeight - 8 - height;
-  return fui::Rect{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(width),
-                   static_cast<int16_t>(height)};
+  return toybox::searchKeyboardRect(renderer, fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false));
 }
 
 // The keyboard has its own table: it registers more hit rects than a toybox
-// screen holds, and it is routed first.
+// screen holds, and it is routed first. Weather draws the same one
+// (ui/ToyboxKeyboard.h).
 void WikipediaActivity::drawKeyboard() {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  kbInteractions_.beginPublishCycle();
-  fui::GfxRendererTarget target(renderer);
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
-  const fui::DeviceContext device = target.deviceContext();
-  const fui::InputSnapshot noInput{};
-  fui::Frame<56> frame(target, device, noInput, kbInteractions_);
-
-  fui::KeyboardProps props;
-  const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false);
-  props.layout = &layout;
-  props.keyAction = wikiui::ActionKey;
-  props.okLabel = "GO";
-  // No word on Shift: the letter pages draw the keyboard's arrow in every
-  // theme and language, and the symbol pages their own "#+=" and "123", which
-  // say which page you are on. "Shift" fitted English at no gap only, filling
-  // the key edge to edge, and gave way to the arrow wherever it did not, so
-  // the same key read three ways.
-  props.modeLabel = symbols_ ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);
-  props.inputMask = static_cast<uint16_t>(fui::InputTouch);
-  props.selectedIndex = -1;
-  props.labelText.font = fui::GfxRendererTarget::FONT_BODY;
-  props.altText.font = fui::GfxRendererTarget::FONT_SMALL;
-  props.gap = static_cast<int16_t>(metrics.keyboardKeySpacing);
-  props.padding = fui::Insets{0, 0, 0, 0};
-  const fui::Rect kb = keyboardRect();
-  props.bottomHitOverflow = static_cast<int16_t>(renderer.getScreenHeight() - kb.bottom());
-  fui::keyboard(frame, kb, props);
-  kbInteractions_.publish();
+  toybox::drawSearchKeyboard(renderer, fui::builtinKeyboardLayout(keyboard_, shifted_, symbols_, true, false), symbols_,
+                             wikiui::ActionKey, kbInteractions_);
   kbGate_.markBuilt();
 }
 
