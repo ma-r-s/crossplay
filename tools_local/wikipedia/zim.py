@@ -8,7 +8,8 @@
     for title, target in z.redirects():
         ...
 
-Standard library only (Python 3.14 carries zstd as compression.zstd, and the
+Standard library only (Python 3.14 carries zstd as compression.zstd; before
+it the zstd command does the clusters, as it does the pack's frames; and the
 older clusters are xz, which lzma reads), like the rest of the pack tools.
 The format is openzim's (https://wiki.openzim.org/wiki/ZIM_file_format):
 an 80-byte header, a MIME list, a pointer list sorted by path, one sorted
@@ -20,6 +21,7 @@ metadata ("M"). Nothing is written.
 
 import lzma
 import struct
+import subprocess
 import sys
 
 try:
@@ -196,9 +198,15 @@ class Zim:
         elif comp == 4:
             raw = lzma.LZMADecompressor().decompress(body)
         elif comp == 5:
-            if _zstd is None:
-                raise ZimError("zstd clusters need Python 3.14 (compression.zstd)")
-            raw = _zstd.ZstdDecompressor().decompress(body)
+            if _zstd is not None:
+                raw = _zstd.ZstdDecompressor().decompress(body)
+            else:
+                # Python before 3.14: the zstd command the pack writer
+                # already needs (pack_format.zstd_bin)
+                r = subprocess.run(["zstd", "-d", "-q", "-c"], input=body, capture_output=True)
+                if r.returncode != 0:
+                    raise ZimError(f"cluster {n}: zstd failed: {r.stderr.decode(errors='replace').strip()}")
+                raw = r.stdout
         else:
             raise ZimError(f"cluster {n}: compression {comp} is not supported")
         size = 8 if wide else 4
