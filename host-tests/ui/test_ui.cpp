@@ -5453,6 +5453,60 @@ void testStudyHeadlineIsTheHitTarget() {
   }
 }
 
+// Report #727: a Sticky whose clock read February in November counted a deck
+// full of due cards as nothing due, and the screen said so in its largest type.
+// The activity now marks that clock untrusted (study::clockUntrusted); this is
+// what the screen must do with it.
+void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
+  int forecast[studyui::kForecastDays] = {};
+  for (const int fresh : {0, 23}) {
+    Rendered out;
+    // The UI cut's real letters: Jersey at 20 runs about 19 to the capital
+    // (measure.py 20: SYNC TO SET THE CLOCK 392px, REVIEW AFTER SYNC 326px).
+    // At the fake's ten, a door label cut short on the panel fits here.
+    out.target.fontWidths.push_back({toybox::kUiFont, 19});
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.due = 0;
+    model.fresh = fresh;  // new cards are counted whatever the date says
+    model.total = 23;
+    model.forecast = forecast;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(out.target.drew("SYNC TO SET THE CLOCK"));
+    CHECK(!out.target.drew("ALL CLEAR"));
+    CHECK(!out.target.drew("NOTHING DUE TODAY"));
+    CHECK(!out.target.drew("NOTHING TO REVIEW"));
+    CHECK(!out.target.drew("23 TO GO"));
+
+    // The review door is shut and its label is whole on the glass; the
+    // instruction is whole too, on a line wide enough for it.
+    CHECK(drewLabelWhole(out, "REVIEW AFTER SYNC"));
+    CHECK(drewLabelWhole(out, "SYNC TO SET THE CLOCK"));
+    const auto* door = out.target.find("REVIEW AFTER SYNC");
+    CHECK(door != nullptr);
+    if (door != nullptr) {
+      CHECK(out.tap(door->rect.x + 20, door->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // And so is the headline, the other way into a session: a tap there under
+    // a wrong clock opened cards whose answers the review log then refused.
+    const auto* headline = out.target.find("WRONG DATE");
+    CHECK(headline != nullptr);
+    if (headline != nullptr) {
+      CHECK(out.tap(headline->rect.x + 20, headline->rect.y + 10).action != studyui::ActionStudy);
+    }
+    // SYNC, the way out, still answers.
+    const auto* sync = out.target.find("SYNC");
+    CHECK(sync != nullptr);
+    if (sync != nullptr) {
+      const fui::ActionEvent onSync = out.tap(sync->rect.x + 20, sync->rect.y + 10);
+      CHECK(onSync.action == studyui::ActionStudy && onSync.value == 2);
+    }
+  }
+}
+
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;

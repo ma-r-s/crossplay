@@ -256,6 +256,9 @@ class StudyActivity final : public Activity {
 
   int currentIndex_ = -1;
   int today_ = 0;
+  // The latest day any card in the open deck was reviewed, -1 for none; the
+  // evidence study::clockUntrusted weighs today_ against. Set by buildQueue().
+  int latestReviewDay_ = -1;
   int startMinute_ = 0;
   int forecast_[studyui::kForecastDays] = {};
   int dueTotal_ = 0;
@@ -306,6 +309,9 @@ class StudyActivity final : public Activity {
   void endSyncSession(studyui::SyncVerdictKind kind, studyui::SyncSafety safety, const char* title, const char* body,
                       const char* whatNow = nullptr, bool describeQueue = false);
   void syncTimeIfNeeded();
+  // study::clockUntrusted over this deck and this clock: the deck screen's
+  // WRONG DATE, the shut review door and the review log all ask it.
+  bool clockUntrusted() const;
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read
   // as a crash. The result screen (syncBusy_ false) may sleep normally.
