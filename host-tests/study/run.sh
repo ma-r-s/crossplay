@@ -43,6 +43,10 @@ SRC=../../src/apps_local/study
 # broke or where the cloze underline went.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   test_text.cpp -o "$BUILD_DIR/test_text"
+# A card longer than its screen: the page arithmetic in StudyText.h and the
+# input rule in StudyPaging.h, both header-only for the same reason.
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  test_paging.cpp -o "$BUILD_DIR/test_paging"
 # The pairing write, against stubs/HalStorage.h: a card that refuses a write
 # into a missing folder the way SdFat does and the simulator does not.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Istubs -I"$SRC" \
@@ -62,6 +66,10 @@ fi
 # Before the fixture is even needed: it takes no deck, and a wrap that is
 # broken makes every card unreadable whatever the deck says.
 "$BUILD_DIR/test_text"
+"$BUILD_DIR/test_paging"
+# The card's side keys against the Hacker News reader's: StudyActivity cannot
+# be compiled here, so this one reads the source.
+python3 test_page_keys.py
 "$BUILD_DIR/test_bridge_file"
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_verdict"

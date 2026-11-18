@@ -70,6 +70,17 @@ constexpr int kSmallFontId = NOTOSANS_12_FONT_ID;
 constexpr int kLatinLadder[] = {NOTOSANS_18_FONT_ID, NOTOSANS_16_FONT_ID, NOTOSANS_14_FONT_ID, NOTOSANS_12_FONT_ID};
 constexpr int kLatinSteps = static_cast<int>(sizeof(kLatinLadder) / sizeof(kLatinLadder[0]));
 constexpr int kMaxFontStep = kLatinSteps - 1;
+// Below the floor, for one case only: a card holding a word wider than a line
+// even at 12pt that this cut holds whole -- a chemical name, a long compound.
+// The UI face, because it is the only built-in cut under 12pt; it carries
+// every range the reading face does.
+constexpr int kTinyFontId = UI_10_FONT_ID;
+
+// Where a card's first line starts below the header, and how far above the
+// pager a paged face's last line must end. The inset is the one both card
+// layouts have always used; the clearance keeps a descender off the pill.
+constexpr int kCardInset = 8;
+constexpr int kPagerClearance = 6;
 
 // Longest line the wrapper assembles. The widest field in the deck is 178
 // bytes; 256 leaves room, and two of these are live at once.
@@ -691,6 +702,9 @@ bool StudyActivity::loadCurrent() {
   if (!deck_.loadCard(*cardSource_, currentIndex_, card_)) return false;
 
   face_ = Face::Question;
+  cardPage_ = 0;
+  cardPages_ = 1;
+  cardStartPage_ = 0;
 
   // The face changes per card. This is the feature: Mario learned to read in
   // one typeface and found the others hard afterwards, so the deck stops
@@ -916,6 +930,9 @@ void StudyActivity::undo() {
     // and making them reveal the card again would be a step they did not ask
     // for.
     face_ = Face::Answer;
+    cardPage_ = study::kAnswerStartPage;
+    cardPages_ = 1;
+    cardStartPage_ = 0;
   } else {
     // The card came back off the deck a moment ago, so this means the card has
     // gone away underneath us. Fall back to the deck screen rather than leave a
@@ -973,6 +990,31 @@ void StudyActivity::loop() {
     syncQueued_ = false;
     runSyncFlow();
     return;
+  }
+  if (view_ == View::Card) {
+    // The side keys page a card longer than the screen, and show the answer
+    // from the question's last page; a vertical swipe pages too, the way the
+    // rest of the fork pages (docs/buttons.md). The keys are the reader's
+    // page keys, read exactly as Hacker News reads them, so the side-button
+    // layout in Settings swaps or disables them here too. Back, a left-edge
+    // swipe, has already returned above, so nothing here can swallow it.
+    const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
+      applyCardInput(study::CardInput::KeyNext);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
+      applyCardInput(study::CardInput::KeyPrevious);
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Up) {
+      applyCardInput(study::CardInput::SwipeNext);
+      return;
+    }
+    if (swipe == MappedInputManager::SwipeDir::Down) {
+      applyCardInput(study::CardInput::SwipePrevious);
+      return;
+    }
   }
   int tapX = 0;
   int tapY = 0;
@@ -1043,45 +1085,88 @@ void StudyActivity::loop() {
   }
   if (view_ != View::Card) return;
 
-  const int footerTop = renderer.getScreenHeight() - kFooterHeight;
-  if (face_ == Face::Question) {
-    // Undo owns the first cell of the footer and nothing else. It is the one
-    // action here that changes something already written, so unlike revealing
-    // it is worth having to aim at -- a stray tap must not take back a review.
-    const int width = renderer.getScreenWidth();
-    if (undo_.valid && tapY >= footerTop && width > 0 && tapX < width / kUndoSlots) {
-      undo();
-      return;
-    }
-    // Everything else reveals, the card included: it is the only other action
-    // the screen offers and it destroys nothing, so making the user aim would
-    // be friction for its own sake.
-    face_ = Face::Answer;
-    requestUpdate();
-    return;
-  }
-
-  // The card itself opens the photograph. The header only *says* PHOTO: taps in
-  // that band never reach here because the theme owns it, which no amount of
-  // reading the code revealed and one render made obvious.
+  // Which region the tap is in; what that means on this face is
+  // routeCardInput's, in StudyPaging.h.
   //
-  // Making the body the target is the better design regardless. It is the
+  // On the question, undo owns the first cell of the footer and nothing else.
+  // It is the one action here that changes something already written, so
+  // unlike revealing it is worth having to aim at -- a stray tap must not take
+  // back a review. Everything else reveals, the card included: it is the only
+  // other action the screen offers and it destroys nothing.
+  //
+  // On the answer, the card itself opens the photograph. The header only
+  // *says* PHOTO: taps in that band never reach here because the theme owns
+  // it. Making the body the target is the better design regardless: it is the
   // largest thing on the screen, it does nothing else on the answer side, and
   // docs/design-language.md's rule is that the commonest action should not be
-  // something you have to aim at. Grading still belongs to the footer alone.
-  if (cardHasImage() && tapY < footerTop) {
-    view_ = View::Image;
-    requestUpdate();
-    return;
-  }
-
+  // something you have to aim at. Grading belongs to the footer alone.
+  const Rect body = cardBody();
+  const int footerTop = body.y + body.height;
   if (tapY >= footerTop) {
     // Slot from the same division that drew the cells, so the hit region cannot
     // drift from the pixels. See docs/building-apps.md.
     const int width = renderer.getScreenWidth();
-    const int slot = width > 0 ? tapX * 4 / width : 0;
-    const int clamped = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
-    grade(static_cast<study::Rating>(clamped + 1));
+    applyCardInput(study::CardInput::Footer, width > 0 ? tapX * 4 / width : 0);
+    return;
+  }
+  study::CardInput input = study::CardInput::Body;
+  if (cardPages_ > 1) {
+    const studyui::CardPagerLayout pager =
+        studyui::cardPagerLayout(fui::makeRect(body.x, body.y, body.width, body.height));
+    switch (studyui::cardPagerHit(pager, tapX, tapY)) {
+      case studyui::CardPagerHit::Previous:
+        input = study::CardInput::PagerPrevious;
+        break;
+      case studyui::CardPagerHit::Next:
+        input = study::CardInput::PagerNext;
+        break;
+      case studyui::CardPagerHit::Between:
+        input = study::CardInput::Pager;
+        break;
+      case studyui::CardPagerHit::Outside:
+        break;
+    }
+  }
+  applyCardInput(input);
+}
+
+void StudyActivity::applyCardInput(const study::CardInput input, const int footerSlot) {
+  study::CardView view;
+  view.answer = face_ == Face::Answer;
+  view.page = study::resolveCardPage(cardPage_, cardStartPage_, cardPages_);
+  view.pages = cardPages_;
+  view.canUndo = undo_.valid;
+  view.hasPhoto = cardHasImage();
+  const study::CardOutcome out = study::routeCardInput(view, input, footerSlot);
+  LOG_DBG("STUDY", "Card input %d on %s page %d/%d: action %d, page %d", static_cast<int>(input),
+          view.answer ? "answer" : "question", view.page + 1, cardPages_, static_cast<int>(out.action), out.page + 1);
+  switch (out.action) {
+    case study::CardAction::None:
+      return;
+    case study::CardAction::Turn:
+      cardPage_ = out.page;
+      requestUpdate();
+      return;
+    case study::CardAction::Reveal:
+      face_ = Face::Answer;
+      // Opened where the answer's own text begins, which the answer's paint
+      // finds. Until then it has one page: a second press that lands first
+      // must not page through the question's count.
+      cardPage_ = study::kAnswerStartPage;
+      cardPages_ = 1;
+      cardStartPage_ = 0;
+      requestUpdate();
+      return;
+    case study::CardAction::Undo:
+      undo();
+      return;
+    case study::CardAction::Grade:
+      grade(static_cast<study::Rating>(out.rating));
+      return;
+    case study::CardAction::Photo:
+      view_ = View::Image;
+      requestUpdate();
+      return;
   }
 }
 
@@ -1105,7 +1190,7 @@ int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int ma
   // are drawn above their base rather than lost.
   const int rubyFontId = fontsReady_ ? fonts_.rubyFontId() : 0;
   return study::drawWrappedMarked(renderer, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
-                                  kLineBytes, scratch, rubyFontId, clipBottom_, &clipped_);
+                                  kLineBytes, scratch, rubyFontId, clipBottom_, &clipped_, &textFlow_);
 }
 
 bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
@@ -1136,7 +1221,7 @@ int StudyActivity::layoutClozeCard(const Rect& body, const bool measureOnly) {
     textFont = kMeaningFontId;
   }
 
-  int y = body.y + 8;
+  int y = body.y + kCardInset;
   if (answer) {
     // The span the converter recorded over the revealed text. Anki paints it;
     // here it is underlined, which is the only mark this panel has that does
@@ -1148,7 +1233,7 @@ int StudyActivity::layoutClozeCard(const Rect& body, const bool measureOnly) {
     // read as one app.
     if (!note_.empty(study::Field::Meaning)) {
       y += 20;
-      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+      fieldRule(y, measureOnly);
       y += 20;
       y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
     }
@@ -1159,40 +1244,123 @@ int StudyActivity::layoutClozeCard(const Rect& body, const bool measureOnly) {
 }
 
 void StudyActivity::drawCard(const Rect& body) {
-  // Fit before drawing. A card is laid out at the built-in sizes it asks for
-  // and, while it would run past the foot of the body, again one built-in size
-  // smaller, down to 12pt. Whatever still does not fit stops at the foot under
-  // a mark that says there is more, rather than printing over the grading
-  // buttons (report box #669: a long answer ran through AGAIN/HARD/GOOD/EASY
-  // and off the panel).
-  const int bottom = body.y + body.height - toybox::kMargin;
-  for (fontStep_ = 0; fontStep_ < kMaxFontStep; ++fontStep_) {
-    const int end = note_.isCloze() ? layoutClozeCard(body, true) : layoutVocabCard(body, true);
-    if (end <= bottom) break;
-  }
-  clipBottom_ = bottom;
-  clipped_ = false;
+  // Fit before drawing. A face is laid out at the built-in sizes it asks for
+  // and, while it would run past the foot of the body or holds a word wider
+  // than a line, again one built-in size smaller, down to 12pt. A face still
+  // longer than that is read a page at a time (report box #669: a long answer
+  // ran through AGAIN/HARD/GOOD/EASY and off the panel, and then stopped at a
+  // "..." with no way to read the rest).
+  //
   // A cloze note has no headword and no example sentence; everything in the
   // vocabulary face reads those two fields. Dispatched here rather than inside
   // each block so there is one place that says which kind of card this is.
-  if (note_.isCloze()) {
-    layoutClozeCard(body, false);
-  } else {
-    layoutVocabCard(body, false);
+  const auto layout = [&](const Rect& area, const bool measureOnly) {
+    textFlow_.marking = false;
+    textFlow_.markPage = -1;
+    return note_.isCloze() ? layoutClozeCard(area, measureOnly) : layoutVocabCard(area, measureOnly);
+  };
+  const int bottom = body.y + body.height - toybox::kMargin;
+  textFlow_ = study::TextFlow{};
+  tinyText_ = false;
+  int end = 0;
+  // The step is chosen exactly as it always was, by the y a layout returns.
+  for (fontStep_ = 0;; ++fontStep_) {
+    textFlow_.overlong = false;
+    textFlow_.lineEnd = 0;
+    end = layout(body, true);
+    if ((end <= bottom && !textFlow_.overlong) || fontStep_ == kMaxFontStep) break;
   }
+  if (textFlow_.overlong) {
+    // A word wider than a line even at 12pt. The 10pt cut when that holds it
+    // whole; when not even that does, 12pt again, with the word broken at
+    // the width -- a small face AND a broken word is the worst of both.
+    tinyText_ = true;
+    textFlow_.overlong = false;
+    layout(body, true);
+    tinyText_ = !textFlow_.overlong;
+    textFlow_.breakLong = true;
+    textFlow_.lineEnd = 0;
+    layout(body, true);
+  }
+
+  // Longer than the body even so -- by its lines; the gaps a layout leaves
+  // after empty fields fitted before and still do: the pager takes the foot
+  // of the body, and the face flows onto as many pages of what is left as it
+  // needs.
+  Rect area = body;
+  int foot = bottom;
+  int pages = 1;
+  if (textFlow_.lineEnd > bottom) {
+    area.height = body.height - studyui::kCardPagerBand;
+    foot = area.y + area.height - kPagerClearance;
+    textFlow_.pages.top = body.y + kCardInset;
+    textFlow_.pages.height = foot - textFlow_.pages.top;
+    layout(area, true);
+    pages = textFlow_.pages.count();
+    if (pages <= 1) {
+      textFlow_.pages = study::TextPages{};
+      area = body;
+      foot = bottom;
+      pages = 1;
+    }
+  }
+  // Where the answer's own text begins: the page a reveal opens on. A
+  // question, a cloze answer and a face that fits all start on page 1.
+  const int start = pages > 1 && textFlow_.markPage > 0 ? textFlow_.markPage : 0;
+  // Stored once, never as a passing 1: the loop task routes keys and taps
+  // by these while this paint runs.
+  cardPages_ = pages;
+  cardStartPage_ = start;
+  textFlow_.pages.total = pages;
+  // Read, never written back: the loop task owns cardPage_, and a page turn
+  // that lands while this paint runs must survive it. The loop resolves the
+  // held page the same way, so the page drawn is the page routed from.
+  const int page = study::resolveCardPage(cardPage_, start, pages);
+  textFlow_.pages.selected = page;
+  textFlow_.pages.last = -1;
+  textFlow_.pages.rule = -1;
+
+  clipBottom_ = foot;
+  clipped_ = false;
+  layout(area, false);
   clipBottom_ = INT_MAX;
   if (clipped_) {
+    // Only a line taller than a whole page can still be cut: the mark says so
+    // rather than letting it print over the pager or the grading buttons.
     // The built-in face has the ellipsis; the toybox cuts do not.
     const char* more = "\xe2\x80\xa6";
     const int width = renderer.getTextWidth(kMeaningFontId, more);
     renderer.drawText(kMeaningFontId, (renderer.getScreenWidth() - width) / 2,
-                      bottom - renderer.getTextHeight(kMeaningFontId) + 4, more, true);
+                      foot - renderer.getTextHeight(kMeaningFontId) + 4, more, true);
   }
+  if (pages > 1) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    studyui::drawCardPager(target, studyui::cardPagerLayout(fui::makeRect(body.x, body.y, body.width, body.height)),
+                           page, pages);
+  }
+  LOG_DBG("STUDY", "Card %d %s: step %d%s, page %d/%d", currentIndex_, face_ == Face::Answer ? "answer" : "question",
+          fontStep_, tinyText_ ? " (10pt)" : "", page + 1, pages);
+}
+
+void StudyActivity::fieldRule(const int y, const bool measureOnly) {
+  if (textFlow_.pages.paging()) {
+    textFlow_.pages.rule = y;
+    return;
+  }
+  if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+}
+
+Rect StudyActivity::cardBody() const {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int bodyTop = metrics.topPadding + metrics.headerHeight;
+  const int footerTop = renderer.getScreenHeight() - kFooterHeight;
+  return Rect{0, bodyTop, renderer.getScreenWidth(), footerTop - bodyTop};
 }
 
 int StudyActivity::sized(const int fontId) const {
   for (int i = 0; i < kLatinSteps; ++i) {
     if (kLatinLadder[i] == fontId) {
+      if (tinyText_) return kTinyFontId;
       const int stepped = i + fontStep_;
       return kLatinLadder[stepped < kLatinSteps ? stepped : kLatinSteps - 1];
     }
@@ -1229,9 +1397,14 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   // The theme's header is 13px taller than the one this screen used to assume,
   // and the tallest card had nine pixels spare -- so the inset gives that back.
   // Measured, not guessed: tools_local/study/measure_layout.py.
-  int y = body.y + 8;
+  int y = body.y + kCardInset;
 
   y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
+  // The answer's own text starts below the word: on a paged face its first
+  // line starts a new page, and that page is where a reveal opens (drawCard).
+  // A field the question face also showed is drawn unmarked, so the mark
+  // cannot land on it.
+  textFlow_.marking = answer;
   if (answer) {
     y += 6;
     y = drawWrapped(sized(kReadingFontId), y, maxWidth, note_.field(study::Field::Reading), measureOnly);
@@ -1248,14 +1421,16 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
     // lives in below. Hairline against the footer's kRule, so the two dividers
     // read as different weights rather than competing.
     y += 20;
-    if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+    fieldRule(y, measureOnly);
     y += 20;
     // Underlined only on the answer face: on the question face the emphasis
     // is over the very word being asked for, and drawing it there points at
     // the answer.
     if (answer) {
+      textFlow_.marking = !deck_.meta().sentenceOnQuestion;
       y = drawWrappedUnderlined(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence),
                                 note_.emphasisOffset(), note_.emphasisLength(), measureOnly);
+      textFlow_.marking = true;
     } else {
       y = drawWrapped(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
     }
@@ -1289,9 +1464,13 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
     }
     const int recordWidth = renderer.getTextWidth(kSmallFontId, record);
     const int recordY = body.y + body.height - renderer.getTextHeight(kSmallFontId) - toybox::kMargin;
+    // On a paged answer it goes on the last page, under what is left there.
+    const study::TextPages& pages = textFlow_.pages;
+    const bool lastPage = !pages.paging() || pages.selected == pages.total - 1;
+    const int end = pages.paging() ? y - pages.selected * pages.height : y;
     // Only if it clears the sentence: a short card must not have its record
     // land on top of its own translation.
-    if (recordY > y + 12) {
+    if (lastPage && recordY > end + 12) {
       renderer.drawText(kSmallFontId, (renderer.getScreenWidth() - recordWidth) / 2, recordY, record, true);
     }
   }
@@ -1773,7 +1952,7 @@ void StudyActivity::render(RenderLock&&) {
   if (view_ == View::Image) {
     drawImage(Rect{0, bodyTop, width, height - bodyTop});
   } else if (view_ == View::Card) {
-    drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
+    drawCard(cardBody());
     drawFooter(Rect{0, footerTop, width, kFooterHeight});
   } else {
     // First run. The deck installer is a web page, so this screen's whole job

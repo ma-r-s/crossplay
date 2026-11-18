@@ -178,4 +178,28 @@ struct PairConfirmLayout {
 };
 PairConfirmLayout buildPairConfirm(toybox::Screen& screen);
 
+// ---- The pager under a card that runs longer than one screen: "< 2 / 3 >".
+//
+// The card face itself is the activity's, drawn by hand; the pager is a
+// control on it, so it is drawn here, where host-tests/ui can see what it
+// drew and where its arrows are. It takes the foot of the card body, and only
+// on a face with more than one page -- a card that fits draws exactly what it
+// always drew.
+inline constexpr int16_t kCardPagerBand = 52;
+
+struct CardPagerLayout {
+  fui::Rect band;      // the foot of the body; the card's text stops above it
+  fui::Rect pill;      // the drawn control
+  fui::Rect previous;  // tap target for the page before: the band's left end, through the left arrow
+  fui::Rect next;      // tap target for the page after: the right arrow, through the band's right end
+};
+CardPagerLayout cardPagerLayout(fui::Rect body);
+
+// `page` counts from 0. An arrow with no page to go to is dimmed, never
+// removed (docs/design-language.md).
+void drawCardPager(fui::DrawTarget& target, const CardPagerLayout& layout, int page, int pages);
+
+enum class CardPagerHit : uint8_t { Outside, Previous, Next, Between };
+CardPagerHit cardPagerHit(const CardPagerLayout& layout, int x, int y);
+
 }  // namespace studyui

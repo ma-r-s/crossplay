@@ -113,10 +113,12 @@ Eighteen of the thirty-seven directories use Back and nothing else.
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we
 > had built, and that the only apps touching them were the reader-shaped ones.
-> Twelve apps read Up/Down today and eight of them are games: Checkers, Connect
-> Four, Forehead, Picross, Sea Salt, Toy Battle, Wavelength and Yahtzee,
-> alongside Hacker News, Instapaper, Wallpapers and xkcd. The rule in section 4
-> is what survived and is still the thing to apply; the census that motivated it
+> Fourteen apps read Up/Down today and eight of them are games: Checkers,
+> Connect Four, Forehead, Picross, Sea Salt, Toy Battle, Wavelength and Yahtzee,
+> alongside Hacker News, Instapaper, Notes, Wallpapers, Wikipedia and xkcd.
+> Study reads the reader's PageForward/PageBack instead, which honour the
+> side-button layout setting and are not counted here. The rule in section 4 is
+> what survived and is still the thing to apply; the census that motivated it
 > has been overtaken, which is the outcome it was arguing for.
 
 That was the whole finding. Not "we should use the buttons more" as a matter of
@@ -238,8 +240,9 @@ job the case does not imply, that decision comes back.
 ## 6. What this changes
 
 1. **Up/Down page wherever there are pages**: the shelf folder, HOW TO PLAY in
-   every game, and Hacker News's story list and reader. Behaviour only; nothing
-   is drawn or removed. The shelf takes Left/Right too, which are
+   every game, Hacker News's story list and reader, and a Study card too long
+   for one screen. Behaviour only; nothing is drawn or removed. The shelf takes
+   Left/Right too, which are
    `PIN_UNASSIGNED` on both target boards and exist only in the simulator and
    the browser emulator -- where all six keys are wired to the arrow keys, and
    where every arrow moves a cursor on Home. Two of the four doing nothing one
