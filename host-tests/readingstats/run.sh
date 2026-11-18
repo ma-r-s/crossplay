@@ -31,10 +31,12 @@ SRC=../../src/apps_local/readingstats
 # Titles measured in the real system face: the screens and the fitter, built
 # against FreeInkUI and EpdFont with fittedtitle's RealTarget bound to the
 # three ubuntu cuts. -Wno-missing-field-initializers for the generated font
-# headers, as in host-tests/typefold.
+# headers, as in host-tests/typefold; -Wno-comment for the SDK's icon header,
+# whose ASCII-art comment GCC reads as a multi-line one (host-tests/ui does
+# the same). -Wformat-truncation stays ON: it found a real 8-byte buffer here.
 SDK=../../freeink-sdk/libs/ui/FreeInkUI
 ICONS=../../freeink-sdk/libs/assets/Icons
-"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -Wno-missing-field-initializers -Wno-comment \
   -I$SRC -I../../lib/Utf8 -I../../lib/EpdFont -I"$SDK/include" -I"$ICONS/include" \
   test_titlefit.cpp $SRC/ReadingStatsCore.cpp $SRC/ReadingStatsScreens.cpp $SRC/ReadingStatsTitles.cpp \
   "$SDK/src/FreeInkUI.cpp" ../../lib/Utf8/Utf8.cpp ../../lib/EpdFont/EpdFont.cpp \

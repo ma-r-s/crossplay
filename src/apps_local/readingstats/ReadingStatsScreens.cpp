@@ -125,7 +125,7 @@ void barChart(toybox::Screen& screen, const fui::Rect& box, const MainModel& mod
         // A dithered column with no edge reads as fog; the outline makes it a bar.
         screen.target().stroke(bar, kInk, toybox::kHairline);
       }
-      char label[8];
+      char label[16];
       barLabel(day.seconds, label, sizeof(label));
       screen.target().text(fui::makeRect(x - gap / 2, bar.y - labelH - 2, barWidth + gap, labelH), label, number);
     }
