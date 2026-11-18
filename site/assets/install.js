@@ -69,7 +69,10 @@
   // writing one over a working bootloader.
   var OFF_PARTITIONS = 0x8000;
   var OFF_APP = 0x10000;
-  var PARTITION_TABLE_SIZE = 0xc00;
+  // The table's whole sector, read off the device before every write: what
+  // CrossPoint's own web flasher reads (crosspoint-tools flasher.js) on the
+  // same boards before it touches them.
+  var PARTITION_TABLE_SIZE = 0x1000;
 
   var els = {};
   var state = { tag: null, device: "x4pro", busy: false };
@@ -434,7 +437,7 @@
                 throw new Error(
                   "This device keeps its maker's partition table, as the BOOX Picco does. " +
                     "This installer would write over its recovery partition, so nothing was written. " +
-                    "A Picco is installed into its app slot only; see the CrossPlay README.",
+                    "A Picco takes firmware-picco.bin in its app slot only: see Or install it by hand, below.",
                 );
               });
           }
