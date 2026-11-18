@@ -89,6 +89,12 @@ snapshot of the front page, one thread's comments and two articles so the app
 can be tried offline; the device itself fetches live from the public
 [Algolia API](https://hn.algolia.com/api).
 
+**Weather** forecasts and place names come from
+[Open-Meteo](https://open-meteo.com/), under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); the app names it on
+its own screens. The device asks Open-Meteo when the app opens or is refreshed,
+and nothing of it is shipped in the firmware.
+
 **Trivia** questions are built from the
 [Jeopardy! clue dataset](https://github.com/jwolle1/jeopardy_clue_dataset), a
 community transcription of aired clues. JEOPARDY! is a trademark of Jeopardy

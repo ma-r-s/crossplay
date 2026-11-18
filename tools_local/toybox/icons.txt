@@ -470,3 +470,8 @@ wordle_delete = delete
 # `newspaper` was the literal choice and Hacker News already wears it. Spliced
 # in by hand (see the warning at the top of this file).
 rss           = rss
+# WEATHER is a sun behind a cloud, the mark every forecast wears. `cloud` alone
+# reads as storage and `thermometer` as a medical app. Spliced in by hand (see
+# the warning at the top of this file); the forecast's own skies are generated
+# into src/apps_local/weather/WeatherIcons.h from tools_local/weather/icons.txt.
+weather       = cloud-sun
