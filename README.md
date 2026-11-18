@@ -159,39 +159,38 @@ X4, which had a front button row the X4 Pro dropped. Back here is a swipe and
 Confirm exists only on the Sticky, which
 [docs/buttons.md](docs/buttons.md) explains.
 
-### BOOX Picco
+### BOOX Picco (experimental)
 
-The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 too, but it keeps its maker's
-partition table, including a `safeboot` recovery partition, and CrossPlay
-leaves that table alone, as CrossPoint does. It is installed into the
-Picco's one app slot and nowhere else:
+The **BOOX Picco** (BOOX Tiles) is an ESP32-S3 with the same 800x480 panel
+class, but it keeps its maker's partition table: one app slot at `0xE0000`
+beside a `safeboot` recovery partition. CrossPlay writes that one slot and
+nothing else, as CrossPoint does, so each release carries `firmware-picco.bin`
+for it and no `-full.bin`. Write it with
+[CrossPoint's web flasher](https://crosspointreader.com/) (BOOX Picco, then
+Custom .bin), which writes only the app slot, or with esptool once the Picco is
+in its ROM bootloader (device off, hold Power and Volume Up together while
+connecting USB, for about ten seconds):
 
-    pio run -e gh_release_picco -t upload
+    esptool.py --chip esp32s3 --baud 921600 write_flash 0xE0000 firmware-picco.bin
 
-That writes `firmware.bin` at 0xE0000 and touches no other byte; the upload
-refuses to run if any other offset would be written. Upstream's own `picco` env
-does not stop there yet: its upload also writes a bootloader, a partition table
-and `boot_app0.bin` over the vendor's ([crosspoint-reader#4248](https://github.com/crosspoint-reader/crosspoint-reader/issues/4248)),
-so use this fork's env, or BOOX's or CrossPoint's web flasher. The browser
-installer, `scripts_local/usb-flash.sh`, the SD-card update and Check for
-updates all write this fork's own layout, so on a Picco they refuse and write
-nothing. Updates go over USB the same way. BOOX's own web flasher, in its "OTA
-update" mode, takes the same `firmware.bin`, and installing BOOX's firmware
-through it is the way back to stock. Read the whole flash with
-`esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin` before the
-first install, and keep that file.
+Back up the whole flash first, once, and keep the file:
+`esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin`. From a
+source checkout, `pio run -e gh_release_picco -t upload` makes the same write
+and refuses to run if any other offset, an erase or a filesystem would be
+written. With one slot the Picco cannot update itself: Check for updates and
+the SD-card update are not offered on it, Developer Mode's Wi-Fi flash and
+`scripts_local/usb-flash.sh` refuse it, the site's Install button reads its
+partition table and stops, and every update is that same write.
 
-Picco support is experimental: it has run on one unit, and it is not part of
-the release flashing below. To install a build you already have, enter the ROM
-bootloader (device off, hold Power and Volume Up while connecting USB, for 5 to
-8 seconds) and write the one slot:
-
-    esptool --chip esp32s3 -p <port> -b 921600 write-flash 0xE0000 firmware.bin
-
-The side keys page and scroll, touch works as on the X4 Pro, and
-**Settings > Controls > Slide Switch** binds the slide switch to the frontlight,
-night mode or the reader's touch controls. [docs/install.md](docs/install.md)
-has the rest, and `pio run -e simulator_picco` builds it for the desktop.
+Nobody working on CrossPlay owns one. An earlier build ran on one contributor's
+Picco for two weeks; this one has not been on a Picco at all. Its side keys
+page like the X4 Pro's, Back is the same left-edge swipe, Home is an up-swipe
+from the bottom edge (it has no Home key, like the Sticky), and
+**Settings > Controls > Slide Switch** binds the slide switch to the
+frontlight, night mode or the reader's touch controls.
+[docs/picco.md](docs/picco.md) has what is and is not known, and
+`CROSSPOINT_SIM_ENV=simulator_picco ./scripts_local/sim-shot.sh` runs the
+desktop simulator's Picco profile.
 
 Every release is flashed to a real X4 Pro and a real Sticky before it ships.
 That is still a small field record, so if you install it, please

@@ -5,7 +5,8 @@ everybody wants. This file is the rest: installing by hand, updating a device
 you already flashed, and reflashing with no cable at all.
 
 Everything here is for the **Xteink X4 Pro**, **Seeed reTerminal Sticky**,
-**M5Stack PaperMono / PaperMono-Lite** and, where it says so, the **BOOX Picco**. All are ESP32-S3. The plain X4 and the X3 are
+**M5Stack PaperMono / PaperMono-Lite** and, where it says so, the **BOOX Picco**.
+All are ESP32-S3. The plain X4 and the X3 are
 ESP32-C3, these binaries are not for them, and flashing one there is a
 cross-chip flash. Install [CrossPoint](https://crosspointreader.com/) on those
 instead: it is excellent, and it is what this is built on.
@@ -51,27 +52,47 @@ hardware verification details.
 
 ### BOOX Picco
 
+Experimental, and untested on hardware by anyone working on CrossPlay; see
+[BOOX Picco support](picco.md) for what is and is not known.
+
 The Picco keeps its maker's bootloader, partition table, NVS and `safeboot`
 recovery partition, so nothing above applies to it: there is no full image and
-no write at `0x0`. Only `firmware.bin` goes on it, at `0xE0000`, the one app slot.
-Support is experimental and has run on one unit, so read the whole flash first
-and keep the file:
+no write at `0x0`. Its file in each release is `firmware-picco.bin`, and it goes
+at `0xE0000`, the one app slot, and nowhere else. Read the whole flash first and
+keep the file; it is the only copy of the vendor's partitions you will have:
 
 ```bash
 esptool.py --chip esp32s3 read_flash 0 0x1000000 picco-stock.bin
 ```
 
-To enter the ROM bootloader, turn the device off, then hold **Power** and
-**Volume Up** while connecting USB, for 5 to 8 seconds. Then write the slot:
+Two ways to write the slot:
 
-```bash
-esptool --chip esp32s3 -p <port> -b 921600 write-flash 0xE0000 firmware.bin
-```
+- **[CrossPoint's web flasher](https://crosspointreader.com/)**: choose BOOX
+  Picco, then Custom .bin, and give it `firmware-picco.bin`. Its BOOX Picco
+  install reads the device's partition table and writes only the app partition
+  the bootloader boots, no bootloader, table, otadata or NVS (`flashAppOnly` in
+  its source, crosspoint-tools `flasher.js`).
+- **esptool**: turn the device off, then hold **Power** and **Volume Up**
+  together while connecting USB, for about ten seconds, to enter the ROM
+  bootloader. Then:
 
-From a source checkout, `pio run -e gh_release_picco -t upload` does the same
-write and refuses to run if any other offset would be written. The sections
-below do not apply: a Picco has one app slot, so it takes no update over Wi-Fi
-or from the SD card, and every update is this same write over USB.
+  ```bash
+  esptool.py --chip esp32s3 --baud 921600 write_flash 0xE0000 firmware-picco.bin
+  ```
+
+From a source checkout, `pio run -e gh_release_picco -t upload` makes the same
+write. It refuses to run if any other offset would be written, and refuses
+`-t erase`, `erase_upload`, `uploadfs`, `uploadfsota` and `pio debug`, which
+would write outside the slot. It also deletes the build's
+`firmware.factory.bin`, which for this board is 0xFF up to `0xE0000` and then
+the app: written at `0x0` it would erase the vendor's boot region.
+
+The sections below do not apply. A Picco has one app slot, so Check for updates
+and the SD-card update are not offered on it, Developer Mode's Wi-Fi flash
+refuses it, and every update is this same write over USB. The browser installer
+and `scripts_local/usb-flash.sh` read the device's partition table and refuse a
+Picco rather than lay this fork's table over the vendor's. The way back to
+stock is the backup above, written whole at `0x0`.
 
 If a flash goes wrong, [fix-bricked-xteink.md](fix-bricked-xteink.md) is the
 way back.
