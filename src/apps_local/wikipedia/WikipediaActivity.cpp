@@ -59,14 +59,11 @@ void withCommas(char* out, const size_t cap, const uint32_t n) {
 // "2026-05-13" -> "MAY 2026". Caps, because the line is set in Jersey, which
 // has no lowercase voice anywhere else in the fork.
 void snapshotWords(char* out, const size_t cap, const std::string& snapshot) {
-  static const char* const kMonths[] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
-                                        "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
-  int year = 0, month = 0;
-  if (sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
-    snprintf(out, cap, "%s %d", kMonths[month - 1], year);
-  } else {
-    snprintf(out, cap, "%s", snapshot.c_str());
+  std::string words = wikipedia::snapshotMonth(snapshot);
+  for (char& c : words) {
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
   }
+  snprintf(out, cap, "%s", words.c_str());
 }
 
 bool ensureDir(const char* path) { return Storage.exists(path) || Storage.mkdir(path); }
@@ -783,30 +780,8 @@ void WikipediaActivity::enterInstall(const std::string& failedPack) {
   // not open, so the page offers it first; from the chooser or an empty card
   // the page asks.
   std::string want = packOpen_ ? pack_.manifest().pack : failedPack;
-  std::string line;
-  if (packOpen_) {
-    char when[32];
-    snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    line = "On the card: " + wikipedia::packName(pack_.manifest()) + ", ";
-    // the month in words the reading face draws, not the band's caps
-    std::string month = when;
-    for (size_t i = 1; i < month.size() && month[i] != ' '; ++i) {
-      if (month[i] >= 'A' && month[i] <= 'Z') month[i] = static_cast<char>(month[i] - 'A' + 'a');
-    }
-    line += month + ".";
-  } else if (!failedPack.empty()) {
-    std::string name = failedPack;
-    for (const auto& p : packs_) {
-      if (p.pack == failedPack) name = p.name;
-    }
-    line = name + " on the card is not complete. The page copies what is missing.";
-  } else if (!packs_.empty()) {
-    line = "On the card:";
-    for (size_t i = 0; i < packs_.size(); ++i) line += (i ? ", " : " ") + packs_[i].name;
-    line += ". The page adds another.";
-  } else {
-    line = "Choose the language on the page.";
-  }
+  const bool known = packOpen_ && packIndex_ >= 0 && packIndex_ < static_cast<int>(packs_.size());
+  std::string line = wikipedia::installLine(packs_, known ? &packs_[packIndex_] : nullptr, packOpen_ ? "" : failedPack);
   wikipedia::Pack::writeInstallJson(wikipedia::installJson(packs_, want.c_str(), CROSSPOINT_VERSION, "X4 Pro"));
   LOG_INF(kTag, "install screen: want \"%s\", %d pack(s) on the card", want.c_str(), static_cast<int>(packs_.size()));
   {

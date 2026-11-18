@@ -804,3 +804,7 @@ found, and what changed.
   at a fixed spot. `testWikipediaInstallFitsEveryState` asks every stage,
   language line and parts line for both properties at the reading cut's
   40 px line.
+- *ADD A LANGUAGE* with every published language already on the card said
+  "The page adds another.", a promise the host could not keep. The line
+  ("On the card: English, Deutsch. The page lists the languages you can
+  add.") is `wikipedia::installLine`, in Core with its test.

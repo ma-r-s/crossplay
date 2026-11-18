@@ -523,6 +523,23 @@ void testLanguages() {
   CHECK(alone.find("\"dir\":\"de\"") != std::string::npos);
   const std::string none = installJson({}, nullptr, "1.15.0", "X4 Pro");
   CHECK(none.find("\"packs\":[]") != std::string::npos);
+
+  // The install screen's line about the card.
+  root.name = "English";
+  sub.name = "Deutsch";
+  CHECK(snapshotMonth("2026-10-10") == "October 2026");
+  CHECK(snapshotMonth("someday") == "someday");
+  CHECK(installLine({root, sub}, &sub, "") == "On the card: Deutsch, October 2026.");
+  // a pack that would not open names itself and the repair
+  CHECK(installLine({root, sub}, nullptr, "de") ==
+        "Deutsch on the card is not complete. The page copies what is missing.");
+  CHECK(installLine({}, nullptr, "") == "Choose the language on the page.");
+  // From the chooser: what is on the card, and what the page does, which is
+  // list what it publishes. "The page adds another." promised a language the
+  // host may not have (with English and German on the card it had none).
+  const std::string both2 = installLine({root, sub}, nullptr, "");
+  CHECK(both2 == "On the card: English, Deutsch. The page lists the languages you can add.");
+  CHECK(both2.find("adds another") == std::string::npos);
 }
 
 // "stra" on the German pack listed STRABAG, Strabag, Strabag CR, Strabag Rail
