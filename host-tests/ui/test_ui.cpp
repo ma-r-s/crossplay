@@ -14452,6 +14452,136 @@ void testWikipediaInstallSaysTheAddressFirst() {
   CHECK(retry != nullptr && tapRun(failed, retry).action == wikiui::ActionRetry);
 }
 
+// --- Wikipedia in more than one language ------------------------------------
+
+void buildWikiChooser(Rendered& out, const wikiui::ChooserModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  wikiui::buildChooser(screen, model);
+}
+
+// Two packs on the card: a card each, the one opened last filled, each card
+// naming its language and the article it was left on, a tap on a card
+// opening that pack and ADD A LANGUAGE opening the install screen.
+void testWikipediaChooserCardsOpenTheirPack() {
+  wikiui::ChooserModel model;
+  model.count = 2;
+  model.rows[0] = {"English", "EN", "50,034 ARTICLES, MAY 2026", "Photosynthesis"};
+  model.rows[1] = {"Deutsch", "DE", "50,000 ARTICLES, OCTOBER 2026", "Johann Wolfgang von Goethe"};
+  model.last = 1;
+  Rendered out;
+  buildWikiChooser(out, model);
+  CHECK(out.target.drew("WIKIPEDIA"));
+  for (int i = 0; i < 2; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(model.rows[i].name);
+    const FakeTarget::TextRun* waits = out.target.find(model.rows[i].continueTitle);
+    CHECK(name != nullptr && waits != nullptr && out.target.drew(model.rows[i].detail));
+    if (name == nullptr || waits == nullptr) continue;
+    // the language's own name is in the reading face, whose letters reach
+    // past ASCII; the app's caps cut does not
+    CHECK(name->style.font == toybox::kBodyFont && name->style.bold);
+    const fui::ActionEvent byName = tapRun(out, name);
+    const fui::ActionEvent byTitle = tapRun(out, waits);
+    CHECK(byName.action == wikiui::ActionPack && byName.value == i);
+    CHECK(byTitle.action == wikiui::ActionPack && byTitle.value == i);
+    CHECK(waits->rect.y > name->rect.y);
+    // paper ink on the filled card, black on the outlined one
+    CHECK((name->style.color == fui::Color::White) == (i == model.last));
+  }
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  CHECK(add != nullptr && tapRun(out, add).action == wikiui::ActionInstall);
+  // nothing tappable reaches under the glass
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    CHECK(out.interactions.data()[i].rect.bottom() <= 800);
+  }
+  // a card never opened says so instead of naming nothing
+  wikiui::ChooserModel fresh = model;
+  fresh.rows[1].continueTitle = nullptr;
+  fresh.last = -1;
+  Rendered blank;
+  buildWikiChooser(blank, fresh);
+  CHECK(blank.target.drew("Nothing opened yet."));
+}
+
+// The most packs the chooser lists all fit: with no room for every card's
+// article, the cards drop the article line, never a language.
+void testWikipediaChooserFitsEveryPack() {
+  wikiui::ChooserModel model;
+  static const char* kNames[wikiui::kMaxPacks] = {"English", "Deutsch",  "Français",
+                                                  "Español", "Italiano", "Nederlands"};
+  model.count = wikiui::kMaxPacks;
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    model.rows[i] = {kNames[i], "XX", "50,000 ARTICLES, OCTOBER 2026",
+                     "A long title that wraps onto a second line of the reading face"};
+  }
+  model.last = 0;
+  Rendered out;
+  buildWikiChooser(out, model);
+  for (int i = 0; i < wikiui::kMaxPacks; ++i) {
+    const FakeTarget::TextRun* name = out.target.find(kNames[i]);
+    CHECK(name != nullptr);
+    if (name != nullptr) CHECK(tapRun(out, name).action == wikiui::ActionPack && tapRun(out, name).value == i);
+  }
+  CHECK(!out.target.drew("A long title that wraps onto a second line of the reading face"));
+  const FakeTarget::TextRun* add = out.target.find("ADD A LANGUAGE");
+  const FakeTarget::TextRun* lastName = out.target.find(kNames[wikiui::kMaxPacks - 1]);
+  CHECK(add != nullptr && lastName != nullptr);
+  if (add != nullptr && lastName != nullptr) CHECK(lastName->rect.bottom() < add->rect.y);
+  // two packs keep their articles
+  model.count = 2;
+  Rendered two;
+  buildWikiChooser(two, model);
+  CHECK(two.target.drew("A long title that wraps onto a second line of the reading face"));
+}
+
+// With more than one pack the home's band names the language and its chevron
+// goes back to the chooser; with one, the band is the one it always was.
+void testWikipediaHomeBandNamesTheLanguage() {
+  wikiui::SearchModel model;
+  model.footer = "50,000 ARTICLES, OCTOBER 2026";
+  model.bandTitle = "WIKIPEDIA DE";
+  model.languagesBack = true;
+  Rendered out;
+  buildWikiSearch(out, model);
+  CHECK(out.target.drew("WIKIPEDIA DE"));
+  CHECK(out.tap(6 + 20, toybox::kHeaderHeight / 2).action == wikiui::ActionLanguages);
+  wikiui::SearchModel one;
+  one.footer = "50,034 ARTICLES, MAY 2026";
+  Rendered single;
+  buildWikiSearch(single, one);
+  CHECK(single.target.drew("WIKIPEDIA"));
+  CHECK(!single.has(wikiui::ActionLanguages));
+}
+
+// The install screen says which language it is about, in the reading face,
+// between the cable's status and the parts line, inside the panel.
+void testWikipediaInstallNamesTheLanguage() {
+  wikiui::InstallModel model;
+  model.url = "crossplay.ma-r-s.com/wikipedia";
+  model.languageLine = "On the card: Deutsch, October 2026.";
+  model.partsLine = "1 OF 2 PARTS ON THE CARD";
+  Rendered out;
+  buildWikiInstall(out, model);
+  const FakeTarget::TextRun* line = out.target.find("On the card: Deutsch, October 2026.");
+  const FakeTarget::TextRun* status = out.target.find("Then plug the reader into the computer with its cable.");
+  const FakeTarget::TextRun* parts = out.target.find("1 OF 2 PARTS ON THE CARD");
+  CHECK(line != nullptr && status != nullptr && parts != nullptr);
+  if (line != nullptr && status != nullptr && parts != nullptr) {
+    CHECK(line->style.font == toybox::kBodyFont);
+    CHECK(line->rect.y >= status->rect.bottom());
+    CHECK(parts->rect.y >= line->rect.bottom());
+    CHECK(parts->rect.bottom() <= 800);
+  }
+  wikiui::InstallModel first;
+  first.url = "crossplay.ma-r-s.com/wikipedia";
+  first.languageLine = "Choose the language on the page.";
+  Rendered blank;
+  buildWikiInstall(blank, first);
+  CHECK(blank.target.drew("Choose the language on the page."));
+}
+
 // --- Notes: every line of a long item is drawn, fits, and is struck --------
 //
 // Mario, 2026-09-28: "a done task that takes two lines doesnt cross both lines,
@@ -15462,6 +15592,10 @@ int main() {
   testWikipediaArticleChromeLeavesThePageItsRoom();
   testWikipediaContentsRowsCarryTheHeading();
   testWikipediaInstallSaysTheAddressFirst();
+  testWikipediaChooserCardsOpenTheirPack();
+  testWikipediaChooserFitsEveryPack();
+  testWikipediaHomeBandNamesTheLanguage();
+  testWikipediaInstallNamesTheLanguage();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
   testTriviaMenuRowsCarryTheirOwnAction();

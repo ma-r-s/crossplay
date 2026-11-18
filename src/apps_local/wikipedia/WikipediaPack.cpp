@@ -80,8 +80,9 @@ void Pack::close() {
   open_ = false;
 }
 
-bool Pack::open() {
+bool Pack::open(const std::string& dir) {
   close();
+  folder_ = dir;
   if (!loadManifest()) return false;
   if (!loadIndexes()) {
     close();
@@ -89,8 +90,8 @@ bool Pack::open() {
   }
   checkShards();
   open_ = true;
-  LOG_INF(kTag, "pack %s %s: %u articles, %u blocks, %d/%d shards on the card", manifest_.pack.c_str(),
-          manifest_.snapshot.c_str(), static_cast<unsigned>(manifest_.articles),
+  LOG_INF(kTag, "pack %s (%s) %s: %u articles, %u blocks, %d/%d shards on the card", manifest_.pack.c_str(),
+          packPath(folder_).c_str(), manifest_.snapshot.c_str(), static_cast<unsigned>(manifest_.articles),
           static_cast<unsigned>(manifest_.blocks), shardsPresent_, shardsTotal());
   return true;
 }
@@ -105,8 +106,9 @@ bool Pack::warm() {
 
 bool Pack::loadManifest() {
   std::vector<uint8_t> bytes;
-  if (!Storage.exists(kManifestPath)) return false;
-  if (!readWhole(kManifestPath, bytes, 256 * 1024)) return false;
+  const std::string manifestPath = filePath("manifest.json");
+  if (!Storage.exists(manifestPath.c_str())) return false;
+  if (!readWhole(manifestPath.c_str(), bytes, 256 * 1024)) return false;
   if (!parseManifest(reinterpret_cast<const char*>(bytes.data()), bytes.size(), manifest_)) {
     LOG_ERR(kTag, "manifest.json did not parse");
     return false;
@@ -115,7 +117,7 @@ bool Pack::loadManifest() {
 }
 
 bool Pack::loadDict() {
-  const std::string path = std::string(kDir) + "/" + manifest_.dict.file;
+  const std::string path = filePath(manifest_.dict.file);
   if (!readWhole(path.c_str(), dict_, 4 * 1024 * 1024)) {
     LOG_ERR(kTag, "dictionary missing: %s", path.c_str());
     return false;
@@ -134,7 +136,7 @@ bool Pack::loadDict() {
 }
 
 bool Pack::loadDirectory() {
-  const std::string path = std::string(kDir) + "/" + manifest_.blocksdir.file;
+  const std::string path = filePath(manifest_.blocksdir.file);
   dirSource_ = makeUniqueNoThrow<FileSource>();
   if (!dirSource_) {
     LOG_ERR(kTag, "OOM: blocks.dir source");
@@ -150,7 +152,7 @@ bool Pack::loadDirectory() {
 
 bool Pack::loadIndexes() {
   for (const auto& f : manifest_.titles) {
-    const std::string path = std::string(kDir) + "/" + f.file;
+    const std::string path = filePath(f.file);
     if (!Storage.exists(path.c_str())) break;  // later tiers may not have arrived yet
     auto source = makeUniqueNoThrow<FileSource>();
     auto index = makeUniqueNoThrow<TitleIndex>();
@@ -176,7 +178,7 @@ void Pack::checkShards() {
   shardPresent_.assign(manifest_.shards.size(), false);
   shardsPresent_ = 0;
   for (size_t i = 0; i < manifest_.shards.size(); ++i) {
-    const std::string path = std::string(kDir) + "/" + manifest_.shards[i].file;
+    const std::string path = filePath(manifest_.shards[i].file);
     HalFile file;
     if (!Storage.exists(path.c_str()) || !Storage.openFileForRead(kTag, path.c_str(), file)) continue;
     if (static_cast<uint32_t>(file.size()) != manifest_.shards[i].bytes) continue;
@@ -206,12 +208,16 @@ bool Pack::find(const std::string& title, IndexEntry& out) const {
 
 int Pack::prefix(const std::string& query, const int max, std::vector<IndexEntry>& out) const {
   std::vector<IndexEntry> merged;
+  // Four times the rows asked for: an article's redirects match the same
+  // prefix as it does ("Strabag", "Strabag CR", "Strabag Rail") and fold
+  // into one row, so the raw list must run past them to fill the panel.
+  const int scan = max * 4;
   for (const auto& index : indexes_) {
-    index->prefix(query, max, merged);
+    index->prefix(query, scan, merged);
   }
   std::stable_sort(merged.begin(), merged.end(),
                    [](const IndexEntry& a, const IndexEntry& b) { return fold(a.title) < fold(b.title); });
-  if (static_cast<int>(merged.size()) > max) merged.resize(max);
+  oneRowPerArticle(merged, static_cast<size_t>(max));
   for (auto& e : merged) out.push_back(std::move(e));
   return static_cast<int>(std::min<size_t>(merged.size(), max));
 }
@@ -264,7 +270,7 @@ bool Pack::readBlock(const uint32_t block, std::vector<uint8_t>& raw, const char
     *error = "not on the card";
     return false;
   }
-  const std::string path = std::string(kDir) + "/" + manifest_.shards[rec.shard].file;
+  const std::string path = filePath(manifest_.shards[rec.shard].file);
   HalFile file;
   if (!Storage.openFileForRead(kTag, path.c_str(), file) || !file.seekSet(rec.offset)) {
     *error = "shard unreadable";
@@ -325,42 +331,82 @@ bool Pack::readArticle(const uint32_t locator, Article& out, const char** error)
 
 bool Pack::loadState(State& state) const {
   std::vector<uint8_t> bytes;
-  if (!Storage.exists(kStatePath) || !readWhole(kStatePath, bytes, 16 * 1024)) return false;
+  const std::string statePath = filePath("state.json");
+  if (!Storage.exists(statePath.c_str()) || !readWhole(statePath.c_str(), bytes, 16 * 1024)) return false;
   return state.fromJson(reinterpret_cast<const char*>(bytes.data()), bytes.size());
 }
 
 bool Pack::saveState(const State& state) const {
   const std::string json = state.toJson();
   HalFile file;
-  if (!Storage.openFileForWrite(kTag, kStatePath, file)) return false;
+  if (!Storage.openFileForWrite(kTag, filePath("state.json").c_str(), file)) return false;
   return file.write(reinterpret_cast<const uint8_t*>(json.data()), json.size()) == json.size();
 }
 
-bool Pack::writeInstallJson(const int64_t freeBytes, const char* firmwareVersion, const char* deviceName) const {
-  char buf[512];
-  char freeField[32];
-  if (freeBytes < 0) {
-    snprintf(freeField, sizeof(freeField), "null");
-  } else {
-    snprintf(freeField, sizeof(freeField), "%lld", static_cast<long long>(freeBytes));
-  }
-  if (open_) {
-    snprintf(buf, sizeof(buf),
-             "{\"device\":\"%s\",\"firmware\":\"%s\",\"free\":%s,\"pack\":\"%s\",\"snapshot\":\"%s\","
-             "\"shardsPresent\":%d,\"shardsTotal\":%d}\n",
-             deviceName, firmwareVersion, freeField, manifest_.pack.c_str(), manifest_.snapshot.c_str(), shardsPresent_,
-             shardsTotal());
-  } else {
-    snprintf(buf, sizeof(buf),
-             "{\"device\":\"%s\",\"firmware\":\"%s\",\"free\":%s,\"pack\":null,\"snapshot\":null,"
-             "\"shardsPresent\":0,\"shardsTotal\":0}\n",
-             deviceName, firmwareVersion, freeField);
-  }
-  if (!Storage.exists(kDir) && !Storage.mkdir(kDir)) return false;
+bool Pack::writeInstallJson(const std::string& json) {
+  if (!Storage.exists(kRoot) && !Storage.mkdir(kRoot)) return false;
   HalFile file;
   if (!Storage.openFileForWrite(kTag, kInstallPath, file)) return false;
-  const size_t len = strlen(buf);
-  return file.write(reinterpret_cast<const uint8_t*>(buf), len) == len;
+  return file.write(reinterpret_cast<const uint8_t*>(json.data()), json.size()) == json.size();
+}
+
+std::vector<PackSummary> Pack::discover() {
+  std::vector<std::string> dirs;
+  dirs.emplace_back("");
+  {
+    HalFile root = Storage.open(kRoot);
+    if (root.isOpen() && root.isDirectory()) {
+      std::vector<std::string> found;
+      for (HalFile entry = root.openNextFile(); entry.isOpen(); entry = root.openNextFile()) {
+        if (!entry.isDirectory()) continue;
+        char name[24];
+        entry.getName(name, sizeof(name));
+        if (isPackDirName(name)) found.emplace_back(name);
+      }
+      // FAT hands entries back in creation order, which moves when files do
+      std::sort(found.begin(), found.end());
+      for (auto& d : found) dirs.push_back(std::move(d));
+    }
+  }
+  std::vector<PackSummary> packs;
+  for (const auto& dir : dirs) {
+    if (packs.size() >= kMaxPacks) break;
+    const std::string manifestPath = packPath(dir) + "/manifest.json";
+    if (!Storage.exists(manifestPath.c_str())) continue;
+    std::vector<uint8_t> bytes;
+    Manifest m;
+    if (!readWhole(manifestPath.c_str(), bytes, 256 * 1024) ||
+        !parseManifest(reinterpret_cast<const char*>(bytes.data()), bytes.size(), m)) {
+      LOG_ERR(kTag, "%s did not parse", manifestPath.c_str());
+      continue;
+    }
+    PackSummary p;
+    p.dir = dir;
+    p.pack = m.pack;
+    p.name = packName(m);
+    p.snapshot = m.snapshot;
+    p.articles = m.articles;
+    p.shardsTotal = static_cast<int>(m.shards.size());
+    for (const auto& shard : m.shards) {
+      const std::string shardPath = packPath(dir) + "/" + shard.file;
+      HalFile file;
+      if (Storage.exists(shardPath.c_str()) && Storage.openFileForRead(kTag, shardPath.c_str(), file) &&
+          static_cast<uint32_t>(file.size()) == shard.bytes) {
+        ++p.shardsPresent;
+      }
+    }
+    const std::string statePath = packPath(dir) + "/state.json";
+    std::vector<uint8_t> stateBytes;
+    State state;
+    if (Storage.exists(statePath.c_str()) && readWhole(statePath.c_str(), stateBytes, 16 * 1024) &&
+        state.fromJson(reinterpret_cast<const char*>(stateBytes.data()), stateBytes.size())) {
+      p.continueTitle = state.current.title;
+    }
+    LOG_INF(kTag, "found pack %s in %s: %u articles", p.pack.c_str(), packPath(dir).c_str(),
+            static_cast<unsigned>(p.articles));
+    packs.push_back(std::move(p));
+  }
+  return packs;
 }
 
 }  // namespace wikipedia

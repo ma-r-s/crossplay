@@ -46,7 +46,7 @@ class WikipediaActivity final : public Activity {
   bool skipLoopDelay() override;
 
  private:
-  enum class View : uint8_t { Search, Article, Contents, Install, Notice };
+  enum class View : uint8_t { Chooser, Search, Article, Contents, Install, Notice };
   struct Visit {
     uint32_t locator;
     int page;
@@ -104,7 +104,25 @@ class WikipediaActivity final : public Activity {
   void enterInstall();
   void leaveInstall();
 
+  // packs: one opens as it always has; with more, the chooser comes first
+  bool openPack(int index);
+  void closePack();
+  void showChooser();
+
   View view_ = View::Search;
+  std::vector<wikipedia::PackSummary> packs_;
+  int packIndex_ = -1;
+  // The chooser's rows, kept for the frame they are drawn in.
+  std::vector<std::string> packDetails_;
+  std::vector<std::string> packCodes_;
+  int chosenRow_ = -1;
+  std::string bandTitle_ = "WIKIPEDIA";
+  // Per pack: its article cache (the root pack keeps the one it always had),
+  // the heading its builder put over the infobox, the keyboard its titles need.
+  std::string cacheRoot_;
+  std::string factsHeading_;
+  freeink::ui::KeyboardLayoutId keyboard_ = freeink::ui::KeyboardLayoutId::QwertyEn;
+  std::string installLine_;
   wikipedia::Pack pack_;
   wikipedia::State state_;
   bool packOpen_ = false;
