@@ -18,6 +18,7 @@
 #include "RecentBooksStore.h"
 #include "clippings/SelectionGeometry.h"
 #include "components/HeaderBackTapTarget.h"
+#include "components/HeaderLayoutRecord.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
@@ -496,6 +497,9 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
     props.styles.normal.border = fui::Paint::solid(fui::Color::Black);
     props.styles.normal.borderWidth = tokens.headerUnderline;
   }
+  // fork-local seam: apps that draw their own words in this band read the row
+  // from here (HeaderLayoutRecord.h).
+  props.layoutOut = &HeaderLayoutRecord::last;
   fui::header(ui.frame, band, props);
 }
 
