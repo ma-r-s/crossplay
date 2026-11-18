@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -15422,12 +15423,96 @@ void testRssHeadlineRoomFollowsTheSite() {
 }
 
 // --- Weather ---------------------------------------------------------------
+//
+// Every weather screen is built the way the device builds it: through the
+// screen's own draw function, which binds its faces pass by pass through the
+// Rebind it is handed. The fake binds each face's real line height (so the cut
+// table finds its metrics) and roughly its width, so a run's line height says
+// which face drew it and a test can ask whether that face has its letters.
 
 namespace weathertest {
 
+struct FaceMetrics {
+  int16_t line;
+  int16_t width;
+};
+
+FaceMetrics metricsOf(const weatherui::Face face) {
+  switch (face) {
+    case weatherui::Face::ReadingSmall:
+      return {toybox::kReadingSmallCut.lineHeight, 9};
+    case weatherui::Face::Reading:
+      return {toybox::kReadingCut.lineHeight, 11};
+    case weatherui::Face::ReadingBoldSmall:
+      return {toybox::kReadingBoldSmallCut.lineHeight, 10};
+    case weatherui::Face::ReadingBold:
+      return {toybox::kReadingBoldCut.lineHeight, 12};
+    case weatherui::Face::Button:
+      return {toybox::kButtonCut.lineHeight, 13};
+    case weatherui::Face::Ui:
+      return {toybox::kUiCut.lineHeight, 24};
+    case weatherui::Face::Display:
+      return {toybox::kDisplayCut.lineHeight, 26};
+    case weatherui::Face::Huge:
+      return {toybox::kHugeCut.lineHeight, 46};
+  }
+  return {20, 10};
+}
+
+constexpr weatherui::Face kFaces[] = {weatherui::Face::ReadingSmall,     weatherui::Face::Reading,
+                                      weatherui::Face::ReadingBoldSmall, weatherui::Face::ReadingBold,
+                                      weatherui::Face::Button,           weatherui::Face::Ui,
+                                      weatherui::Face::Display,          weatherui::Face::Huge};
+
+// The face a run was drawn in, from the line height it had: every face here
+// has its own.
+bool faceOf(const FakeTarget::TextRun& run, weatherui::Face& face) {
+  for (const weatherui::Face f : kFaces) {
+    if (metricsOf(f).line == run.line) {
+      face = f;
+      return true;
+    }
+  }
+  return false;
+}
+
+void bindFaces(void* context, const weatherui::Pass& pass) {
+  FakeTarget& t = *static_cast<FakeTarget*>(context);
+  t.fontLines = {{fui::FONT_SLOT_SMALL, metricsOf(pass.small).line},
+                 {fui::FONT_SLOT_BODY, metricsOf(pass.body).line},
+                 {fui::FONT_SLOT_TITLE, metricsOf(pass.title).line}};
+  t.fontWidths = {{fui::FONT_SLOT_SMALL, metricsOf(pass.small).width},
+                  {fui::FONT_SLOT_BODY, metricsOf(pass.body).width},
+                  {fui::FONT_SLOT_TITLE, metricsOf(pass.title).width}};
+}
+
+void buildMain(Rendered& out, const weatherui::MainModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  weatherui::drawMain(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
+weatherui::SearchLayout buildSearch(Rendered& out, const weatherui::SearchModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return weatherui::drawSearch(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
+void buildMenu(Rendered& out, const weatherui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  weatherui::drawMenu(screen, model, weatherui::Rebind{&out.target, &bindFaces});
+}
+
 weatherui::MainModel fullWeek() {
   weatherui::MainModel m;
-  m.place = "Z\xC3\xBCrich";
+  m.place = "Z\xC3\xBCrich, Switzerland";
   m.hasForecast = true;
   m.now = 7;
   m.hasNow = true;
@@ -15440,6 +15525,7 @@ weatherui::MainModel fullWeek() {
   m.today.hasHigh = true;
   m.today.hasLow = true;
   m.today.rain = 20;
+  m.chance = "RAIN";
   static const char* const kNames[] = {"WED", "THU", "FRI", "SAT", "SUN", "MON"};
   for (int i = 0; i < weatherui::kRows; ++i) {
     weatherui::DayRow& d = m.days[i];
@@ -15454,31 +15540,6 @@ weatherui::MainModel fullWeek() {
   m.dayCount = weatherui::kRows;
   m.updated = "UPDATED 14:07";
   return m;
-}
-
-void buildMain(Rendered& out, const weatherui::MainModel& model) {
-  const fui::DeviceContext ctx = device();
-  const fui::InputSnapshot noInput{};
-  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
-  const weatherui::MainPlace place = weatherui::buildMainTop(screen, model);
-  weatherui::drawMainPlace(screen, place, weatherui::buildMainBody(screen, model, place));
-}
-
-int buildSearch(Rendered& out, const weatherui::SearchModel& model) {
-  const fui::DeviceContext ctx = device();
-  const fui::InputSnapshot noInput{};
-  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
-  return weatherui::buildSearch(screen, model);
-}
-
-void buildMenu(Rendered& out, const weatherui::MenuModel& model) {
-  const fui::DeviceContext ctx = device();
-  const fui::InputSnapshot noInput{};
-  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
-  weatherui::buildMenu(screen, model);
 }
 
 // Whether a tap anywhere on the panel reaches `action` (with `value`, when
@@ -15496,306 +15557,11 @@ bool reaches(Rendered& out, const fui::ActionId action, int value = -1, fui::Poi
   return false;
 }
 
-// A run's ink (defined with the ink tests below).
-fui::Rect inkOf(const FakeTarget::TextRun& run);
-
-// Every run below the band: inside the panel's margins, and no two sharing
-// pixels. A run is the rect the builder handed the renderer, so two that
-// overlap are two strings printed through each other the moment the real
-// cuts fill their boxes.
-bool laidOutCleanly(const Rendered& out, std::string& why) {
-  const int top = toybox::kHeaderHeight;
-  std::vector<const FakeTarget::TextRun*> runs;
+bool drewExactly(const Rendered& out, const char* text) {
   for (const auto& run : out.target.texts) {
-    if (run.rect.y < top || run.text.empty()) continue;
-    runs.push_back(&run);
-    if (run.rect.x < 0 || run.rect.right() > 480 || run.rect.bottom() > 800) {
-      why = "off the panel: " + run.text;
-      return false;
-    }
-    // Single-line runs: the string must fit the rect it was given, or the
-    // renderer cuts it.
-    if (run.style.maxLines <= 1 &&
-        out.target.measureText(run.style.font, run.text.c_str(), run.style).width > run.rect.width) {
-      why = "wider than its box: " + run.text;
-      return false;
-    }
+    if (run.text == text) return true;
   }
-  // By INK: the screen stacks by ink, so two line boxes may overlap where
-  // nothing visible does; two inks overlapping is two strings through each
-  // other.
-  for (size_t i = 0; i < runs.size(); ++i) {
-    for (size_t j = i + 1; j < runs.size(); ++j) {
-      const fui::Rect a = inkOf(*runs[i]);
-      const fui::Rect b = inkOf(*runs[j]);
-      if (a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()) {
-        why = "\"" + runs[i]->text + "\" through \"" + runs[j]->text + "\"";
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-void mainDrawsTheWeekAndOnlyTheGearIsTappable() {
-  for (const int16_t line : {int16_t{20}, int16_t{42}}) {
-    Rendered out;
-    out.target.lineH = line;
-    buildMain(out, fullWeek());
-    CHECK(!out.interactions.overflowed());
-    CHECK(drewText(out, "Z\xC3\xBCrich"));
-    CHECK(drewText(out, "PARTLY CLOUDY"));
-    CHECK(drewText(out, "UPDATED 14:07"));
-    // The screen does not name its provider: the notices and the site do.
-    CHECK(!drewText(out, "OPEN-METEO"));
-    for (const char* day : {"WED", "THU", "FRI", "SAT", "SUN", "MON"}) CHECK(drewText(out, day));
-    CHECK(drewText(out, "RAIN 20%"));
-    std::string why;
-    const bool clean = laidOutCleanly(out, why);
-    if (!clean) std::printf("  weather main at line %d: %s\n", line, why.c_str());
-    CHECK(clean);
-    CHECK(reaches(out, weatherui::ActionMenu));
-    // The gear is the only control: the forecast itself is not a button.
-    bool bodyInert = true;
-    for (int y = toybox::kBodyTop; y < 800; y += 5) {
-      for (int x = 0; x < 480; x += 20) bodyInert = bodyInert && out.tap(x, y).action == fui::NO_ACTION;
-    }
-    CHECK(bodyInert);
-  }
-}
-
-void mainSaysWhatTheRadioDid() {
-  weatherui::MainModel m = fullWeek();
-  m.status = "OFFLINE.";
-  m.updated = "UPDATED YESTERDAY 14:07";
-  Rendered out;
-  buildMain(out, m);
-  CHECK(drewText(out, "OFFLINE. UPDATED YESTERDAY 14:07"));
-  std::string why;
-  CHECK(laidOutCleanly(out, why));
-}
-
-void mainDrawsOnlyTheDaysItHas() {
-  weatherui::MainModel m = fullWeek();
-  m.dayCount = 4;
-  m.today.hasHigh = false;
-  Rendered out;
-  buildMain(out, m);
-  CHECK(drewText(out, "SAT"));
-  CHECK(!drewText(out, "SUN"));
-  CHECK(!drewText(out, "MON"));
-  // A temperature that was not given is said to be missing, not drawn as 0.
-  CHECK(drewText(out, "--"));
-}
-
-void aLongPlaceWrapsAndTheWeekMakesRoom() {
-  weatherui::MainModel m = fullWeek();
-  m.place = "Llanfairpwllgwyngyll in Anglesey on the Menai Strait";
-  for (const int16_t line : {int16_t{20}, int16_t{42}}) {
-    Rendered out;
-    out.target.lineH = line;
-    buildMain(out, m);
-    std::string why;
-    const bool clean = laidOutCleanly(out, why);
-    if (!clean) std::printf("  weather long place at line %d: %s\n", line, why.c_str());
-    CHECK(clean);
-    CHECK(drewText(out, "MON"));
-    // Nothing of the name is cut: it wraps whole.
-    std::string drawn;
-    for (const auto& run : out.target.texts) {
-      if (run.text.find("Llanfair") != std::string::npos) drawn = run.text;
-    }
-    CHECK(drawn == m.place);
-  }
-}
-
-void anEmptyMainOffersATryAgainOnlyWhenItHelps() {
-  weatherui::MainModel m;
-  m.place = "Z\xC3\xBCrich";
-  m.emptyHeadline = "NO FORECAST YET";
-  m.emptyMessage = "Connect to Wi-Fi to get one. It stays on the card for when you are offline.";
-  m.offerRetry = true;
-  Rendered out;
-  buildMain(out, m);
-  CHECK(drewText(out, "NO FORECAST YET"));
-  CHECK(drewText(out, "Connect to Wi-Fi"));
-  CHECK(reaches(out, weatherui::ActionRetry));
-  CHECK(reaches(out, weatherui::ActionMenu));
-  std::string why;
-  CHECK(laidOutCleanly(out, why));
-  m.offerRetry = false;
-  m.emptyHeadline = "GETTING THE FORECAST";
-  Rendered waiting;
-  buildMain(waiting, m);
-  CHECK(!reaches(waiting, weatherui::ActionRetry));
-  CHECK(drewText(waiting, "GETTING THE FORECAST"));
-}
-
-weatherui::SearchModel results(const int count) {
-  static const char* const kRegions[] = {"Illinois, United States", "Missouri, United States", "Ohio, United States"};
-  weatherui::SearchModel m;
-  m.query = "Springfield";
-  m.state = weatherui::SearchModel::State::Results;
-  m.rowCount = count;
-  for (int i = 0; i < count; ++i) {
-    m.rows[i].name = "Springfield";
-    m.rows[i].region = kRegions[i % 3];
-  }
-  return m;
-}
-
-void searchRowsChooseTheirOwnPlace() {
-  Rendered out;
-  const int shown = buildSearch(out, results(3));
-  CHECK(shown == 3);
-  CHECK(!out.interactions.overflowed());
-  for (int i = 0; i < 3; ++i) CHECK(reaches(out, weatherui::ActionMatch, i));
-  CHECK(!reaches(out, weatherui::ActionMatch, 3));
-  CHECK(reaches(out, weatherui::ActionField));
-  CHECK(drewText(out, "Missouri, United States"));
-  std::string why;
-  CHECK(laidOutCleanly(out, why));
-}
-
-void searchSaysWhatDidNotFit() {
-  Rendered out;
-  out.target.lineH = 45;
-  const int shown = buildSearch(out, results(weather::kMaxMatches));
-  CHECK(shown > 0);
-  CHECK(shown < weather::kMaxMatches);
-  CHECK(drewText(out, "Not here?"));
-  CHECK(reaches(out, weatherui::ActionMatch, shown - 1));
-  CHECK(!reaches(out, weatherui::ActionMatch, shown));
-  std::string why;
-  const bool clean = laidOutCleanly(out, why);
-  if (!clean) std::printf("  weather search: %s\n", why.c_str());
-  CHECK(clean);
-  // Everything that fits is drawn without the announcement.
-  Rendered few;
-  CHECK(buildSearch(few, results(2)) == 2);
-  CHECK(!drewText(few, "Not here?"));
-}
-
-void searchRowsStayAboveTheKeyboard() {
-  weatherui::SearchModel m = results(weather::kMaxMatches);
-  m.keyboardHeight = 360;
-  Rendered out;
-  const int shown = buildSearch(out, m);
-  CHECK(shown < weather::kMaxMatches);
-  bool clear = true;
-  for (int y = 800 - m.keyboardHeight; y < 800; y += 3) {
-    for (int x = 0; x < 480; x += 12) clear = clear && out.tap(x, y).action != weatherui::ActionMatch;
-  }
-  CHECK(clear);
-  for (const auto& run : out.target.texts) {
-    if (run.rect.y > toybox::kHeaderHeight) CHECK(run.rect.bottom() <= 800 - m.keyboardHeight);
-  }
-}
-
-void searchSaysWhatHappened() {
-  weatherui::SearchModel m;
-  m.query = "Xyzzy";
-  m.state = weatherui::SearchModel::State::NoMatch;
-  Rendered none;
-  buildSearch(none, m);
-  CHECK(drewText(none, "No place called \"Xyzzy\"."));
-  CHECK(!reaches(none, weatherui::ActionMatch));
-  CHECK(reaches(none, weatherui::ActionField));
-
-  m.state = weatherui::SearchModel::State::Failed;
-  m.failure = "Not connected to Wi-Fi. Tap the field and press GO to try again.";
-  Rendered failed;
-  buildSearch(failed, m);
-  CHECK(drewText(failed, "Could not search."));
-  CHECK(drewText(failed, "Not connected to Wi-Fi."));
-
-  m.state = weatherui::SearchModel::State::Searching;
-  Rendered busy;
-  buildSearch(busy, m);
-  CHECK(drewText(busy, "Searching"));
-
-  m.state = weatherui::SearchModel::State::Typing;
-  m.query = "";
-  m.firstRun = true;
-  Rendered first;
-  buildSearch(first, m);
-  CHECK(drewText(first, "CHOOSE A CITY"));
-  CHECK(drewText(first, "Tap here to type a city"));
-  std::string why;
-  CHECK(laidOutCleanly(first, why));
-}
-
-void menuDoorsGoWhereTheySay() {
-  weatherui::MenuModel m;
-  m.place = "Z\xC3\xBCrich";
-  m.updated = "UPDATED 14:07";
-  Rendered c;
-  buildMenu(c, m);
-  CHECK(!c.interactions.overflowed());
-  CHECK(reaches(c, weatherui::ActionChangeCity));
-  CHECK(reaches(c, weatherui::ActionFahrenheit));
-  // The units in force are filled and do nothing.
-  CHECK(!reaches(c, weatherui::ActionCelsius));
-  CHECK(reaches(c, weatherui::ActionRefresh));
-  CHECK(reaches(c, weatherui::ActionCloseMenu));
-  CHECK(drewText(c, "Z\xC3\xBCrich"));
-  CHECK(!drewText(c, "OPEN-METEO"));
-  std::string why;
-  const bool clean = laidOutCleanly(c, why);
-  if (!clean) std::printf("  weather menu: %s\n", why.c_str());
-  CHECK(clean);
-
-  m.fahrenheit = true;
-  Rendered f;
-  buildMenu(f, m);
-  CHECK(reaches(f, weatherui::ActionCelsius));
-  CHECK(!reaches(f, weatherui::ActionFahrenheit));
-}
-
-void everySkyHasItsBitmapAtEverySize() {
-  bool all = true;
-  for (int i = 0; i <= static_cast<int>(weather::Icon::Thunder); ++i) {
-    for (const int size : {32, 88}) {
-      const freeink::Icon& icon = weatherui::skyBitmap(static_cast<weather::Icon>(i), size);
-      all = all && icon.w == size && icon.h == size && icon.bits != nullptr;
-    }
-  }
-  CHECK(all);
-  // Two different skies are two different pictures.
-  CHECK(weatherui::skyBitmap(weather::Icon::Rain, 32).bits != weatherui::skyBitmap(weather::Icon::Snow, 32).bits);
-}
-
-// --- Ink, not line boxes -----------------------------------------------------
-//
-// The main screen is measured the way a person sees it: by where the INK is,
-// cap top to baseline, in the faces the device binds -- the fake answers the
-// real cuts' line heights and roughly their widths, pass by pass, so the cut
-// table in ToyboxTokens finds their metrics. Line boxes are what the code used
-// to stack, and their unequal leading is how no two gaps on the screen came out
-// the same (Mario, 2026-11-18, measured 47.5 / 25.5 / 19.5 / 17.5 / 14.5 /
-// 17.5 / 20.5 / ~29 px down the screen).
-
-void bindPlaceFaces(FakeTarget& t) {
-  t.fontLines = {{fui::FONT_SLOT_SMALL, 34}, {fui::FONT_SLOT_BODY, 45}, {fui::FONT_SLOT_TITLE, 63}};
-  t.fontWidths = {{fui::FONT_SLOT_SMALL, 10}, {fui::FONT_SLOT_BODY, 12}, {fui::FONT_SLOT_TITLE, 26}};
-}
-
-void bindDataFaces(FakeTarget& t) {
-  t.fontLines = {{fui::FONT_SLOT_SMALL, 29}, {fui::FONT_SLOT_BODY, 42}, {fui::FONT_SLOT_TITLE, 133}};
-  t.fontWidths = {{fui::FONT_SLOT_SMALL, 13}, {fui::FONT_SLOT_BODY, 24}, {fui::FONT_SLOT_TITLE, 46}};
-}
-
-void buildMainFaces(Rendered& out, const weatherui::MainModel& model) {
-  const fui::DeviceContext ctx = device();
-  const fui::InputSnapshot noInput{};
-  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
-  bindPlaceFaces(out.target);
-  const weatherui::MainPlace place = weatherui::buildMainTop(screen, model);
-  bindDataFaces(out.target);
-  const int16_t placeTop = weatherui::buildMainBody(screen, model, place);
-  bindPlaceFaces(out.target);
-  weatherui::drawMainPlace(screen, place, placeTop);
+  return false;
 }
 
 // A run's ink: cap top of its first line to the baseline of its last, as wide
@@ -15846,11 +15612,94 @@ bool contains(const fui::Rect& outer, const fui::Rect& inner) {
   return outer.x <= inner.x && outer.y <= inner.y && outer.right() >= inner.right() && outer.bottom() >= inner.bottom();
 }
 
-// Every collision on a weather screen, by ink: text through text is laidOut
-// Cleanly's job; this one is text against everything that is not text. An
-// icon keeps a full gutter from any text beside or above it -- MON sat 8px
-// from its sky and read as touching it -- and a filled shape (a bar, a disc)
-// may not cross text unless it is the ground the text is printed on.
+// Every run below the band: inside the panel's margins, never cut by the
+// renderer (a single-line run wider than its rect is ellipsized in silence),
+// never ending in an ellipsis this file did not mean, and no two inks
+// sharing pixels.
+bool laidOutCleanly(const Rendered& out, std::string& why) {
+  const int top = toybox::kHeaderHeight;
+  std::vector<const FakeTarget::TextRun*> runs;
+  for (const auto& run : out.target.texts) {
+    if (run.rect.y < top || run.text.empty()) continue;
+    runs.push_back(&run);
+    if (run.rect.x < 0 || run.rect.right() > 480 || run.rect.bottom() > 800) {
+      why = "off the panel: " + run.text;
+      return false;
+    }
+    if (run.style.maxLines <= 1 && run.width > run.rect.width) {
+      why = "wider than its box: " + run.text;
+      return false;
+    }
+  }
+  for (size_t i = 0; i < runs.size(); ++i) {
+    for (size_t j = i + 1; j < runs.size(); ++j) {
+      const fui::Rect a = inkOf(*runs[i]);
+      const fui::Rect b = inkOf(*runs[j]);
+      if (a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom()) {
+        why = "\"" + runs[i]->text + "\" through \"" + runs[j]->text + "\"";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool clean(const Rendered& out, const char* screen) {
+  std::string why;
+  const bool ok = laidOutCleanly(out, why);
+  if (!ok) std::printf("  weather %s: %s\n", screen, why.c_str());
+  return ok;
+}
+
+// Every letter of every run is one its face can draw: Jersey carries ASCII,
+// the reading cuts Latin-1. A letter outside its face prints as a hole.
+std::vector<std::string> missingGlyphs(const Rendered& out) {
+  std::vector<std::string> found;
+  for (const auto& run : out.target.texts) {
+    weatherui::Face face{};
+    if (!faceOf(run, face)) {
+      found.push_back("\"" + run.text + "\" in a face no pass binds");
+      continue;
+    }
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(run.text.c_str());
+    while (*p) {
+      uint32_t cp = *p;
+      int extra = 0;
+      if (cp >= 0xF0) {
+        cp &= 0x07;
+        extra = 3;
+      } else if (cp >= 0xE0) {
+        cp &= 0x0F;
+        extra = 2;
+      } else if (cp >= 0xC0) {
+        cp &= 0x1F;
+        extra = 1;
+      }
+      ++p;
+      for (int i = 0; i < extra && *p; ++i, ++p) cp = (cp << 6) | (*p & 0x3F);
+      const bool drawable = weatherui::carriesAccents(face) ? cp <= 0xFF : cp < 0x80;
+      if (!drawable) {
+        char hex[16];
+        std::snprintf(hex, sizeof(hex), "U+%04X", static_cast<unsigned>(cp));
+        found.push_back(std::string(hex) + " in \"" + run.text + "\", drawn in a face without it");
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+bool allDrawable(const Rendered& out, const char* screen) {
+  const std::vector<std::string> found = missingGlyphs(out);
+  for (size_t i = 0; i < found.size() && i < 3; ++i) std::printf("  weather %s: %s\n", screen, found[i].c_str());
+  return found.empty();
+}
+
+// Every collision on a weather screen, by ink: text through text is
+// laidOutCleanly's job; this one is text against everything that is not text.
+// An icon keeps a full gutter from any text beside or above it, and a filled
+// shape (a bar, a disc, a minus) may not cross text unless it is the ground
+// the text is printed on.
 std::vector<std::string> weatherCollisions(const Rendered& out) {
   std::vector<std::string> found;
   const int top = toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule;
@@ -15891,22 +15740,689 @@ bool collisionFree(const Rendered& out, const char* screen) {
   return found.empty();
 }
 
-void mainInkFollowsOneScale() {
+weatherui::SearchModel results(const int count) {
+  static const char* const kRegions[] = {"Illinois, United States", "Missouri, United States", "Ohio, United States"};
+  weatherui::SearchModel m;
+  m.query = "Springfield";
+  m.state = weatherui::SearchModel::State::Results;
+  m.rowCount = count;
+  for (int i = 0; i < count; ++i) {
+    m.rows[i].name = "Springfield";
+    m.rows[i].region = kRegions[i % 3];
+  }
+  return m;
+}
+
+// Every state every weather screen can be in, built: what the no-provider,
+// no-hole and no-collision checks run over.
+struct Shot {
+  std::string name;
   Rendered out;
-  buildMainFaces(out, fullWeek());
-  const FakeTarget::TextRun* number = runAt(out, "7");
-  const FakeTarget::TextRun* sky = runAt(out, "PARTLY CLOUDY");
-  const FakeTarget::TextRun* rain = runAt(out, "RAIN 20%");
-  const FakeTarget::TextRun* updated = runAt(out, "UPDATED 14:07");
-  CHECK(number && sky && rain && updated);
-  if (!number || !sky || !rain || !updated) return;
+};
+
+std::vector<std::unique_ptr<Shot>> everyScreen() {
+  std::vector<std::unique_ptr<Shot>> shots;
+  const auto add = [&shots](const std::string& name) {
+    shots.push_back(std::make_unique<Shot>());
+    shots.back()->name = name;
+    return &shots.back()->out;
+  };
+  static const weatherui::Status kStatuses[] = {weatherui::Status::Current, weatherui::Status::Updating,
+                                                weatherui::Status::Offline, weatherui::Status::Failed};
+  static const char* const kStatusNames[] = {"current", "updating", "offline", "failed"};
+  for (int s = 0; s < 4; ++s) {
+    weatherui::MainModel week = fullWeek();
+    week.status = kStatuses[s];
+    week.updated = "UPDATED YESTERDAY 12:59 PM";
+    buildMain(*add(std::string("main, ") + kStatusNames[s]), week);
+    weatherui::MainModel empty;
+    empty.place = "Z\xC3\xBCrich, Switzerland";
+    empty.status = kStatuses[s];
+    buildMain(*add(std::string("main with nothing, ") + kStatusNames[s]), empty);
+    weatherui::MainModel stale = empty;
+    stale.stale = true;
+    stale.updated = "UPDATED 8 NOV";
+    buildMain(*add(std::string("main, stale, ") + kStatusNames[s]), stale);
+  }
+  for (const bool firstRun : {false, true}) {
+    for (const int16_t keyboard : {int16_t{0}, int16_t{360}}) {
+      const std::string how = std::string(firstRun ? "first run" : "changing") + (keyboard ? ", keyboard up" : "");
+      weatherui::SearchModel m;
+      m.firstRun = firstRun;
+      m.keyboardHeight = keyboard;
+      buildSearch(*add("search typing, " + how), m);
+      m.query = "Springfield";
+      m.state = weatherui::SearchModel::State::Searching;
+      buildSearch(*add("search searching, " + how), m);
+      m.state = weatherui::SearchModel::State::NoMatch;
+      buildSearch(*add("search no match, " + how), m);
+      m.state = weatherui::SearchModel::State::Failed;
+      m.offline = false;
+      buildSearch(*add("search failed, " + how), m);
+      m.offline = true;
+      buildSearch(*add("search offline, " + how), m);
+      weatherui::SearchModel found = results(weather::kMaxMatches);
+      found.firstRun = firstRun;
+      found.keyboardHeight = keyboard;
+      for (int page = 0; page < 3; ++page) {
+        found.page = page;
+        buildSearch(*add("search results page " + std::to_string(page) + ", " + how), found);
+      }
+    }
+  }
+  for (const bool fahrenheit : {false, true}) {
+    weatherui::MenuModel m;
+    m.place = "Z\xC3\xBCrich, Switzerland";
+    m.fahrenheit = fahrenheit;
+    m.updated = "UPDATED 14:07";
+    buildMenu(*add(fahrenheit ? "menu, F" : "menu, C"), m);
+  }
+  return shots;
+}
+
+// --- The main screen ----------------------------------------------------------
+
+void mainDrawsTheWeekAndOnlyTheGearIsTappable() {
+  Rendered out;
+  buildMain(out, fullWeek());
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewExactly(out, "Z\xC3\xBCrich, Switzerland"));
+  CHECK(drewText(out, "PARTLY CLOUDY"));
+  CHECK(drewExactly(out, "UPDATED 14:07"));
+  for (const char* day : {"WED", "THU", "FRI", "SAT", "SUN", "MON"}) CHECK(drewText(out, day));
+  CHECK(drewExactly(out, "RAIN"));
+  CHECK(drewExactly(out, "20%"));
+  CHECK(clean(out, "main"));
+  CHECK(reaches(out, weatherui::ActionMenu));
+  // The gear is the only control: the forecast itself is not a button.
+  bool bodyInert = true;
+  for (int y = toybox::kBodyTop; y < 800; y += 5) {
+    for (int x = 0; x < 480; x += 20) bodyInert = bodyInert && out.tap(x, y).action == fui::NO_ACTION;
+  }
+  CHECK(bodyInert);
+}
+
+// The radio's state and the time the forecast was read are two lines, so the
+// longest of either is drawn whole: "COULD NOT UPDATE. UPDATED YESTERDAY
+// 2:07 PM" on one line was cut to "...UPDATED YESTER..." on the panel.
+void mainSaysWhatTheRadioDidAndWhenInFull() {
+  const struct {
+    weatherui::Status status;
+    const char* words;
+  } kStates[] = {{weatherui::Status::Updating, "UPDATING..."},
+                 {weatherui::Status::Offline, "OFFLINE"},
+                 {weatherui::Status::Failed, "COULD NOT UPDATE"}};
+  for (const auto& state : kStates) {
+    for (const char* updated : {"UPDATED YESTERDAY 12:59 PM", "UPDATED YESTERDAY 23:59", "UPDATED WED 12:59 AM"}) {
+      weatherui::MainModel m = fullWeek();
+      m.status = state.status;
+      m.updated = updated;
+      Rendered out;
+      buildMain(out, m);
+      CHECK(drewExactly(out, state.words));
+      CHECK(drewExactly(out, updated));
+      CHECK(clean(out, "main, status"));
+    }
+  }
+  // Nothing to say when the forecast is the latest.
+  Rendered current;
+  buildMain(current, fullWeek());
+  CHECK(!drewText(current, "UPDATING"));
+  CHECK(!drewText(current, "OFFLINE"));
+}
+
+void mainDrawsOnlyTheDaysItHas() {
+  weatherui::MainModel m = fullWeek();
+  m.dayCount = 4;
+  m.today.hasHigh = false;
+  Rendered out;
+  buildMain(out, m);
+  CHECK(drewText(out, "SAT"));
+  CHECK(!drewText(out, "SUN"));
+  CHECK(!drewText(out, "MON"));
+  // A temperature that was not given is said to be missing, not drawn as 0.
+  CHECK(drewText(out, "--"));
+}
+
+// A day whose code was null has no sky: nothing is drawn in its place, where
+// a cloud used to be.
+void aDayWithNoSkyDrawsNoSky() {
+  weatherui::MainModel m = fullWeek();
+  Rendered all;
+  buildMain(all, m);
+  m.days[2].icon = weather::Icon::None;
+  m.nowIcon = weather::Icon::None;
+  Rendered gap;
+  buildMain(gap, m);
+  CHECK(gap.target.blits.size() + 2 == all.target.blits.size());
+  CHECK(clean(gap, "main, no sky"));
+  CHECK(collisionFree(gap, "main, no sky"));
+  // A week with no skies at all has no sky column.
+  for (int i = 0; i < m.dayCount; ++i) m.days[i].icon = weather::Icon::None;
+  Rendered none;
+  buildMain(none, m);
+  CHECK(clean(none, "main, no skies"));
+  CHECK(weatherui::skyBitmap(weather::Icon::None, 32) == nullptr);
+}
+
+// Under a snow code the chance is labelled SNOW; under anything else RAIN.
+void theChanceSaysWhatItIsAChanceOf() {
+  weatherui::MainModel m = fullWeek();
+  m.chance = "SNOW";
+  m.today.rain = 70;
+  Rendered snow;
+  buildMain(snow, m);
+  CHECK(drewExactly(snow, "SNOW"));
+  CHECK(!drewExactly(snow, "RAIN"));
+  CHECK(drewExactly(snow, "70%"));
+}
+
+// "H -28  L -40": a word space between the letter and its value, and a minus
+// that is drawn, a figure wide at the middle of the capitals, never Jersey's
+// short hyphen typed against the figures.
+void aNegativeReadingHasAMinusAndRoom() {
+  weatherui::MainModel m = fullWeek();
+  m.now = -32;
+  m.today.high = -28;
+  m.today.low = -40;
+  Rendered out;
+  buildMain(out, m);
+  for (const auto& run : out.target.texts) {
+    const bool typedMinus = run.text.size() > 1 && run.text[0] == '-' && run.text[1] >= '0' && run.text[1] <= '9';
+    if (typedMinus) std::printf("  weather: a typed minus in \"%s\"\n", run.text.c_str());
+    CHECK(!typedMinus);
+  }
+  for (const char* pair : {"H", "L"}) {
+    const FakeTarget::TextRun* letter = runAt(out, pair);
+    CHECK(letter != nullptr);
+    if (!letter) continue;
+    const fui::Rect ink = inkOf(*letter);
+    // The nearest fill to its right on its line is the minus.
+    int gap = 1000;
+    fui::Rect minus{};
+    for (const auto& fill : out.target.fills) {
+      if (fill.x >= ink.right() && overlapsVertically(fill, ink) && fill.x - ink.right() < gap) {
+        gap = fill.x - ink.right();
+        minus = fill;
+      }
+    }
+    CHECK(gap >= toybox::kGutter / 2 && gap < toybox::kGutter * 2);
+    // At the middle of the capitals, about a figure wide, thinner than tall.
+    const int middle = ink.y + ink.height / 2;
+    CHECK(minus.y <= middle && minus.bottom() >= middle);
+    CHECK(minus.width >= 8 && minus.height < minus.width);
+  }
+  CHECK(runAt(out, "28") && runAt(out, "40") && runAt(out, "32"));
+  CHECK(clean(out, "main, negative"));
+  CHECK(collisionFree(out, "main, negative"));
+}
+
+void aLongPlaceKeepsItsWeightAndBreaksAtItsHyphens() {
+  // A hyphenated name with no space in it takes its second line before
+  // anything is cut, in bold.
+  weatherui::MainModel m = fullWeek();
+  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
+  Rendered out;
+  buildMain(out, m);
+  std::vector<const FakeTarget::TextRun*> lines;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("Saint") != std::string::npos || run.text.find("Grand Est") != std::string::npos) {
+      lines.push_back(&run);
+    }
+  }
+  CHECK(lines.size() == 2);
+  std::string whole;
+  for (const auto* run : lines) {
+    whole += run->text;
+    weatherui::Face face{};
+    CHECK(faceOf(*run, face));
+    CHECK(face == weatherui::Face::ReadingBold || face == weatherui::Face::ReadingBoldSmall);
+    CHECK(run->text.find("...") == std::string::npos);
+  }
+  if (!lines.empty()) CHECK(lines[0]->text.back() == '-');
+  CHECK(whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est" ||
+        whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson,Grand Est");
+  CHECK(clean(out, "main, hyphenated place"));
+  CHECK(drewText(out, "MON"));
+
+  // Longer than two lines of the smaller cut: still bold, cut once, marked.
+  m.place = "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch Llanfairpwllgwyngyllgogerychwyrndrobwll";
+  Rendered cut;
+  buildMain(cut, m);
+  int marked = 0;
+  for (const auto& run : cut.target.texts) {
+    if (run.text.find("Llanfair") == std::string::npos) continue;
+    weatherui::Face face{};
+    CHECK(faceOf(run, face) && face == weatherui::Face::ReadingBoldSmall);
+    if (run.text.find("...") != std::string::npos) ++marked;
+  }
+  CHECK(marked == 1);
+  CHECK(clean(cut, "main, place too long"));
+}
+
+void aMainWithNoWeekSaysWhyAndOffersWhatHelps() {
+  weatherui::MainModel m;
+  m.place = "Z\xC3\xBCrich, Switzerland";
+  // Nothing on the card yet.
+  m.status = weatherui::Status::Updating;
+  Rendered getting;
+  buildMain(getting, m);
+  CHECK(drewText(getting, "GETTING THE FORECAST"));
+  CHECK(!reaches(getting, weatherui::ActionRetry));
+  m.status = weatherui::Status::Offline;
+  Rendered offline;
+  buildMain(offline, m);
+  CHECK(drewText(offline, "NO FORECAST YET"));
+  CHECK(drewText(offline, "Connect to Wi-Fi to get one."));
+  CHECK(reaches(offline, weatherui::ActionRetry));
+  CHECK(reaches(offline, weatherui::ActionMenu));
+  CHECK(clean(offline, "main, nothing yet"));
+  m.status = weatherui::Status::Failed;
+  Rendered failed;
+  buildMain(failed, m);
+  CHECK(drewText(failed, "COULD NOT GET THE FORECAST"));
+  CHECK(reaches(failed, weatherui::ActionRetry));
+  CHECK(clean(failed, "main, failed"));
+
+  // Every day on the card is past: the place, how old it is and UPDATE NOW,
+  // and no week, because a week that has happened is not the coming one.
+  weatherui::MainModel stale = fullWeek();
+  stale.hasForecast = false;
+  stale.stale = true;
+  stale.updated = "UPDATED 8 NOV";
+  stale.status = weatherui::Status::Offline;
+  Rendered old;
+  buildMain(old, stale);
+  CHECK(drewText(old, "NO FORECAST FOR TODAY"));
+  CHECK(drewExactly(old, "UPDATED 8 NOV"));
+  CHECK(drewExactly(old, "OFFLINE"));
+  CHECK(drewText(old, "UPDATE NOW"));
+  CHECK(reaches(old, weatherui::ActionRetry));
+  for (const char* day : {"WED", "THU", "MON", "PARTLY CLOUDY", "7"}) CHECK(!drewExactly(old, day));
+  CHECK(clean(old, "main, stale"));
+  stale.status = weatherui::Status::Updating;
+  Rendered updating;
+  buildMain(updating, stale);
+  CHECK(drewExactly(updating, "UPDATING..."));
+  CHECK(!reaches(updating, weatherui::ActionRetry));
+}
+
+// --- Search ------------------------------------------------------------------
+
+void searchRowsChooseTheirOwnPlace() {
+  Rendered out;
+  const weatherui::SearchLayout layout = buildSearch(out, results(3));
+  CHECK(layout.shown == 3 && layout.pageCount == 1);
+  CHECK(!out.interactions.overflowed());
+  for (int i = 0; i < 3; ++i) CHECK(reaches(out, weatherui::ActionMatch, i));
+  CHECK(!reaches(out, weatherui::ActionMatch, 3));
+  CHECK(!reaches(out, weatherui::ActionPage));
+  CHECK(reaches(out, weatherui::ActionField));
+  CHECK(drewText(out, "Missouri, United States"));
+  CHECK(clean(out, "search"));
+}
+
+// Ten places on pages: every one of them reachable, a page at a time, each
+// page's number a door to it, and no row under the page numbers.
+void everyPlaceFoundIsReachable() {
+  weatherui::SearchModel m = results(weather::kMaxMatches);
+  Rendered first;
+  const weatherui::SearchLayout one = buildSearch(first, m);
+  CHECK(one.pageCount > 1);
+  CHECK(one.first == 0 && one.shown > 0 && one.shown < weather::kMaxMatches);
+  CHECK(reaches(first, weatherui::ActionPage, 1));
+  CHECK(drewExactly(first, "1") && drewExactly(first, "2"));
+  bool reached[weather::kMaxMatches] = {};
+  for (int page = 0; page < one.pageCount; ++page) {
+    m.page = page;
+    Rendered out;
+    const weatherui::SearchLayout layout = buildSearch(out, m);
+    CHECK(layout.page == page);
+    for (int i = layout.first; i < layout.first + layout.shown; ++i)
+      reached[i] = reaches(out, weatherui::ActionMatch, i);
+    CHECK(clean(out, "search, a page"));
+    CHECK(collisionFree(out, "search, a page"));
+  }
+  bool all = true;
+  for (const bool r : reached) all = all && r;
+  CHECK(all);
+  // A page asked for past the last is the last.
+  m.page = 99;
+  Rendered past;
+  CHECK(buildSearch(past, m).page == one.pageCount - 1);
+}
+
+// With the keyboard up the field is being edited: the places found for what
+// it said before are not shown, and nothing reaches under the keyboard.
+void searchStaysAboveTheKeyboard() {
+  weatherui::SearchModel m = results(weather::kMaxMatches);
+  m.keyboardHeight = 360;
+  Rendered out;
+  const weatherui::SearchLayout layout = buildSearch(out, m);
+  CHECK(layout.shown == 0);
+  CHECK(!reaches(out, weatherui::ActionMatch));
+  CHECK(drewText(out, "Type at least two letters"));
+  for (const auto& run : out.target.texts) {
+    if (run.rect.y > toybox::kHeaderHeight) CHECK(run.rect.bottom() <= 800 - m.keyboardHeight);
+  }
+}
+
+// A place with no region is one line tall: nothing is drawn under it and the
+// next place follows a row gap after its name.
+void aPlaceWithNoRegionIsOneLine() {
+  weatherui::SearchModel m = results(3);
+  m.rows[0].name = "35.69N 139.69E";
+  m.rows[0].region = "";
+  Rendered out;
+  buildSearch(out, m);
+  const FakeTarget::TextRun* bare = runAt(out, "35.69N 139.69E");
+  CHECK(bare != nullptr);
+  const FakeTarget::TextRun* next = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (!bare || run.text != "Springfield" || run.rect.y <= bare->rect.y) continue;
+    if (!next || run.rect.y < next->rect.y) next = &run;
+  }
+  CHECK(next != nullptr);
+  if (bare && next) {
+    const int gap = inkOf(*next).y - inkOf(*bare).bottom();
+    if (gap != 24) std::printf("  weather: a place without a region is followed %d px later\n", gap);
+    CHECK(gap == 24);
+  }
+}
+
+// What was typed stays in view from its END, in the same bold throughout,
+// with the caret after its last letter.
+void theFieldShowsTheEndOfWhatWasTyped() {
+  weatherui::SearchModel m;
+  m.query = "Llanfairpwllgwyngyllgogerychwyrndrobwlll";
+  m.keyboardHeight = 360;
+  Rendered out;
+  buildSearch(out, m);
+  const FakeTarget::TextRun* typed = nullptr;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("obwlll") != std::string::npos) typed = &run;
+  }
+  CHECK(typed != nullptr);
+  if (!typed) return;
+  CHECK(typed->text.rfind("...", 0) == 0);
+  CHECK(typed->text.size() > 6 && typed->text.compare(typed->text.size() - 6, 6, "obwlll") == 0);
+  weatherui::Face face{};
+  CHECK(faceOf(*typed, face) && face == weatherui::Face::ReadingBold);
+  // The caret: a thin fill just after the last letter.
+  const fui::Rect ink = inkOf(*typed);
+  bool caret = false;
+  for (const auto& fill : out.target.fills) {
+    caret = caret ||
+            (fill.width <= 4 && fill.x >= ink.right() && fill.x - ink.right() <= 6 && overlapsVertically(fill, ink));
+  }
+  CHECK(caret);
+  // Short enough to fit: whole, bold.
+  m.query = "Spr";
+  Rendered shortQuery;
+  buildSearch(shortQuery, m);
+  const FakeTarget::TextRun* spr = runAt(shortQuery, "Spr");
+  CHECK(spr && faceOf(*spr, face) && face == weatherui::Face::ReadingBold);
+}
+
+// A place's name is bold on every row however long it is: it takes a second
+// line, never the regular cut.
+void longNamesInTheListKeepTheirWeight() {
+  weatherui::SearchModel m = results(2);
+  m.rows[0].name = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson";
+  Rendered out;
+  buildSearch(out, m);
+  const std::string name = m.rows[0].name;
+  int lines = 0;
+  std::string whole;
+  for (const auto& run : out.target.texts) {
+    if (run.text.size() < 4 || name.find(run.text) == std::string::npos) continue;
+    ++lines;
+    whole += run.text;
+    weatherui::Face face{};
+    CHECK(faceOf(run, face) && face == weatherui::Face::ReadingBold);
+  }
+  CHECK(lines == 2);
+  CHECK(whole == name);
+  CHECK(clean(out, "search, long name"));
+}
+
+void searchSaysWhatHappened() {
+  weatherui::SearchModel m;
+  m.query = "Xyzzy";
+  m.state = weatherui::SearchModel::State::NoMatch;
+  Rendered none;
+  buildSearch(none, m);
+  CHECK(drewText(none, "No place called \"Xyzzy\"."));
+  CHECK(!reaches(none, weatherui::ActionMatch));
+  CHECK(reaches(none, weatherui::ActionField));
+
+  m.state = weatherui::SearchModel::State::Failed;
+  m.offline = true;
+  Rendered offline;
+  buildSearch(offline, m);
+  CHECK(drewText(offline, "Could not search."));
+  CHECK(drewText(offline, "Not connected to Wi-Fi."));
+  m.offline = false;
+  Rendered failed;
+  buildSearch(failed, m);
+  CHECK(drewText(failed, "Could not search."));
+  CHECK(!drewText(failed, "Wi-Fi"));
+
+  m.state = weatherui::SearchModel::State::Searching;
+  Rendered busy;
+  buildSearch(busy, m);
+  CHECK(drewText(busy, "Searching"));
+
+  m.state = weatherui::SearchModel::State::Typing;
+  m.query = "";
+  m.firstRun = true;
+  Rendered first;
+  buildSearch(first, m);
+  CHECK(drewText(first, "CHOOSE A CITY"));
+  CHECK(drewText(first, "Tap here to type a city"));
+  CHECK(clean(first, "search, first run"));
+}
+
+// --- Menu --------------------------------------------------------------------------
+
+void menuDoorsGoWhereTheySay() {
+  weatherui::MenuModel m;
+  m.place = "Springfield, Illinois";
+  m.updated = "UPDATED 14:07";
+  Rendered c;
+  buildMenu(c, m);
+  CHECK(!c.interactions.overflowed());
+  CHECK(reaches(c, weatherui::ActionChangeCity));
+  CHECK(reaches(c, weatherui::ActionFahrenheit));
+  // The units in force are filled and do nothing.
+  CHECK(!reaches(c, weatherui::ActionCelsius));
+  CHECK(reaches(c, weatherui::ActionRefresh));
+  CHECK(reaches(c, weatherui::ActionCloseMenu));
+  CHECK(drewExactly(c, "Springfield, Illinois"));
+  CHECK(drewText(c, "UPDATE NOW"));
+  CHECK(clean(c, "menu"));
+  m.fahrenheit = true;
+  Rendered f;
+  buildMenu(f, m);
+  CHECK(reaches(f, weatherui::ActionCelsius));
+  CHECK(!reaches(f, weatherui::ActionFahrenheit));
+}
+
+// The menu's row takes the place as the main screen does: a second line
+// before anything is cut, its region included, and when even two lines will
+// not hold it, a cut between words, never through one ("Bouzemont-S...").
+void theMenuFitsThePlaceLikeTheMainScreen() {
+  weatherui::MenuModel m;
+  m.place = "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est";
+  m.updated = "UPDATED 14:07";
+  Rendered two;
+  buildMenu(two, m);
+  std::string whole;
+  int lines = 0;
+  for (const auto& run : two.target.texts) {
+    if (run.text.size() < 4 || std::string(m.place).find(run.text) == std::string::npos) continue;
+    whole += run.text;
+    ++lines;
+  }
+  CHECK(lines == 2);
+  CHECK(whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson,Grand Est" ||
+        whole == "Saint-Remy-en-Bouzemont-Saint-Genest-et-Isson, Grand Est");
+  CHECK(clean(two, "menu, two lines"));
+  CHECK(collisionFree(two, "menu, two lines"));
+
+  const std::string longer = "Saint Remy en Bouzemont Saint Genest et Isson sur la Riviere du Nord, Grand Est, France";
+  m.place = longer.c_str();
+  Rendered cut;
+  buildMenu(cut, m);
+  int marked = 0;
+  for (const auto& run : cut.target.texts) {
+    const size_t dots = run.text.find("...");
+    if (dots == std::string::npos) continue;
+    ++marked;
+    // What is kept is whole words: the next letter of the name is a space or
+    // a comma.
+    const std::string kept = run.text.substr(0, dots);
+    const size_t at = longer.find(kept);
+    CHECK(at != std::string::npos);
+    if (at != std::string::npos) {
+      const char next = longer[at + kept.size()];
+      if (next != ' ' && next != ',') std::printf("  weather menu cut a word: \"%s\"\n", run.text.c_str());
+      CHECK(next == ' ' || next == ',');
+    }
+  }
+  CHECK(marked == 1);
+  CHECK(clean(cut, "menu, cut"));
+}
+
+// --- Every screen, every state ---------------------------------------------------------
+
+// The places that printed holes: a name the menu fitted down into Jersey's
+// button cut lost every letter past ASCII ("So Bernardo do Campo"). Every
+// place a city is drawn, at every size its ladder can reach.
+void everyPlaceIsDrawnInAFaceWithItsLetters() {
+  const char* const kNames[] = {"S\xC3\xA3o Bernardo do Campo, S\xC3\xA3o Paulo",
+                                "Saint-\xC3\x89tienne-du-Rouvray, Normandy",
+                                "M\xC3\xBCnster, North Rhine-Westphalia",
+                                ("L\xC3\xB3"
+                                 "dz, \xC5\x81odz Voivodeship"),
+                                "Bad M\xC3\xBCnstereifel, North Rhine-Westphalia",
+                                ("Se\xC3\xB1ora de Gu\xC3\xA1nica y Pe\xC3\xB1\xC3\xBA"
+                                 "elas, Puerto Rico")};
+  for (const char* name : kNames) {
+    // The fake's own check is Latin-1, and the stroked L is what cleanName
+    // turns into a plain one before any screen sees it.
+    std::string place = name;
+    const size_t stroke = place.find("\xC5\x81");
+    if (stroke != std::string::npos) place.replace(stroke, 2, "L");
+
+    weatherui::MainModel main = fullWeek();
+    main.place = place.c_str();
+    Rendered a;
+    buildMain(a, main);
+    CHECK(allDrawable(a, "main"));
+    CHECK(drewText(a, place.substr(0, 4).c_str()));
+
+    weatherui::MenuModel menu;
+    menu.place = place.c_str();
+    menu.updated = "UPDATED 14:07";
+    Rendered b;
+    buildMenu(b, menu);
+    CHECK(allDrawable(b, "menu"));
+    CHECK(drewText(b, place.substr(0, 4).c_str()));
+
+    weatherui::SearchModel search = results(3);
+    const std::string region = place.substr(place.find(", ") + 2);
+    const std::string city = place.substr(0, place.find(", "));
+    search.rows[1].name = city.c_str();
+    search.rows[1].region = region.c_str();
+    Rendered c;
+    buildSearch(c, search);
+    CHECK(allDrawable(c, "search"));
+    CHECK(drewText(c, city.substr(0, 4).c_str()));
+  }
+  for (auto& shot : everyScreen()) CHECK(allDrawable(shot->out, shot->name.c_str()));
+}
+
+// The screens never name the forecast's provider, and never explain what can
+// be read off them: the credit is in the notices, the docs and the site.
+void noScreenNamesItsProviderOrExplainsItself() {
+  const char* const kNever[] = {"Open-Meteo",
+                                "OPEN-METEO",
+                                "open-meteo",
+                                "Meteo",
+                                "METEO",
+                                "Which city is the forecast for?",
+                                "Try again in a minute.",
+                                "It stays on the card",
+                                "Tap the field and press GO",
+                                "did not answer"};
+  for (auto& shot : everyScreen()) {
+    for (const auto& run : shot->out.target.texts) {
+      for (const char* never : kNever) {
+        if (run.text.find(never) == std::string::npos) continue;
+        std::printf("  weather %s: \"%s\"\n", shot->name.c_str(), run.text.c_str());
+        CHECK(false);
+      }
+    }
+  }
+}
+
+void noWeatherScreenPrintsIntoAnything() {
+  for (auto& shot : everyScreen()) {
+    CHECK(clean(shot->out, shot->name.c_str()));
+    CHECK(collisionFree(shot->out, shot->name.c_str()));
+  }
+  weatherui::MainModel m = fullWeek();
+  m.place = "Llanfairpwllgwyngyll in Anglesey on the Menai Strait";
+  Rendered out;
+  buildMain(out, m);
+  CHECK(collisionFree(out, "main, long place"));
+}
+
+void everySkyHasItsBitmapAtEverySize() {
+  bool all = true;
+  for (int i = 0; i < static_cast<int>(weather::Icon::None); ++i) {
+    for (const int size : {32, 88}) {
+      const freeink::Icon* icon = weatherui::skyBitmap(static_cast<weather::Icon>(i), size);
+      all = all && icon != nullptr && icon->w == size && icon->h == size && icon->bits != nullptr;
+    }
+  }
+  CHECK(all);
+  // Two different skies are two different pictures.
+  CHECK(weatherui::skyBitmap(weather::Icon::Rain, 32)->bits != weatherui::skyBitmap(weather::Icon::Snow, 32)->bits);
+}
+
+// --- Ink, not line boxes -----------------------------------------------------
+//
+// Measured the way a person sees it: by where the INK is, cap top to baseline
+// (Mario, 2026-11-18, measured 47.5 / 25.5 / 19.5 / 17.5 / 14.5 / 17.5 / 20.5 /
+// ~29 px down the main screen when it stacked line boxes). One scale on every
+// screen: 12 between lines of a block, 24 between rows, 36 between groups.
+
+int gapBetween(const Rendered& out, const char* above, const char* below) {
+  const FakeTarget::TextRun* a = runAt(out, above);
+  const FakeTarget::TextRun* b = runAt(out, below);
+  if (!a || !b) {
+    std::printf("  weather: no \"%s\" or no \"%s\" to measure between\n", above, below);
+    return -1;
+  }
+  return inkOf(*b).y - inkOf(*a).bottom();
+}
+
+void mainInkFollowsOneScale() {
+  weatherui::MainModel m = fullWeek();
+  m.status = weatherui::Status::Offline;
+  Rendered out;
+  buildMain(out, m);
   // Inside the reading: one gap, measured ink to ink, between every pair.
-  const int g1 = inkOf(*sky).y - inkOf(*number).bottom();
-  const int g2 = inkOf(*rain).y - inkOf(*sky).bottom();
-  const int g3 = inkOf(*updated).y - inkOf(*rain).bottom();
-  if (!(g1 == g2 && g2 == g3)) std::printf("  weather reading gaps %d %d %d\n", g1, g2, g3);
-  CHECK(g1 == g2 && g2 == g3);
-  CHECK(g1 > 0);
+  const int g1 = gapBetween(out, "7", "PARTLY CLOUDY");
+  const int g2 = gapBetween(out, "PARTLY CLOUDY", "H");
+  const int g3 = gapBetween(out, "H", "OFFLINE");
+  const int g4 = gapBetween(out, "OFFLINE", "UPDATED 14:07");
+  if (!(g1 == 12 && g2 == 12 && g3 == 12 && g4 == 12))
+    std::printf("  weather reading gaps %d %d %d %d\n", g1, g2, g3, g4);
+  CHECK(g1 == 12 && g2 == 12 && g3 == 12 && g4 == 12);
+  CHECK(gapBetween(out, "Z\xC3\xBCrich, Switzerland", "7") == 36);
 
   // The week: one pitch for every row, whatever the reading above it took.
   std::vector<int> tops;
@@ -15917,80 +16433,88 @@ void mainInkFollowsOneScale() {
   }
   bool even = tops.size() == 6;
   for (size_t i = 2; i < tops.size(); ++i) even = even && tops[i] - tops[i - 1] == tops[1] - tops[0];
-  if (!even) {
-    std::printf("  weather row tops:");
-    for (const int t : tops) std::printf(" %d", t);
-    std::printf("\n");
-  }
   CHECK(even);
 
   // The space the composition did not need is placed, not left over: as much
   // above the place as below the last row.
-  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich");
-  CHECK(place != nullptr);
-  if (place && !tops.empty()) {
-    int lastBottom = 0;
-    for (const auto& run : out.target.texts) {
-      if (run.text == "MON") lastBottom = std::max(lastBottom, static_cast<int>(inkOf(run).bottom()));
-    }
+  const FakeTarget::TextRun* place = runAt(out, "Z\xC3\xBCrich, Switzerland");
+  const FakeTarget::TextRun* last = runAt(out, "MON");
+  CHECK(place && last);
+  if (place && last) {
     const int above = inkOf(*place).y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
-    const int below = device().height - lastBottom;
+    const int below = device().height - inkOf(*last).bottom();
     if (std::abs(above - below) > 1) std::printf("  weather space above %d, below %d\n", above, below);
     CHECK(std::abs(above - below) <= 1);
   }
 }
 
-void noWeatherScreenPrintsIntoAnything() {
-  {
-    Rendered out;
-    buildMainFaces(out, fullWeek());
-    CHECK(collisionFree(out, "main"));
+// The menu and the search on the main screen's scale: a caption a line gap
+// over what it labels, groups three gutters apart, rows two, by ink.
+void menuAndSearchFollowTheSameScale() {
+  weatherui::MenuModel menu;
+  menu.place = "Springfield, Illinois";
+  menu.updated = "UPDATED 14:07";
+  Rendered c;
+  buildMenu(c, menu);
+  const FakeTarget::TextRun* city = runAt(c, "CITY");
+  const FakeTarget::TextRun* place = runAt(c, "Springfield, Illinois");
+  const FakeTarget::TextRun* units = runAt(c, "UNITS");
+  const FakeTarget::TextRun* forecast = runAt(c, "FORECAST");
+  const FakeTarget::TextRun* updated = runAt(c, "UPDATED 14:07");
+  CHECK(city && place && units && forecast && updated);
+  if (city && place && units && forecast && updated) {
+    const int first = inkOf(*city).y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
+    // The boxes under each caption, found by what they hold.
+    fui::Rect row{}, units0{}, update{};
+    for (const auto& s : c.target.strokes) {
+      if (contains(s.rect, inkOf(*place))) row = s.rect;
+    }
+    for (const auto& run : c.target.texts) {
+      if (run.text == "CELSIUS") units0 = run.rect;
+      if (run.text == "UPDATE NOW") update = run.rect;
+    }
+    const int captionToRow = row.y - inkOf(*city).bottom();
+    const int rowToUnits = inkOf(*units).y - row.bottom();
+    const int unitsToForecast = inkOf(*forecast).y - (units0.y + units0.height / 2 + toybox::kPillHeight / 2);
+    const int placeAbove = inkOf(*place).y - row.y;
+    const int placeBelow = row.bottom() - inkOf(*place).bottom();
+    if (!(first == 36 && captionToRow == 12 && rowToUnits == 36 && unitsToForecast == 36 && placeAbove == placeBelow)) {
+      std::printf("  weather menu gaps: first %d, caption-row %d, row-units %d, units-forecast %d, place %d/%d\n",
+                  first, captionToRow, rowToUnits, unitsToForecast, placeAbove, placeBelow);
+    }
+    CHECK(first == 36);
+    CHECK(captionToRow == 12);
+    CHECK(rowToUnits == 36);
+    CHECK(unitsToForecast == 36);
+    CHECK(std::abs(placeAbove - placeBelow) <= 1);
+    (void)update;
   }
-  {
-    weatherui::MainModel m = fullWeek();
-    m.dayCount = 3;
-    m.status = "OFFLINE.";
-    m.updated = "UPDATED YESTERDAY 14:07";
-    m.days[0].hasHigh = false;
-    m.days[1].rain = -1;
-    Rendered out;
-    buildMainFaces(out, m);
-    CHECK(collisionFree(out, "main, stale"));
+
+  Rendered s;
+  buildSearch(s, results(3));
+  fui::Rect field{};
+  for (const auto& stroke : s.target.strokes) {
+    if (stroke.rect.y > toybox::kHeaderHeight && field.height == 0) field = stroke.rect;
   }
-  {
-    weatherui::MainModel m = fullWeek();
-    m.place = "Llanfairpwllgwyngyll in Anglesey on the Menai Strait";
-    Rendered out;
-    buildMainFaces(out, m);
-    CHECK(collisionFree(out, "main, long place"));
+  const int fieldGap = field.y - (toybox::kHeaderHeight + toybox::kBandRuleGap + toybox::kRule);
+  std::vector<fui::Rect> inks;
+  for (const auto& run : s.target.texts) {
+    if (run.rect.y > field.bottom()) inks.push_back(inkOf(run));
   }
-  {
-    weatherui::MainModel m;
-    m.place = "Z\xC3\xBCrich";
-    m.emptyHeadline = "NO FORECAST YET";
-    m.emptyMessage = "Connect to Wi-Fi to get one.";
-    m.offerRetry = true;
-    Rendered out;
-    buildMainFaces(out, m);
-    CHECK(collisionFree(out, "main, empty"));
-  }
-  for (const int16_t keyboard : {int16_t{0}, int16_t{360}}) {
-    weatherui::SearchModel m = results(weather::kMaxMatches);
-    m.keyboardHeight = keyboard;
-    Rendered out;
-    out.target.lineH = 42;
-    buildSearch(out, m);
-    CHECK(collisionFree(out, "search"));
-  }
-  for (const bool fahrenheit : {false, true}) {
-    weatherui::MenuModel m;
-    m.place = "Llanfairpwllgwyngyll in Anglesey";
-    m.fahrenheit = fahrenheit;
-    m.updated = "UPDATED 14:07";
-    Rendered out;
-    out.target.lineH = 42;
-    buildMenu(out, m);
-    CHECK(collisionFree(out, "menu"));
+  std::sort(inks.begin(), inks.end(), [](const fui::Rect& a, const fui::Rect& b) { return a.y < b.y; });
+  CHECK(inks.size() == 6);
+  if (inks.size() == 6) {
+    const int toFirst = inks[0].y - field.bottom();
+    const int inRow = inks[1].y - inks[0].bottom();
+    const int betweenRows = inks[2].y - inks[1].bottom();
+    if (!(fieldGap == 36 && toFirst == 36 && inRow == 12 && betweenRows == 24)) {
+      std::printf("  weather search gaps: band-field %d, field-row %d, in row %d, between rows %d\n", fieldGap, toFirst,
+                  inRow, betweenRows);
+    }
+    CHECK(fieldGap == 36);
+    CHECK(toFirst == 36);
+    CHECK(inRow == 12);
+    CHECK(betweenRows == 24);
   }
 }
 
@@ -16021,7 +16545,7 @@ void theInkHelperPlacesByInk() {
 
   // iconInk finds the drawn shape inside the square: a 32px cloud is wider
   // than it is tall and does not touch the square's edges.
-  const fui::Rect cloud = toybox::iconInk(weatherui::skyBitmap(weather::Icon::Cloud, 32));
+  const fui::Rect cloud = toybox::iconInk(*weatherui::skyBitmap(weather::Icon::Cloud, 32));
   CHECK(cloud.width > cloud.height);
   CHECK(cloud.x > 0 && cloud.y > 0 && cloud.right() < 32 && cloud.bottom() < 32);
 }
@@ -16030,18 +16554,28 @@ void theInkHelperPlacesByInk() {
 
 int main() {
   weathertest::mainDrawsTheWeekAndOnlyTheGearIsTappable();
-  weathertest::mainSaysWhatTheRadioDid();
+  weathertest::mainSaysWhatTheRadioDidAndWhenInFull();
   weathertest::mainDrawsOnlyTheDaysItHas();
-  weathertest::aLongPlaceWrapsAndTheWeekMakesRoom();
-  weathertest::anEmptyMainOffersATryAgainOnlyWhenItHelps();
+  weathertest::aDayWithNoSkyDrawsNoSky();
+  weathertest::theChanceSaysWhatItIsAChanceOf();
+  weathertest::aNegativeReadingHasAMinusAndRoom();
+  weathertest::aLongPlaceKeepsItsWeightAndBreaksAtItsHyphens();
+  weathertest::aMainWithNoWeekSaysWhyAndOffersWhatHelps();
   weathertest::searchRowsChooseTheirOwnPlace();
-  weathertest::searchSaysWhatDidNotFit();
-  weathertest::searchRowsStayAboveTheKeyboard();
+  weathertest::everyPlaceFoundIsReachable();
+  weathertest::searchStaysAboveTheKeyboard();
+  weathertest::aPlaceWithNoRegionIsOneLine();
+  weathertest::theFieldShowsTheEndOfWhatWasTyped();
+  weathertest::longNamesInTheListKeepTheirWeight();
   weathertest::searchSaysWhatHappened();
   weathertest::menuDoorsGoWhereTheySay();
+  weathertest::theMenuFitsThePlaceLikeTheMainScreen();
+  weathertest::everyPlaceIsDrawnInAFaceWithItsLetters();
+  weathertest::noScreenNamesItsProviderOrExplainsItself();
+  weathertest::noWeatherScreenPrintsIntoAnything();
   weathertest::everySkyHasItsBitmapAtEverySize();
   weathertest::mainInkFollowsOneScale();
-  weathertest::noWeatherScreenPrintsIntoAnything();
+  weathertest::menuAndSearchFollowTheSameScale();
   weathertest::theInkHelperPlacesByInk();
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();

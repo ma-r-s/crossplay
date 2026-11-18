@@ -23,3 +23,6 @@ mkdir -p "$BUILD_DIR"
 
 # Every request can be abandoned with Back within a poll (see abandon.py).
 python3 abandon.py ../..
+
+# No screen names the provider or explains what it shows (see words.py).
+python3 words.py ../..

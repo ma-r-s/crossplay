@@ -274,7 +274,21 @@ does not need is placed rather than left to whichever element came last).
 icon, so an icon can be centred on a line of text and kept a gutter from it.
 Choose the gaps from one scale by relationship (lines of one group a gutter
 apart, groups further) and measure them in a test by ink: the ui suite's
-`mainInkFollowsOneScale` is the pattern.
+`mainInkFollowsOneScale` is the pattern, and `menuAndSearchFollowTheSameScale`
+holds the rest of an app to the same one (Weather: 12 within a block, 24
+between rows, 36 between groups, on every screen).
+
+**A fitting ladder is only as good as its lowest rung.** `fittedTitle()` walks
+every slot bound at or below the style's size, whatever face is in it. Weather's
+menu bound Jersey's button cut in its small slot for the captions, so a long
+city name stepped down into a face with no accents and printed "So Bernardo do
+Campo" with a hole where the a-tilde was. Somebody else's text gets a pass of
+its own, with every rung a face that carries its letters (and, for a name, its
+weight: Weather's place pass binds the bold reading cut in both sizes, so a long
+name gets smaller and never lighter). The host suite can check this when the
+screen binds its own faces: Weather's builders take a `Rebind` and bind each
+pass themselves, so the test binds exactly what the device does and fails on a
+letter drawn in a face without it.
 
 The rest of the cuts this fork ships, for the apps that do not speak Jersey and
 for the reading face a prose app binds to its body slot:

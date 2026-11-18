@@ -191,7 +191,9 @@ void testMatchesReadNameRegionAndPlace() {
   CHECK(m.size() == 3);
   if (m.size() != 3) return;
   CHECK_EQ_STR(m[0].name, "Zürich");
-  CHECK_EQ_STR(m[0].region, "Zurich, Switzerland");
+  // The canton is the city's name without its accent, so the region does not
+  // say it again.
+  CHECK_EQ_STR(m[0].region, "Switzerland");
   CHECK_EQ_STR(m[0].country, "CH");
   CHECK(std::fabs(m[0].lat - 47.36667) < 1e-6);
   CHECK(std::fabs(m[0].lon - 8.55) < 1e-6);
@@ -246,6 +248,15 @@ void testARegionDoesNotRepeatTheName() {
   CHECK_EQ_STR(m[0].region, "Germany");
   // A city-state: the region says nothing the name has not said.
   CHECK_EQ_STR(m[1].region, "");
+  // Nor does one spelled without the name's accents or in another case.
+  CHECK(weather::parseMatches(
+      R"({"results":[{"name":"São Paulo","admin1":"Sao Paulo","country":"Brazil","latitude":-23.5,"longitude":-46.6},)"
+      R"({"name":"Münster","admin1":"North Rhine-Westphalia","country":"MÜNSTER","latitude":51.9,"longitude":7.6}]})",
+      latin1, m));
+  CHECK(m.size() == 2);
+  if (m.size() != 2) return;
+  CHECK_EQ_STR(m[0].region, "Brazil");
+  CHECK_EQ_STR(m[1].region, "North Rhine-Westphalia");
 }
 
 void testNonLatinNamesKeepWhatCanBeDrawn() {
@@ -319,6 +330,22 @@ void testPlaceLabelIsNeverEmpty() {
   CHECK_EQ_STR(weather::placeLabel("", "Switzerland", 46.9, 7.4), "Switzerland");
   CHECK_EQ_STR(weather::placeLabel("", "", -33.87, 151.21), "33.87S 151.21E");
   CHECK_EQ_STR(weather::placeLabel("", "", 40.71, -74.01), "40.71N 74.01W");
+}
+
+void testPlaceTitleTellsSameNamesApart() {
+  // The first part of the region: the state for a Springfield, the country
+  // where the region is only that.
+  CHECK_EQ_STR(weather::placeTitle("Springfield", "Illinois, United States", 39.8, -89.6), "Springfield, Illinois");
+  CHECK_EQ_STR(weather::placeTitle("Springfield", "Missouri, United States", 37.2, -93.3), "Springfield, Missouri");
+  CHECK_EQ_STR(weather::placeTitle("Lisbon", "Portugal", 38.7, -9.1), "Lisbon, Portugal");
+  // A region that opens with the name again skips to what follows it.
+  CHECK_EQ_STR(weather::placeTitle("Zürich", "Zurich, Switzerland", 47.4, 8.6), "Zürich, Switzerland");
+  CHECK_EQ_STR(weather::placeTitle("Singapore", "", 1.3, 103.9), "Singapore");
+  CHECK_EQ_STR(weather::placeTitle("Singapore", "Singapore", 1.3, 103.9), "Singapore");
+  // A name that could not be drawn is already the region or the coordinates:
+  // nothing is said twice.
+  CHECK_EQ_STR(weather::placeTitle("", "Russia", 55.8, 37.6), "Russia");
+  CHECK_EQ_STR(weather::placeTitle("", "", 35.69, 139.69), "35.69N 139.69E");
 }
 
 void testCleanQuery() {
@@ -466,8 +493,10 @@ void testFirstDayFollowsTheClock() {
   CHECK(weather::firstDay(c, kNovember17 + 10 * 3600 + 23 * 60) == 1);
   CHECK(weather::firstDay(c, kNovember17 + 3 * kDay) == 3);
   CHECK(weather::firstDay(c, kNovember17 + 6 * kDay) == 6);
-  // Past the whole forecast: the forecast is still drawn, from its start.
-  CHECK(weather::firstDay(c, kNovember17 + 30 * kDay) == 0);
+  // Past the whole forecast: no day of it is today or later, and a week
+  // that has happened is not drawn as the coming one.
+  CHECK(weather::firstDay(c, kNovember17 + 7 * kDay) == -1);
+  CHECK(weather::firstDay(c, kNovember17 + 30 * kDay) == -1);
   // A clock behind the forecast (set wrong) does not skip anything.
   CHECK(weather::firstDay(c, kNovember17 - 5 * kDay) == 0);
 }
@@ -532,6 +561,18 @@ void testSkies() {
   CHECK(weather::skyIcon(82, true) == weather::Icon::Rain);
   CHECK(weather::skyIcon(86, true) == weather::Icon::Snow);
   CHECK(weather::skyIcon(99, true) == weather::Icon::Thunder);
+  // A null code, or one nobody documents, has no picture: not a cloud.
+  CHECK(weather::skyIcon(-1, true) == weather::Icon::None);
+  CHECK(weather::skyIcon(42, true) == weather::Icon::None);
+  // Under snow the chance is a chance of snow.
+  CHECK_EQ_STR(weather::chanceWord(71), "SNOW");
+  CHECK_EQ_STR(weather::chanceWord(77), "SNOW");
+  CHECK_EQ_STR(weather::chanceWord(85), "SNOW");
+  CHECK_EQ_STR(weather::chanceWord(86), "SNOW");
+  CHECK_EQ_STR(weather::chanceWord(61), "RAIN");
+  CHECK_EQ_STR(weather::chanceWord(67), "RAIN");
+  CHECK_EQ_STR(weather::chanceWord(99), "RAIN");
+  CHECK_EQ_STR(weather::chanceWord(-1), "RAIN");
   // Every code Open-Meteo documents has words; nothing it documents is blank.
   const int documented[] = {0,  1,  2,  3,  45, 48, 51, 53, 55, 56, 57, 61, 63, 65,
                             66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99};
@@ -618,6 +659,7 @@ int main() {
   testNonLatinNamesKeepWhatCanBeDrawn();
   testCleanNameKeepsLettersAndDropsTheRest();
   testPlaceLabelIsNeverEmpty();
+  testPlaceTitleTellsSameNamesApart();
   testCleanQuery();
   testUrls();
   testPlaceRoundTrips();

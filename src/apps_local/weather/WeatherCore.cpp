@@ -433,10 +433,32 @@ std::string collapseAndTrim(const std::string& s) {
   return out;
 }
 
+// One name spelled two ways (the canton "Zurich" for the city with the
+// u-umlaut, "SAO PAULO" for the one with the a-tilde): compared letter by
+// letter on base letters, case folded, so the region never repeats the place
+// it qualifies.
+bool sameName(const std::string& a, const std::string& b) {
+  const auto key = [](const std::string& s) {
+    std::string out;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(s.data());
+    const unsigned char* end = p + s.size();
+    while (p < end) {
+      uint32_t cp = nextCodepoint(p, end);
+      if (cp == 0xFFFFFFFFu) continue;
+      if (const uint32_t base = utf8DecomposedBase(cp)) cp = base;
+      if (const uint32_t base = strokeBase(cp)) cp = base;
+      if (cp >= 'A' && cp <= 'Z') cp = cp - 'A' + 'a';
+      utf8AppendCodepoint(cp, out);
+    }
+    return out;
+  };
+  return key(a) == key(b);
+}
+
 std::string joinRegion(const std::string& name, const std::string& admin, const std::string& country) {
   std::string region;
-  if (!admin.empty() && admin != name) region = admin;
-  if (!country.empty() && country != name && country != admin) {
+  if (!admin.empty() && !sameName(admin, name)) region = admin;
+  if (!country.empty() && !sameName(country, name) && !sameName(country, admin)) {
     if (!region.empty()) region += ", ";
     region += country;
   }
@@ -776,7 +798,7 @@ int firstDay(const Cache& cache, const int64_t nowUtc) {
   for (int i = 0; i < f.dayCount; ++i) {
     if (daysFromCivil(f.days[i].year, f.days[i].month, f.days[i].day) >= today) return i;
   }
-  return 0;
+  return -1;
 }
 
 std::string updatedLabel(const Cache& cache, const int64_t nowUtc, const bool twelveHour) {
@@ -884,7 +906,13 @@ Icon skyIcon(const int code, const bool isDay) {
   if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return Icon::Rain;
   if ((code >= 71 && code <= 77) || code == 85 || code == 86) return Icon::Snow;
   if (code >= 95 && code <= 99) return Icon::Thunder;
-  return Icon::Cloud;
+  // A code with no words has no picture either: a null in the answer is not
+  // a cloud.
+  return code == 3 ? Icon::Cloud : Icon::None;
+}
+
+const char* chanceWord(const int code) {
+  return (code >= 71 && code <= 77) || code == 85 || code == 86 ? "SNOW" : "RAIN";
 }
 
 int displayTemp(const int16_t tenthsC, const Units units) {
@@ -964,6 +992,22 @@ std::string placeLabel(const std::string& name, const std::string& region, const
   if (!name.empty()) return name;
   if (!region.empty()) return region;
   return coordinates(lat, lon);
+}
+
+std::string placeTitle(const std::string& name, const std::string& region, const double lat, const double lon) {
+  const std::string label = placeLabel(name, region, lat, lon);
+  if (name.empty()) return label;
+  // The first part of the region that is not the name again: the state, the
+  // province, or the country when the region is only that.
+  size_t start = 0;
+  while (start < region.size()) {
+    size_t comma = region.find(", ", start);
+    if (comma == std::string::npos) comma = region.size();
+    const std::string part = region.substr(start, comma - start);
+    if (!part.empty() && !sameName(part, name)) return label + ", " + part;
+    start = comma + 2;
+  }
+  return label;
 }
 
 std::string cleanQuery(const std::string& typed) {

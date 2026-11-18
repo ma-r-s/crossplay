@@ -106,16 +106,17 @@ grep -rl "Button::Up\|Button::Down" src/apps_local/*/ | cut -d/ -f3 | sort -u
 | Back         | 35                | as a swipe       |
 | Confirm      | 2                 | **no**           |
 | Left / Right | 1                 | **no**           |
-| Up / Down    | 15                | **yes**          |
+| Up / Down    | 16                | **yes**          |
 
-Nineteen of the thirty-eight directories use Back and nothing else.
+Eighteen of the thirty-eight directories use Back and nothing else.
 
 > **The finding below was true when it was written, in August 2026, and it is
 > not true any more.** It said the two real keys were unused by every game we
 > had built, and that the only apps touching them were the reader-shaped ones.
-> Fourteen apps read Up/Down today and eight of them are games: Checkers,
+> Sixteen apps read Up/Down today and eight of them are games: Checkers,
 > Connect Four, Forehead, Picross, Sea Salt, Toy Battle, Wavelength and Yahtzee,
-> alongside Hacker News, Instapaper, Notes, Wallpapers, Wikipedia and xkcd.
+> alongside Hacker News, Instapaper, Notes, RSS, Wallpapers, Weather (its pages
+> of places), Wikipedia and xkcd.
 > Study reads the reader's PageForward/PageBack instead, which honour the
 > side-button layout setting and are not counted here. The rule in section 4 is
 > what survived and is still the thing to apply; the census that motivated it
