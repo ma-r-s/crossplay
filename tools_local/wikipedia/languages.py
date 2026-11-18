@@ -111,6 +111,9 @@ PROFILES = {
         "number": "Nr.",
         # "chinesisch", "altgriechisch", "russischer": the language adjective
         "labels": r"[a-zäöü]+isch(?:e[nrs]?)?",
+        # "(34 Jahre)" after a birth date in an infobox: true the day the
+        # dump was made, wrong from the next birthday
+        "age": r"\s*\(\d{1,3}\s+Jahre\)",
         # the serif lacks both and the German page writes them constantly
         # ("⚭ 1774 mit", "⌀ 12 mm"); these are how print spells them
         "symbols": {

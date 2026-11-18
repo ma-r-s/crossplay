@@ -255,6 +255,24 @@ class GermanArticles(unittest.TestCase):
         # the facts follow the lead, as the English packs order them
         self.assertLess(xhtml.index("<b>Rotfuchs</b>"), xhtml.index("Kurzinfo"))
 
+    def test_a_nested_comparison_is_not_a_fact_and_an_age_goes(self):
+        html = (
+            '<div class="mw-parser-output"><section data-mw-section-id="0">'
+            '<table class="infobox"><tbody>'
+            "<tr><th>Datum</th><td>26. August 1943</td></tr>"
+            "<tr><td>Geburtstag:</td><td>21. M\u00e4rz 1992 (34 Jahre)</td></tr>"
+            '<tr><td colspan="2"><table><tbody><tr><th colspan="2">Konfliktparteien</th></tr>'
+            "<tr><td>Deutsches Reich</td><td>Sowjetunion</td></tr>"
+            "<tr><td>Ordnung:</td><td>Raubtiere</td></tr></tbody></table></td></tr>"
+            "</tbody></table><p><b>T</b> ist ein Test.</p></section></div>"
+        )
+        _, _, xhtml = zim_article.zim_xhtml(html, "T", DE)
+        xhtml = xhtml.decode("utf-8")
+        self.assertIn("<tr><th>Datum</th><td>26. August 1943</td></tr>", xhtml)
+        self.assertIn("<tr><th>Geburtstag</th><td>21. M\u00e4rz 1992</td></tr>", xhtml)
+        self.assertIn("<tr><th>Ordnung</th><td>Raubtiere</td></tr>", xhtml)
+        self.assertNotIn("Deutsches Reich", xhtml)
+
     def test_an_infobox_line_break_is_a_comma(self):
         _, _, xhtml, _ = convert("titanic", "Titanic (1997)")
         self.assertIn(

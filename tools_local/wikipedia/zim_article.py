@@ -301,6 +301,21 @@ def _is_transliteration(node):
     return False
 
 
+def _headed(table):
+    """Whether a table's first row is one header cell across it."""
+    for tr in table.find_all("tr"):
+        cells = [c for c in tr.children if isinstance(c, Node) and c.tag in ("td", "th")]
+        return len(cells) == 1 and cells[0].tag == "th"
+    return False
+
+
+def _row_table(tr):
+    p = tr.parent
+    while p is not None and p.tag != "table":
+        p = p.parent
+    return p
+
+
 def _mark_cell(node):
     """The table cell a picture stood in, so an infobox row that was a picture
     and its caption is not read as a key and a value."""
@@ -772,16 +787,17 @@ class Converter:
         # A phoneme chart, a table of native names: when half its cells are
         # in a script or a transcription the panel cannot show, the grid is
         # holes, and the line saying a table was here is the honest rendering.
-        run_re, _ = _runs()
         filled = holed = 0
+        scratch = {}
         for cell in table.find_all("td") + table.find_all("th"):
             raw = cell.text().strip()
             if not raw:
                 continue
             filled += 1
-            if _IPA.search(raw) or run_re.search(raw):
+            # a cell is a hole when cleaning it would take letters out
+            if _IPA.search(raw) or _MARK in clean_text(raw, scratch, self.profile.get("symbols")):
                 holed += 1
-        if filled and holed * 2 >= filled:
+        if filled >= 4 and holed * 2 >= filled:
             self.out.append("<p><i>" + esc(self.profile["omitted"]) + "</i></p>")
             self.stats["tables_omitted"] = self.stats.get("tables_omitted", 0) + 1
             return
@@ -892,6 +908,12 @@ class Converter:
             if key.lower() == value.lower() or (key, value) in seen:
                 continue
             seen.add((key, value))
+            # an age worked out on the day the page was rendered goes stale on
+            # the next birthday ("21. März 1992 (34 Jahre)")
+            if self.profile.get("age"):
+                value = re.sub(self.profile["age"], "", value).strip()
+            if not value:
+                continue
             rows.append((key[:1].upper() + key[1:], cut_words(value, FACT_WORDS)))
         return rows
 
@@ -909,6 +931,15 @@ class Converter:
             # two headers side by side head the pictures under them
             if cells and all(c.tag == "th" for c in cells):
                 continue
+            # In a table nested inside the box under a heading of its own,
+            # two plain cells side by side are two sides compared
+            # ("Konfliktparteien": one army | the other), not a key and its
+            # value: only a header cell or a "Key:" cell names a field there.
+            own = _row_table(tr)
+            if len(cells) == 2 and own is not table and _headed(own):
+                key = cells[0]
+                if key.tag != "th" and not key.text().rstrip().endswith(":"):
+                    continue
             yield tr, cells
 
     def plain_joined(self, cell):
