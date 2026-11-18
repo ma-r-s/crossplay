@@ -242,7 +242,7 @@ for flag in CROSSPOINT_DEV_SERIAL_BRIDGE; do
     case "$section" in
       # Only development environments. A *_common section is inherited by its release env, and
       # any gh_release/slim env is something a tag actually builds.
-      env:x4pro|env:sticky|env:papermono) ;;
+      env:x4pro|env:sticky|env:papermono|env:picco) ;;
       *) bad_home="${bad_home:+$bad_home }$section" ;;
     esac
   done

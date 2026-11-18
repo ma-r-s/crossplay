@@ -14,6 +14,7 @@
 #include "fontIds.h"
 #include "network/DeviceReport.h"
 #include "network/FirmwareFlasher.h"
+#include "network/UpdateSlot.h"
 
 namespace {
 
@@ -93,7 +94,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   // probed via Update.begin(firmwareSize)/Update.abort() to learn the partition
   // size, which had the side effect of erasing partition state and was wasted
   // work since we only need the size bound for validation here.
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  const esp_partition_t* dest = updateSlot();
   if (!dest) {
     LOG_ERR("FW", "no next-update partition available");
     errorMessage = tr(STR_INVALID_FIRMWARE);

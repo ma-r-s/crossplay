@@ -38,8 +38,11 @@ then grep for `Entering activity: X`". That is a real regression test and it
 runs headless.
 
 It also measures every screenshot it takes: a header whose back arrow or chip
-sits off its title's line fails the run with a `HEADER ROW` line saying by how
-many pixels (`tools_local/header_row_check.py`). A "before" shot of a bug it
+sits off its title's line, or whose back arrow has words drawn over it, fails
+the run with a `HEADER ROW` line saying which and by how many logical pixels
+(`tools_local/header_row_check.py`; a 2x capture is measured at 1x). The theme's
+arrow is found by its shape, read from `headerIcons.h`, so a band with no rule
+under it (Classic, RoundedRaff) is measured too. A "before" shot of a bug it
 catches will fail too; that is the point of taking one.
 
 ### Landscape, and the one thing it breaks
@@ -232,11 +235,19 @@ reached it. Prefer that over another pair of hand-written branches.
 An app that keeps the theme's header (`GUI.drawHeader`) but draws its own words
 in it -- Study's card count and its PHOTO pill -- places them on
 `HeaderLayoutRecord::last` (`src/components/HeaderLayoutRecord.h`): the rect of
-the back arrow the header drew, and the rect it laid its title in. Never on a
-middle of the band worked out by hand. The band includes the battery strip and
-the theme's row sits below it, so Study's count, centred on the whole band, sat
-12.5px above its own back arrow until 2026-11-17, through three changes and two
+the back arrow the header drew, the rect it laid its title in, and `textLeft`,
+where a left-aligned word may start after the arrow. Never on a middle of the
+band worked out by hand. The band includes the battery strip and the theme's
+row sits below it, so Study's count, centred on the whole band, sat 12.5px
+above its own back arrow until 2026-11-17, through three changes and two
 rounds of screenshots.
+
+A left-aligned word starts at `textLeft`, never at `title.x`. In a theme that
+centres its title (Classic) the header keeps the whole band for the title, so
+`title.x` is the band's margin, under the arrow; 1.15.0 shipped Study's
+"6 LEFT" drawn over the arrow that way. Check every theme, not the default
+one: `uiTheme` in `/.crosspoint/settings.json` on the simulator's card picks it
+(0 Classic, 1 Lyra, 2 Lyra Extended, 3 RoundedRaff, 4 CoverGrid).
 
 ### Hit-testing must share geometry with drawing
 

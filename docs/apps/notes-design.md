@@ -115,13 +115,13 @@ to write three lines.
 press CLEAR DONE: two taps, with controls that already exist and already say
 what they do.
 
-**The menu**, behind the gear on the band: type on your phone, make it a
+**The menu**, behind the gear on the band: edit on your phone, make it a
 list/note, rename. Three rows, with DELETE NOTE alone on the action bar at the
 foot. CLEAR DONE is not among them -- it lives in the footer of the list where
 it is needed, and a control in two places is two places to keep in step.
 
 **There is no settings screen**, deliberately. Nothing here has two defensible
-values, and the one thing that looks like a setting -- "type on your phone" --
+values, and the one thing that looks like a setting -- "edit on your phone" --
 is a per-note action that must never become a mode.
 
 ## The layout rules, each paid for by a render

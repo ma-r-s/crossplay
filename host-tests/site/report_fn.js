@@ -276,6 +276,17 @@ const expect = (label, got, want) =>
     "sticky",
   );
 
+  calls = [];
+  r = await call("POST", Object.assign({}, good, { device: "picco" }));
+  expect("the Picco alone is accepted", r.status, 201);
+  expect(
+    "and stored as itself",
+    JSON.parse(
+      calls.find((c) => c.url.endsWith("/rest/v1/cards?select=id")).body,
+    ).device,
+    "picco",
+  );
+
   for (const wrong of ["", ",", "unknown", "toaster", "x4pro,toaster"]) {
     calls = [];
     r = await call("POST", Object.assign({}, good, { device: wrong }));
