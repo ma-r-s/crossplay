@@ -1,5 +1,10 @@
 // How long a prewarmed glyph cache lives, and what that rules out.
 //
+// History, kept because the reasoning below is still the default scope's: the
+// fork removed the reader's idle prewarm on 2026-09-03 for the reasons that
+// follow, and upstream brought it back in #4433 (merged 2026-11-17) through an
+// ACCUMULATING scope, which the last case here pins. Both lifetimes are real.
+//
 // The reader warmed the NEXT page's glyphs while the device sat idle, so a page
 // turn would not have to. The simulator showed it prewarming each page twice
 // with byte-for-byte identical results, 780ms apart -- once for the idle pass
@@ -126,6 +131,30 @@ int main() {
     eq(counts.clears, 2, "one render's scope clears at both ends");
     auto second = fcm.createPrewarmScope();
     eq(counts.clears, 3, "and the next render's scope clears again before it scans");
+  }
+
+  // -- an accumulating scope keeps what it warmed ---------------------------
+  //
+  // Upstream's idle prewarm came back in the 2026-11-17 sync (#4433), through
+  // createPrewarmScope(true), which clears at NEITHER end: an SD font's
+  // retained mini data (SdCardFont::resetStyleMiniData) and a TrueType face
+  // survive into the turn. What it does not change is the turn's own scope.
+  // renderBook() opens a default one, which still clears when it opens (the
+  // case above), and for a built-in compressed font that frees the warmed
+  // glyphs (FontDecompressor::clearCache), so on those the idle pass still
+  // repeats its work. That trade is upstream's, in upstream's reader.
+  {
+    counts = Counts{};
+    {
+      auto idle = fcm.createPrewarmScope(/*accumulate=*/true);
+      eq(counts.clears, 0, "an accumulating scope does not drop the cache when it opens");
+      fcm.recordText("next", 7, EpdFontFamily::REGULAR);
+      idle.endScanAndPrewarm();
+      eq(counts.prewarms, 1, "and prewarms what it scanned");
+    }
+    eq(counts.clears, 0, "nor when it closes, so what it warmed reaches the next scope");
+    auto turn = fcm.createPrewarmScope();
+    eq(counts.clears, 1, "while the turn's own default scope still clears before it scans");
   }
 
   // -- a page mixes fonts, and each one gets prewarmed ----------------------
