@@ -730,10 +730,16 @@ card, which the page cannot write.
 
 **The German pack.** 50,000 articles, 242,337 index entries (redirects whose
 title only differs in case dropped: the index folds, and "STRABAG",
-"Strabag", "Strabag CR" filled the list with one article), 380 MB in two
-shards, built in about three and a half minutes on this Mac. Published as
+"Strabag", "Strabag CR" filled the list with one article), 381 MB in two
+shards (381,439,652 bytes), built in under three minutes on this Mac. Published as
 `de-2026-10-top1` beside `en-2026-05-full7` on the pack host, stable name
 `https://packs.ma-r-s.com/wikipedia/de/`, listed in `languages.json`.
+The copy on the host was built there, from the same ZIM by the same commit,
+because the uplink from the Mac to the pi ran at about 30 KB/s that day (376
+MB would have been three and a half hours); it was published only once its
+digest over every article's title, headings and XHTML matched this Mac's
+build. `zim.py` reads zstd clusters with the `zstd` command on a Python
+older than 3.14 for that reason.
 
 **The chooser** was chosen from three rendered arrangements (a list, cards,
 a grid of language codes; `review-2026-11-02/11-wikide-variants.png`): the
