@@ -786,6 +786,14 @@ found, and what changed.
   follows the one above after a dash, and a whole parenthesis belongs to the
   line above (3,068 values read "652.015, (1. Jan. 2024)"). The counts are
   over the whole pack, before and after (`zim_article.join_items`).
+  Republished as `de-2026-10-top2` (from 10c57c6d7; the stable name
+  `https://packs.ma-r-s.com/wikipedia/de/` flipped, `de-2026-10-top1` left on
+  disk, `en-2026-05-full7` untouched), built on the pack host from the same
+  ZIM as before; its digest over every article's title, headings and XHTML,
+  `18821b9d...c59e`, and all 64 buckets equal this Mac's build. Checked over
+  the public URL: languages.json lists en and de, the de manifest's `base` is
+  the new directory, dict, blocks.dir, the title index and both shards match
+  their sha256, a ranged shard request answers 206 with CORS.
 - *The page.* A route a language does not publish looked like a choice
   (same edge, full contrast, a pointer): it is dashed, faded and
   not-allowed now. The sentence under the heading names the language in
