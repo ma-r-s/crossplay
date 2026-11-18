@@ -511,8 +511,10 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
     screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
   }
   y = static_cast<int16_t>(y + lineHeight + 10);
+  // No time here. It depends on the language and the route, which the page
+  // knows and this screen does not, and the page states it beside the choice.
   drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
-            "Open this in Chrome or Edge on a computer. About ten minutes.", fui::TextAlign::Center);
+            "Open this in Chrome or Edge on a computer.", fui::TextAlign::Center);
   y = static_cast<int16_t>(y + twoLines + 12);
 
   const int16_t side = 232;

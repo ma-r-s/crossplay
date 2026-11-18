@@ -14450,11 +14450,18 @@ void testWikipediaInstallSaysTheAddressFirst() {
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
   // Each sentence has two lines of the reader's face, whatever its height.
-  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer. About ten minutes.");
+  const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer.");
   CHECK(open != nullptr);
   if (open != nullptr) {
     CHECK(open->style.maxLines == 2);
     CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+  }
+  // No time on the device: it was "About ten minutes" for every language and
+  // route, and the page now works one out per language (14 minutes for
+  // English by cable, 12 for German) and shows it beside the choice.
+  for (const auto& run : out.target.texts) {
+    check(run.text.find("minute") == std::string::npos && run.text.find("hour") == std::string::npos,
+          "the install screen states no time", __LINE__);
   }
   CHECK(!out.target.drew("TRY AGAIN"));
   model.stage = wikiui::InstallModel::Stage::Failed;

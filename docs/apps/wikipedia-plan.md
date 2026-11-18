@@ -40,7 +40,8 @@ order.
 
 The shelf tile says WIKIPEDIA. Opening it with no pack on the card shows one
 screen: the address in large type, `crossplay.ma-r-s.com/wikipedia`, then
-"Open this in Chrome or Edge on a computer. About ten minutes.", and a QR
+"Open this in Chrome or Edge on a computer." (it said "About ten minutes."
+too until 2026-11-18; see below), and a QR
 code under it for a phone. The phone page is one sentence and a SEND THIS TO
 MY COMPUTER button (the Web Share API, mail as the fallback), because no
 phone browser can write the card; the computer is where the copy happens,
@@ -757,5 +758,15 @@ redirects are the surname entries).
 
 **Not done here.** The app's own captions stay English (they always were,
 outside `tr()`); maths spelled by `tex_text` is translated for German in
-rendered formulas only; the "Shift" key label is cut on the 11-key QWERTZ
-row (the shared keyboard's, not this app's).
+rendered formulas only.
+
+**Two fixes after review.** The QWERTZ keyboard drew its Shift key as
+"Sh...": "Shift" is 53.6px in the body face and the eleven-key row leaves
+the 1.5-unit key 53.5px. The shared keyboard component now draws an
+app-supplied control label only when the key can hold it, and a Shift key
+that cannot draws the arrow the system keyboard uses (freeink-sdk
+`fix/keyboard-labels-fit`); English, at the panel's own gap, still says
+"Shift". And the device's install screen no longer says "About ten
+minutes": the time depends on the language and the route, the page works
+it out from the measured rates and shows it beside the choice, and the
+device knows neither.
