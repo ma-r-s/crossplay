@@ -37,6 +37,13 @@ import {
   formatCount,
   formatSnapshot,
   partUrl,
+  parseLanguages,
+  languageByCode,
+  cardFolder,
+  cardPacks,
+  routeSeconds,
+  formatEstimate,
+  DEFAULT_LANGUAGES,
 } from "./plan.js";
 
 // Where the pack lives: the Orange Pi behind its own Cloudflare Tunnel
@@ -44,7 +51,9 @@ import {
 // host answers CORS for any origin (GET and HEAD, with Content-Length and
 // Range); without that every fetch fails as the browser's opaque "Failed to
 // fetch" and the page can only say the connection dropped.
-const PACK_BASE_URL = "https://packs.ma-r-s.com/wikipedia/en/";
+// Each language is published under its code (en/, de/), and languages.json
+// beside them lists what is there.
+const PACK_HOST = "https://packs.ma-r-s.com/wikipedia/";
 
 // Bytes handed to the card per write. Fetch delivers pieces of 16 to 64 KB;
 // writing each one is a round trip to the browser's file process, and 2 MB
@@ -58,7 +67,13 @@ const WRITE_CHUNK = 2 * 1024 * 1024;
 // on a 12 MB mock. Neither is read outside mock mode.
 const params = new URLSearchParams(location.search);
 const MOCK = params.get("mock") === "1";
-const baseUrl = MOCK ? new URL("./mock/", location.href).href : PACK_BASE_URL;
+const hostUrl = MOCK ? new URL("./mock/", location.href).href : PACK_HOST;
+// The current language's pack: the host's <code>/, or the mock itself.
+function baseFor(language) {
+  if (MOCK) return language && language.code !== "en" ? hostUrl + language.code + "/" : hostUrl;
+  return hostUrl + (language ? language.code : "en") + "/";
+}
+let baseUrl = baseFor(DEFAULT_LANGUAGES[0]);
 
 // Every part's URL carries its own checksum, so a rebuilt pack is a new URL
 // to every cache between here and the host. Without it, dict.zst (same name,
@@ -98,8 +113,14 @@ function radio(id) {
 function meta(id) {
   return id === "all" ? $("routeAllMeta") : $("routeEssentialsMeta");
 }
+function timeLine(id) {
+  return id === "all" ? $("routeAllTime") : $("routeEssentialsTime");
+}
 
 const state = {
+  languages: DEFAULT_LANGUAGES,
+  language: DEFAULT_LANGUAGES[0],
+  langChosen: false, // the person picked one; the reader's own ask does not override it
   manifest: null,
   card: null, // what the reader said it has, from install.json on the chosen card
   replanned: false, // the pack moved on under one copy already; the next time it is a reload
@@ -142,7 +163,9 @@ async function loadManifest() {
   }
   const m = state.manifest;
   $("packLine").textContent =
-    "This is Wikipedia from " +
+    "This is " +
+    state.language.name +
+    " Wikipedia from " +
     formatSnapshot(m.snapshot) +
     ", " +
     formatCount(m.articles) +
@@ -152,6 +175,9 @@ async function loadManifest() {
     radio(r.id).disabled = !tier;
     const line = meta(r.id);
     line.textContent = "";
+    // The time before anything is measured: the bytes over the rates that
+    // have been (plan.js, MEASURED_RATES). The copy measures its own.
+    timeLine(r.id).textContent = tier ? formatEstimate(routeSeconds(tierTotalBytes(m, r.tier), r.id)) : "";
     if (tier) {
       line.appendChild(
         document.createTextNode(formatCount(tier.articles) + " articles, "),
@@ -162,7 +188,7 @@ async function loadManifest() {
       size.textContent = formatBytes(tierTotalBytes(m, r.tier));
       line.appendChild(size);
     } else {
-      line.textContent = "Not published yet";
+      line.textContent = state.language.code === "en" ? "Not published yet" : "Not published for this language yet";
     }
   }
   if (radio(state.route).disabled) {
@@ -196,6 +222,55 @@ function showLoadError(e) {
   $("pickBtn").disabled = true;
 }
 
+// --- the language -----------------------------------------------------------
+
+async function loadLanguages() {
+  try {
+    const resp = await fetch(hostUrl + "languages.json", { cache: "no-store" });
+    if (resp.ok) state.languages = parseLanguages(await resp.text());
+  } catch (e) {
+    state.languages = DEFAULT_LANGUAGES;
+  }
+  const box = $("langs");
+  box.querySelectorAll("label").forEach((n) => n.remove());
+  for (const l of state.languages) {
+    const label = document.createElement("label");
+    label.className = "wk-lang";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "lang";
+    input.value = l.code;
+    input.checked = l.code === state.language.code;
+    input.addEventListener("change", () => {
+      if (input.checked) {
+        state.langChosen = true;
+        setLanguage(l.code);
+      }
+    });
+    label.appendChild(input);
+    const span = document.createElement("span");
+    span.textContent = l.name;
+    span.lang = l.code;
+    label.appendChild(span);
+    box.appendChild(label);
+  }
+  // One language is no choice: the page reads as it always has.
+  box.hidden = state.languages.length < 2;
+}
+
+function setLanguage(code) {
+  const l = languageByCode(state.languages, code);
+  if (!l || state.running) return false;
+  state.language = l;
+  baseUrl = baseFor(l);
+  state.manifest = null;
+  state.manifestText = "";
+  for (const input of document.querySelectorAll('input[name="lang"]')) input.checked = input.value === code;
+  $("pickBtn").disabled = true;
+  loadManifest();
+  return true;
+}
+
 // --- the route --------------------------------------------------------------
 
 function currentRoute() {
@@ -218,6 +293,7 @@ function renderFileList() {
   const list = $("fileList");
   list.textContent = "";
   if (!state.manifest) return;
+  $("byHandFolder").textContent = cardFolder(state.language).join("/");
   for (const f of downloadList(state.manifest, currentRoute().tier)) {
     const li = document.createElement("li");
     const a = document.createElement("a");
@@ -281,25 +357,55 @@ async function pick() {
   // What the reader wrote before handing the card over: which pack it has,
   // so the page can say what this copy changes rather than just "Done".
   state.card = null;
+  let want = "";
   try {
     const wiki = await root.getDirectoryHandle("wikipedia");
     const text = await readText(wiki, "install.json");
     const info = text ? JSON.parse(text) : null;
-    if (info && typeof info.snapshot === "string" && info.snapshot) {
-      state.card = { pack: info.pack, snapshot: info.snapshot, shardsPresent: info.shardsPresent };
-    }
+    const packs = cardPacks(info);
+    want = info && typeof info.want === "string" ? info.want : "";
+    state.card = packs;
   } catch (e) {
     state.card = null;
   }
+  // The reader's install screen was opened from one language's pack: that is
+  // the one it asked for, unless the person chose another here.
+  if (want && !state.langChosen && want !== state.language.code && languageByCode(state.languages, want)) {
+    setLanguage(want);
+    await waitForManifest();
+    if (!state.manifest) return;
+  }
+  const have = state.card ? state.card[state.language.code] : null;
   setPickStatus(
     "This is the reader's card" +
       (root.name ? " (" + root.name + ")" : "") +
-      (state.card
-        ? ", with Wikipedia from " + formatSnapshot(state.card.snapshot) + " on it."
-        : ", with no Wikipedia on it yet."),
+      (have
+        ? ", with " + state.language.name + " Wikipedia from " + formatSnapshot(have.snapshot) + " on it."
+        : ", with no " + state.language.name + " Wikipedia on it yet."),
     "good",
   );
   run();
+}
+
+function waitForManifest() {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    const tick = () => {
+      if (state.manifest || performance.now() - t0 > 15000 || !$("loadError").hidden) resolve();
+      else setTimeout(tick, 50);
+    };
+    tick();
+  });
+}
+
+// The language's folder on the card: /wikipedia/ for English, as it has
+// always been, /wikipedia/<code>/ for every other.
+async function packFolder(root, create) {
+  let d = root;
+  for (const part of cardFolder(state.language)) {
+    d = await d.getDirectoryHandle(part, { create: !!create });
+  }
+  return d;
 }
 
 // --- files on the card ------------------------------------------------------
@@ -529,14 +635,13 @@ async function run() {
   await holdAwake();
   let currentFile = "";
   try {
-    const wiki = await state.root.getDirectoryHandle("wikipedia", {
-      create: true,
-    });
+    const wiki = await packFolder(state.root, true);
     let markers = parseMarkers(await readText(wiki, MARKER_FILE));
+    const have = state.card ? state.card[state.language.code] : null;
     setCopyStatus(
-      state.card && state.card.snapshot !== m.snapshot
+      have && have.snapshot !== m.snapshot
         ? "The card has " +
-            formatSnapshot(state.card.snapshot) +
+            formatSnapshot(have.snapshot) +
             "; this copies " +
             formatSnapshot(m.snapshot) +
             ", the parts that changed. Looking at what is on the card already."
@@ -702,9 +807,10 @@ function clearRate() {
 function lockRoutes(locked) {
   const m = state.manifest;
   for (const r of ROUTES) {
-    radio(r.id).disabled = locked || !tierByName(m, r.tier);
+    radio(r.id).disabled = locked || !m || !tierByName(m, r.tier);
   }
-  $("pickBtn").disabled = locked;
+  for (const input of document.querySelectorAll('input[name="lang"]')) input.disabled = locked;
+  $("pickBtn").disabled = locked || !m;
 }
 
 function showCopy() {
@@ -857,6 +963,8 @@ function finish(plan) {
   setCopyStatus(
     "Done: " +
       formatCount(plan.tier.articles) +
+      " " +
+      state.language.name +
       " articles from " +
       formatSnapshot(m.snapshot) +
       " are on the card, every part checked.",
@@ -927,4 +1035,4 @@ if (!canPickFolders) {
 }
 
 renderRoute();
-loadManifest();
+loadLanguages().then(() => loadManifest());

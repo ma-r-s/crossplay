@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wikipedia on the reader &middot; CrossPlay</title>
-<meta name="description" content="Put Wikipedia on the reader's card from this page: the essentials over the cable in about ten minutes, or all of it with the card in the computer. The page copies straight onto the card and checks every part.">
+<meta name="description" content="Put Wikipedia on the reader's card from this page, in English or German: the essentials over the cable, or all of the English one with the card in the computer. The page copies straight onto the card and checks every part.">
 <meta property="og:title" content="Wikipedia on the reader">
-<meta property="og:description" content="The essentials over the cable in about ten minutes, or all of Wikipedia with the card in the computer. One button; the page checks every part.">
+<meta property="og:description" content="Wikipedia in English or German: the essentials over the cable, or all of the English one with the card in the computer. One button; the page checks every part.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crossplay.ma-r-s.com/wikipedia/">
 <meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
@@ -64,6 +64,14 @@
 
   <p class="wk-error" id="loadError" hidden></p>
 
+  <!-- The languages the pack host publishes (its languages.json). Hidden while
+       there is only one. English stays where it always was on the card; every
+       other language gets a folder of its own beside it, so a reader can hold
+       several and asks which to open. -->
+  <fieldset class="wk-langs" id="langs" hidden>
+    <legend class="wk-step-label">Which language</legend>
+  </fieldset>
+
   <!-- The two routes. The plan's wording, verbatim: docs/apps/wikipedia-plan.md,
        "The page". The first is selected. -->
   <fieldset class="wk-routes" id="routes">
@@ -84,7 +92,7 @@
       </span>
       <span class="wk-route-body">
         <span class="wk-route-title">The essentials, with the cable.</span>
-        <span class="wk-route-time">About ten minutes.</span>
+        <span class="wk-route-time" id="routeEssentialsTime"></span>
         <span class="wk-route-how">Plug the reader into the computer with its cable.</span>
         <span class="wk-route-meta" id="routeEssentialsMeta"></span>
       </span>
@@ -105,7 +113,7 @@
       </span>
       <span class="wk-route-body">
         <span class="wk-route-title">All of Wikipedia, with the card in the computer.</span>
-        <span class="wk-route-time">About fifteen minutes.</span>
+        <span class="wk-route-time" id="routeAllTime"></span>
         <span class="wk-route-how">Take the card out of the reader and put it in the computer, in its slot or in a card reader.</span>
         <span class="wk-route-meta" id="routeAllMeta"></span>
       </span>
@@ -172,8 +180,8 @@
     </p>
     <ol class="wk-files" id="fileList"></ol>
     <p>
-      Make a folder called <code>wikipedia</code> at the root of the card.
-      Put <code>dict.zst</code>, <code>titles.idx</code> and
+      Make a folder called <code id="byHandFolder">wikipedia</code> at the root of the card.
+      Put <code>dict.zst</code>, the <code>titles</code> files and
       <code>blocks.dir</code> in it, the parts in a folder called
       <code>shards</code> inside it, and <code>manifest.json</code> last: the
       reader treats the pack as present the moment it sees the manifest, so
