@@ -33,7 +33,7 @@
 // How many rows indexToMenuItem() walks. Never the recent books, in any theme,
 // including RoundedRaff's Continue Reading row: the dispatch has already
 // subtracted the books. See HomeShelfRows.h.
-int HomeActivity::upstreamMenuRows() const { return homeshelf::upstreamRows(hasLibrarySlot()); }
+int HomeActivity::upstreamMenuRows() const { return homeshelf::upstreamRows(slotItem() != HomeMenuItem::NONE); }
 
 int HomeActivity::getMenuItemCount() const {
   // --- fork-local seam ---------------------------------------------------
@@ -285,7 +285,7 @@ void HomeActivity::onEnter() {
   // the shelf was what we came back from: see shelf::takeHomeReturn().
   if (shelf::takeHomeReturn()) {
     if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
-      selectorIndex = homeshelf::selectorForFolder(shelfRow, base, hasLibrarySlot());
+      selectorIndex = homeshelf::selectorForFolder(shelfRow, base, slotItem() != HomeMenuItem::NONE);
     }
   }
 
@@ -376,8 +376,8 @@ void HomeActivity::loop() {
         break;
       default: {
         // fork-local seam: anything past upstream's rows is a shelf folder.
-        const int shelfRow = homeshelf::folderAt(selectorIndex, static_cast<int>(recentBooks.size()), hasLibrarySlot(),
-                                                 shelf::folderCount());
+        const int shelfRow = homeshelf::folderAt(selectorIndex, static_cast<int>(recentBooks.size()),
+                                                 slotItem() != HomeMenuItem::NONE, shelf::folderCount());
         if (shelfRow >= 0) shelf::openFolder(shelfRow, renderer, mappedInput);
         break;
       }
