@@ -847,9 +847,18 @@ void setup() {
   // We need 6 open files concurrently when parsing a new chapter
   if (!Storage.begin()) {
     LOG_ERR("MAIN", "SD card initialization failed");
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+    // fork-local seam: a dev build keeps booting without a card, so a unit on
+    // the desk that has none (a hardware sample) can still be driven over the
+    // cable and its panel exercised. Every file call fails closed on an
+    // unmounted card (SDCardManager checks `initialized`), so nothing is read
+    // or saved. Release builds keep upstream's stop.
+    LOG_ERR("MAIN", "dev build: continuing without an SD card; nothing will be read or saved");
+#else
     setupDisplayAndFonts(isSilentReboot);
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
+#endif
   }
   // A virgin card has no /.crosspoint until the first PersistableStore save
   // happens to run (that path mkdirs for itself), and every plain HalFile
@@ -1026,7 +1035,14 @@ void setup() {
     case HalGPIO::WakeupReason::AfterUSBPower:
       // Most devices return to sleep after a USB-powered cold boot.
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
-#if FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_EEGO_A4 || \
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+      // fork-local seam, the twin of the PowerButton one above: a Sticky that
+      // reads as charging takes THIS branch on every reset, and opening the
+      // bridge's port resets it, so a dev build would deep-sleep before the
+      // bridge could speak. Dev builds stay up; release builds keep the rule.
+      LOG_DBG("MAIN", "Dev bridge build: staying up after a USB-powered boot");
+      break;
+#elif FREEINK_DEVICE_X4PRO || FREEINK_DEVICE_X4CLASSIC || FREEINK_DEVICE_PAPERMONO || FREEINK_DEVICE_EEGO_A4 || \
     FREEINK_DEVICE_METALIO_EINK4 || FREEINK_DEVICE_PICCO
       // X4 Pro must stay awake so USB Serial/JTAG remains available after leaving
       // USB Drive and reconnecting the cable. Paper Mono has no armable GPIO wake
