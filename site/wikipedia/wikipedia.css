@@ -130,6 +130,22 @@
   outline: 3px solid var(--ink);
   outline-offset: 3px;
 }
+/* A route this language does not publish: not a choice, so it does not look
+   like one. A dashed edge in the muted rule colour, the words faded, and no
+   pointer. Its own line still says why ("Not published for this language
+   yet"). */
+.wk-route:has(input:disabled) {
+  border-style: dashed;
+  border-color: var(--edge);
+  background: transparent;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.wk-route:has(input:disabled) .wk-route-art,
+.wk-route:has(input:disabled) .wk-route-title,
+.wk-route:has(input:disabled) .wk-route-how {
+  opacity: 0.55;
+}
 .wk-route-art {
   display: block;
   padding-top: 0.2rem;

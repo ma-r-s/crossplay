@@ -44,6 +44,9 @@ import {
   routeSeconds,
   formatEstimate,
   DEFAULT_LANGUAGES,
+  packSentence,
+  byHandFolderRuns,
+  languageInEnglish,
 } from "./plan.js";
 
 // Where the pack lives: the Orange Pi behind its own Cloudflare Tunnel
@@ -167,14 +170,7 @@ async function loadManifest() {
     return;
   }
   const m = state.manifest;
-  $("packLine").textContent =
-    "This is " +
-    state.language.name +
-    " Wikipedia from " +
-    formatSnapshot(m.snapshot) +
-    ", " +
-    formatCount(m.articles) +
-    " articles.";
+  $("packLine").textContent = packSentence(state.language, m);
   for (const r of ROUTES) {
     const tier = tierByName(m, r.tier);
     radio(r.id).disabled = !tier;
@@ -272,8 +268,21 @@ function setLanguage(code) {
   state.manifestText = "";
   for (const input of document.querySelectorAll('input[name="lang"]')) input.checked = input.value === code;
   $("pickBtn").disabled = true;
+  clearPackFigures();
   loadManifest();
   return true;
+}
+
+// Until a language's own manifest arrives, the page states no figures: the
+// last language's count, size and time stood under the new name for as long
+// as the fetch took.
+function clearPackFigures() {
+  $("packLine").textContent = packSentence(state.language, state.manifest);
+  for (const r of ROUTES) {
+    timeLine(r.id).textContent = "";
+    meta(r.id).textContent = "";
+  }
+  if (!canPickFolders) renderFileList();
 }
 
 // --- the route --------------------------------------------------------------
@@ -297,8 +306,18 @@ function renderRoute() {
 function renderFileList() {
   const list = $("fileList");
   list.textContent = "";
+  const folder = $("byHandFolder");
+  folder.textContent = "";
+  for (const run of byHandFolderRuns(state.language)) {
+    if (run.code) {
+      const code = document.createElement("code");
+      code.textContent = run.code;
+      folder.appendChild(code);
+    } else {
+      folder.appendChild(document.createTextNode(run.text));
+    }
+  }
   if (!state.manifest) return;
-  $("byHandFolder").textContent = cardFolder(state.language).join("/");
   for (const f of downloadList(state.manifest, currentRoute().tier)) {
     const li = document.createElement("li");
     const a = document.createElement("a");
@@ -385,8 +404,12 @@ async function pick() {
     "This is the reader's card" +
       (root.name ? " (" + root.name + ")" : "") +
       (have
-        ? ", with " + state.language.name + " Wikipedia from " + formatSnapshot(have.snapshot) + " on it."
-        : ", with no " + state.language.name + " Wikipedia on it yet."),
+        ? ", with " +
+          languageInEnglish(state.language) +
+          " Wikipedia from " +
+          formatSnapshot(have.snapshot) +
+          " on it."
+        : ", with no " + languageInEnglish(state.language) + " Wikipedia on it yet."),
     "good",
   );
   run();
@@ -969,7 +992,7 @@ function finish(plan) {
     "Done: " +
       formatCount(plan.tier.articles) +
       " " +
-      state.language.name +
+      languageInEnglish(state.language) +
       " articles from " +
       formatSnapshot(m.snapshot) +
       " are on the card, every part checked.",

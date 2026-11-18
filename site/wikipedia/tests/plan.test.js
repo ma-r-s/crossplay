@@ -563,3 +563,45 @@ test("time before measuring: the cable route runs at the slower of the two rates
   assert.equal(formatEstimate(routeSeconds(10.4e9, "all")), "About 1 hour 44 minutes.");
   assert.equal(formatEstimate(null), "");
 });
+
+// --- the page's sentences about a language --------------------------------------
+
+import { languageInEnglish, packSentence, byHandFolderRuns } from "../plan.js";
+
+test("the page names a language in English; its button keeps its own name", () => {
+  const de = { code: "de", name: "Deutsch", dir: "de" };
+  const en = { code: "en", name: "English", dir: "" };
+  assert.equal(languageInEnglish(de), "German");
+  assert.equal(languageInEnglish(en), "English");
+  assert.equal(languageInEnglish({ code: "fr", name: "Français", dir: "fr" }), "French");
+  const m = { snapshot: "2026-10-10", articles: 50000 };
+  // "This is Deutsch Wikipedia" read as a German sentence in an English one
+  assert.equal(packSentence(de, m), "This is German Wikipedia from October 2026, 50,000 articles.");
+  assert.ok(!packSentence(de, m).includes("Deutsch"));
+});
+
+test("a language without its own manifest yet states no figures", () => {
+  // Switching from English to German left 7,183,042 articles and 1 hour 44
+  // minutes under "Deutsch" until German's manifest arrived. The page clears
+  // with the sentence a null manifest gives, which is none at all.
+  const de = { code: "de", name: "Deutsch", dir: "de" };
+  assert.equal(packSentence(de, null), "");
+  assert.equal(packSentence(null, { snapshot: "2026-05-13", articles: 7183042 }), "");
+});
+
+test("by hand: English in the wikipedia folder, German in a folder de inside it", () => {
+  const words = (runs) => runs.map((r) => (r.code ? "[" + r.code + "]" : r.text)).join("");
+  assert.equal(
+    words(byHandFolderRuns({ code: "en", name: "English", dir: "" })),
+    "Make a folder called [wikipedia] at the root of the card.",
+  );
+  // "a folder called wikipedia/de" is a name with a slash in it, which no
+  // file manager makes
+  assert.equal(
+    words(byHandFolderRuns({ code: "de", name: "Deutsch", dir: "de" })),
+    "Make a folder called [de] inside a folder called [wikipedia] at the root of the card.",
+  );
+  for (const run of byHandFolderRuns({ code: "de", name: "Deutsch", dir: "de" })) {
+    if (run.code) assert.ok(!run.code.includes("/"));
+  }
+});

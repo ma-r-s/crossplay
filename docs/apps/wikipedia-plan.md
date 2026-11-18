@@ -786,3 +786,13 @@ found, and what changed.
   follows the one above after a dash, and a whole parenthesis belongs to the
   line above (3,068 values read "652.015, (1. Jan. 2024)"). The counts are
   over the whole pack, before and after (`zim_article.join_items`).
+- *The page.* A route a language does not publish looked like a choice
+  (same edge, full contrast, a pointer): it is dashed, faded and
+  not-allowed now. The sentence under the heading names the language in
+  English ("This is German Wikipedia", from the browser's
+  `Intl.DisplayNames`; the button keeps "Deutsch"), the heading is
+  "Wikipedia, on the card." because "All of" was untrue of a 50,000-article
+  pack, the figures go blank the moment another language is picked (they
+  stood under its name until its manifest arrived), and the by-hand
+  instruction says "a folder de inside a folder wikipedia" rather than a
+  folder called "wikipedia/de".
