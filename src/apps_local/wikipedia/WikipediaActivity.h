@@ -101,7 +101,9 @@ class WikipediaActivity final : public Activity {
   void pruneCache();
 
   // install
-  void enterInstall();
+  // `failedPack`: the code of a pack that would not open, so the page offers it.
+  void enterInstall(const std::string& failedPack = std::string());
+  void startUsbDrive();
   void leaveInstall();
 
   // packs: one opens as it always has; with more, the chooser comes first
@@ -123,6 +125,7 @@ class WikipediaActivity final : public Activity {
   std::string factsHeading_;
   freeink::ui::KeyboardLayoutId keyboard_ = freeink::ui::KeyboardLayoutId::QwertyEn;
   std::string installLine_;
+  std::string installWant_;
   wikipedia::Pack pack_;
   wikipedia::State state_;
   bool packOpen_ = false;

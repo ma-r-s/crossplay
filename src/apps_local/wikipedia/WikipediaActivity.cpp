@@ -28,8 +28,8 @@ namespace {
 
 constexpr const char* kTag = "WIKI";
 // The root pack's article cache, where it has always been; every other pack's
-// is a folder inside it named like the pack's (the root's entries are
-// numbered, so the two never meet), so switching language keeps both.
+// is a folder inside it, "lang-<code>", which no numbered article and no file
+// of the root's can be, so switching language keeps both.
 constexpr const char* kCacheRoot = "/.crosspoint/wikipedia";
 // Which pack was opened last: its folder name, empty for the root's.
 constexpr const char* kChosenPath = "/.crosspoint/wikipedia/chosen";
@@ -126,7 +126,7 @@ void WikipediaActivity::onEnter() {
     enterInstall();
   } else if (packs_.size() == 1) {
     // One pack opens as it always has: no chooser for a choice of one.
-    if (!openPack(0)) enterInstall();
+    if (!openPack(0)) enterInstall(packs_[0].pack);
   } else {
     showChooser();
   }
@@ -177,7 +177,9 @@ bool WikipediaActivity::openPack(const int index) {
   } else {
     bandTitle_ = "WIKIPEDIA";
   }
-  cacheRoot_ = summary.dir.empty() ? std::string(kCacheRoot) : std::string(kCacheRoot) + "/" + summary.dir;
+  // The root pack's cache is where it always was; every other pack's is a
+  // folder of it that no numbered article and no file of the root's can be.
+  cacheRoot_ = summary.dir.empty() ? std::string(kCacheRoot) : std::string(kCacheRoot) + "/lang-" + summary.dir;
   // A cache laid out from another pack must not answer for this one: the
   // build too, since one snapshot was built three times in one evening and
   // the article behind a locator moved each time.
@@ -219,6 +221,9 @@ void WikipediaActivity::closePack() {
   query_.clear();
   results_.clear();
   keyboardShown_ = false;
+  // the last pack's keyboard may have had other keys in other places
+  kbInteractions_.beginPublishCycle();
+  kbInteractions_.publish();
   pack_.close();
   packOpen_ = false;
   packIndex_ = -1;
@@ -234,7 +239,11 @@ void WikipediaActivity::showChooser() {
   packs_ = wikipedia::Pack::discover();
   if (packs_.size() <= 1) {
     lock.unlock();
-    if (packs_.empty() || !openPack(0)) enterInstall();
+    if (packs_.empty()) {
+      enterInstall();
+    } else if (!openPack(0)) {
+      enterInstall(packs_[0].pack);
+    }
     return;
   }
   packDetails_.clear();
@@ -770,39 +779,55 @@ void WikipediaActivity::pruneCache() {}
 
 // --------------------------------------------------------------- install
 
-void WikipediaActivity::enterInstall() {
+void WikipediaActivity::enterInstall(const std::string& failedPack) {
   // Everything the page needs to know, written before the card changes hands;
   // then no file of ours stays open while the host owns the card. Not the
   // free space: counting it walks the whole FAT (seven seconds on a 16 GB
   // card, before this screen could draw a thing), and the page sizes the copy
   // from the manifest and never reads the number.
-  // "want" is the pack whose door opened this screen, so the page offers it
-  // first; from the chooser or an empty card the page asks.
-  const std::string want = packOpen_ ? pack_.manifest().pack : std::string();
-  installLine_.clear();
+  // "want" is the pack whose door opened this screen, or the one that would
+  // not open, so the page offers it first; from the chooser or an empty card
+  // the page asks.
+  std::string want = packOpen_ ? pack_.manifest().pack : failedPack;
+  std::string line;
   if (packOpen_) {
     char when[32];
     snapshotWords(when, sizeof(when), pack_.manifest().snapshot);
-    installLine_ = "On the card: " + wikipedia::packName(pack_.manifest()) + ", ";
+    line = "On the card: " + wikipedia::packName(pack_.manifest()) + ", ";
     // the month in words the reading face draws, not the band's caps
     std::string month = when;
     for (size_t i = 1; i < month.size() && month[i] != ' '; ++i) {
       if (month[i] >= 'A' && month[i] <= 'Z') month[i] = static_cast<char>(month[i] - 'A' + 'a');
     }
-    installLine_ += month + ".";
+    line += month + ".";
+  } else if (!failedPack.empty()) {
+    std::string name = failedPack;
+    for (const auto& p : packs_) {
+      if (p.pack == failedPack) name = p.name;
+    }
+    line = name + " on the card is not complete. The page copies what is missing.";
   } else if (!packs_.empty()) {
-    installLine_ = "On the card:";
-    for (size_t i = 0; i < packs_.size(); ++i) installLine_ += (i ? ", " : " ") + packs_[i].name;
-    installLine_ += ". The page adds another.";
+    line = "On the card:";
+    for (size_t i = 0; i < packs_.size(); ++i) line += (i ? ", " : " ") + packs_[i].name;
+    line += ". The page adds another.";
   } else {
-    installLine_ = "Choose the language on the page.";
+    line = "Choose the language on the page.";
   }
   wikipedia::Pack::writeInstallJson(wikipedia::installJson(packs_, want.c_str(), CROSSPOINT_VERSION, "X4 Pro"));
   LOG_INF(kTag, "install screen: want \"%s\", %d pack(s) on the card", want.c_str(), static_cast<int>(packs_.size()));
   {
     RenderLock lock;
     closePack();
+    installLine_ = std::move(line);
+    installWant_ = std::move(want);
   }
+  startUsbDrive();
+}
+
+// Retry keeps what the screen and install.json already say: the pack is
+// closed by now, so recomputing them would forget which one was asked for.
+void WikipediaActivity::startUsbDrive() {
+  LOG_INF(kTag, "USB drive for the page, asking for \"%s\"", installWant_.c_str());
   view_ = View::Install;
   interactionsReady_ = false;
   requestUpdateAndWait();
@@ -926,7 +951,7 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       popHistory();
       return;
     case wikiui::ActionRetry:
-      enterInstall();
+      startUsbDrive();
       return;
     case wikiui::ActionBack:
       if (section_) {

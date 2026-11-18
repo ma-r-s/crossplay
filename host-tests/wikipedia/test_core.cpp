@@ -497,6 +497,8 @@ void testLanguages() {
   CHECK(!isPackDirName(".hidden"));
   CHECK(!isPackDirName(""));
   CHECK(!isPackDirName("a-name-far-too-long"));
+  CHECK(!isPackDirName("2026"));
+  CHECK(!isPackDirName("-de"));
 
   PackSummary root;
   root.pack = "en";

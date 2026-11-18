@@ -93,8 +93,9 @@ std::string packLanguage(const Manifest& manifest);
 
 // "/wikipedia" for the root pack (dir ""), "/wikipedia/de" for "de".
 std::string packPath(const std::string& dir);
-// A folder name that may be a pack: lowercase letters, digits and '-', at
-// most 15, and never one of the pack's own folders ("shards", "overlay").
+// A folder name that may be a pack: a lowercase letter, then lowercase
+// letters, digits and '-', at most 15, and never one of the pack's own
+// folders ("shards", "overlay").
 bool isPackDirName(const char* name);
 
 struct PackSummary {

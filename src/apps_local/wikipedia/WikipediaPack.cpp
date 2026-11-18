@@ -74,6 +74,9 @@ void Pack::close() {
   dict_.clear();
   dict_.shrink_to_fit();
   dir_ = BlocksDir{};
+  // blocks.dir is read from the card a record at a time; its handle must not
+  // stay open into a USB handoff
+  dirSource_.reset();
   shardPresent_.clear();
   shardsPresent_ = 0;
   manifest_ = Manifest{};
@@ -208,16 +211,22 @@ bool Pack::find(const std::string& title, IndexEntry& out) const {
 
 int Pack::prefix(const std::string& query, const int max, std::vector<IndexEntry>& out) const {
   std::vector<IndexEntry> merged;
-  // Four times the rows asked for: an article's redirects match the same
-  // prefix as it does ("Strabag", "Strabag CR", "Strabag Rail") and fold
-  // into one row, so the raw list must run past them to fill the panel.
-  const int scan = max * 4;
-  for (const auto& index : indexes_) {
-    index->prefix(query, scan, merged);
+  // An article's redirects match the same prefix as it does ("Strabag",
+  // "Strabag CR", "Strabag Rail") and fold into one row, so the raw list must
+  // run past them to fill the panel: four times the rows asked for, and
+  // further while a scan stopped at its cap with the rows not yet filled
+  // (German has about five names an article).
+  for (int scan = max * 4;; scan *= 4) {
+    merged.clear();
+    bool capped = false;
+    for (const auto& index : indexes_) {
+      if (index->prefix(query, scan, merged) >= scan) capped = true;
+    }
+    std::stable_sort(merged.begin(), merged.end(),
+                     [](const IndexEntry& a, const IndexEntry& b) { return fold(a.title) < fold(b.title); });
+    oneRowPerArticle(merged, static_cast<size_t>(max));
+    if (!capped || static_cast<int>(merged.size()) >= max || scan >= max * 256) break;
   }
-  std::stable_sort(merged.begin(), merged.end(),
-                   [](const IndexEntry& a, const IndexEntry& b) { return fold(a.title) < fold(b.title); });
-  oneRowPerArticle(merged, static_cast<size_t>(max));
   for (auto& e : merged) out.push_back(std::move(e));
   return static_cast<int>(std::min<size_t>(merged.size(), max));
 }
@@ -370,7 +379,7 @@ std::vector<PackSummary> Pack::discover() {
   }
   std::vector<PackSummary> packs;
   for (const auto& dir : dirs) {
-    if (packs.size() >= kMaxPacks) break;
+    if (packs.size() >= kMaxListed) break;
     const std::string manifestPath = packPath(dir) + "/manifest.json";
     if (!Storage.exists(manifestPath.c_str())) continue;
     std::vector<uint8_t> bytes;

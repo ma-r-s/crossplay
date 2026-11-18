@@ -37,8 +37,9 @@ class Pack {
  public:
   static constexpr const char* kRoot = "/wikipedia";
   static constexpr const char* kInstallPath = "/wikipedia/install.json";
-  // At most this many packs are listed; a card with more shows the first.
-  static constexpr size_t kMaxPacks = 6;
+  // Every pack on the card is listed (install.json names them all); the
+  // chooser shows the first wikiui::kMaxPacks. A bound, not a design limit.
+  static constexpr size_t kMaxListed = 32;
 
   Pack() = default;
   ~Pack();

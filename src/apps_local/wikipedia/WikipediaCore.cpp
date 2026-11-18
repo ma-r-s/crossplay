@@ -328,6 +328,8 @@ std::string packPath(const std::string& dir) { return dir.empty() ? std::string(
 bool isPackDirName(const char* name) {
   if (!name || !*name) return false;
   if (std::strcmp(name, "shards") == 0 || std::strcmp(name, "overlay") == 0) return false;
+  // a letter first: the root pack's cache names its articles by number
+  if (name[0] < 'a' || name[0] > 'z') return false;
   size_t n = 0;
   for (const char* p = name; *p; ++p, ++n) {
     const char c = *p;
