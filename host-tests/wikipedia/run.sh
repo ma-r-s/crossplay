@@ -86,3 +86,6 @@ python3 test_usb_exclusive.py
 # The install screen redraws after the card goes to USB, so its body face must
 # be compiled into the firmware, not an SD-card font.
 python3 test_install_face.py
+# A language that will not open goes to the install screen from the chooser
+# too, as it does when it is the only pack on the card.
+python3 test_failed_pack_repairs.py

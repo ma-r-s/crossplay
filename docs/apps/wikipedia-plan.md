@@ -808,3 +808,7 @@ found, and what changed.
   "The page adds another.", a promise the host could not keep. The line
   ("On the card: English, Deutsch. The page lists the languages you can
   add.") is `wikipedia::installLine`, in Core with its test.
+- *A damaged language on the chooser* showed "SORRY / Could not open this
+  article", naming the wrong thing and offering nothing; with one pack on
+  the card the same failure went to the install screen with the repair
+  line. The chooser now does the same (`test_failed_pack_repairs.py`).

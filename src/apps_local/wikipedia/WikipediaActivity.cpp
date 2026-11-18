@@ -872,8 +872,12 @@ void WikipediaActivity::routeAction(const int action, const int value) {
       enterInstall();
       return;
     case wikiui::ActionPack:
-      if (!openPack(value)) {
-        showNotice("SORRY", tr(STR_WIKI_OPEN_FAILED), "BACK", wikiui::ActionBack);
+      // A language that will not open is a pack the page can repair, as it
+      // is when it is the only one on the card: the install screen names it
+      // and the page copies what is missing.
+      if (value >= 0 && value < static_cast<int>(packs_.size()) && !openPack(value)) {
+        LOG_INF(kTag, "chooser: %s did not open, to the install screen", packs_[value].pack.c_str());
+        enterInstall(packs_[value].pack);
       }
       return;
     case wikiui::ActionLanguages:
