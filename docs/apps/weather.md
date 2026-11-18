@@ -56,7 +56,8 @@ Celsius or Fahrenheit, and UPDATE NOW.
 - **The day is the place's own day.** Open-Meteo answers with the place's UTC
   offset (`timezone=auto`), so "today" and the day names come from the
   forecast's own dates and that offset, not from the device's time zone. With a
-  clock (`time()` above a 2023 floor) a forecast from yesterday starts at
+  clock (`clockfloor::trusted`, the fork's one floor: no earlier than the day
+  the firmware was built) a forecast from yesterday starts at
   today's row and says `UPDATED YESTERDAY 14:07`; without one, the forecast's
   own reading time dates it.
 

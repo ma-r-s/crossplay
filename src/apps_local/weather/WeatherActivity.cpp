@@ -18,6 +18,7 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../fontIds.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../rss/RssFetch.h"
 #include "../ui/ToyboxFonts.h"
@@ -54,12 +55,14 @@ std::string endpoint(const char* env, const char* fallback) {
   return fallback;
 }
 
-// The device clock, when it holds a present-day time; 0 when it does not, and
-// the forecast's own reading time then dates it.
-constexpr int64_t kClockFloor = 1700000000;
+// The device clock, when it can be today (the fork's one floor, ClockFloor.h:
+// no earlier than the day this firmware was built); 0 when it cannot, and the
+// forecast's own reading time then dates it. A never-set RTC reading a
+// plausible February would otherwise say UPDATED 17 NOV against it and pick
+// the wrong today out of the week.
 int64_t nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > kClockFloor ? now : 0;
+  return clockfloor::trusted(now) ? now : 0;
 }
 
 bool readText(const char* path, std::string& out) {
