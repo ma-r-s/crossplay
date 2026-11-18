@@ -261,6 +261,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
 
 // Everything that starts over when a deck opens -- first open and every switch.
 void StudyActivity::beginDeckSession() {
+  rescanAfterClockSet_ = false;
   fonts_.setRoot(deckDir_);
   fonts_.probe();
   today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
@@ -967,6 +968,13 @@ void StudyActivity::undo() {
 }
 
 void StudyActivity::loop() {
+  // A sync's NTP step moved the clock under an open deck, and some ways out of
+  // the flow (pairing, the deck picker) never reopen it: recount everything the
+  // old date decided before the deck screen is used again.
+  if (rescanAfterClockSet_ && view_ == View::Deck && deckDir_[0] != '\0') {
+    beginDeckSession();
+    requestUpdate();
+  }
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view_ == View::SyncFlow) {
       view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
@@ -2125,9 +2133,11 @@ void StudyActivity::onSyncWifi(const bool connected) {
 
 void StudyActivity::syncTimeIfNeeded() {
   // Certificate dates are validated on the bridge connection, so the clock
-  // must be sane before the first handshake; and a clock the deck proves wrong
-  // (study::clockUntrusted) is what this sync is for. Same dance as KOSync.
-  if (!clockUntrusted()) return;
+  // must be sane before the first handshake. And once per power cycle whatever
+  // the clock says: a wrong date can be a plausible one (#727), and on a first
+  // sync, or for a deck that is not the open one, the deck that would prove it
+  // is not there to ask. Same dance as KOSync.
+  if (clockConfirmedByNtp) return;
   // On a board with an RTC, set the chip as well as the system clock: the
   // Sticky reloads its RTC at every boot, so a sync that only fixed time()
   // was undone by the next power-off.
@@ -2138,12 +2148,18 @@ void StudyActivity::syncTimeIfNeeded() {
     esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
     esp_sntp_init();
-    for (int retry = 0; retry < 50 && sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; ++retry) {
-      delay(100);
+    // Read inside the loop: sntp_get_sync_status() reports COMPLETED once and
+    // then resets, so a second read after the loop always says it never came.
+    for (int retry = 0; retry < 50 && !clockConfirmedByNtp; ++retry) {
+      clockConfirmedByNtp = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+      if (!clockConfirmedByNtp) delay(100);
     }
-    clockConfirmedByNtp = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
   }
-  if (!clockConfirmedByNtp) LOG_ERR("STUDYSYNC", "NTP did not answer; the clock stays as it was");
+  if (clockConfirmedByNtp) {
+    rescanAfterClockSet_ = true;
+  } else {
+    LOG_ERR("STUDYSYNC", "NTP did not answer; the clock stays as it was");
+  }
 }
 
 bool StudyActivity::clockUntrusted() const {

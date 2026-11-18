@@ -259,6 +259,9 @@ class StudyActivity final : public Activity {
   // The latest day any card in the open deck was reviewed, -1 for none; the
   // evidence study::clockUntrusted weighs today_ against. Set by buildQueue().
   int latestReviewDay_ = -1;
+  // Set when a sync's NTP step moved the clock; loop() recounts the open deck
+  // against the new date the next time the deck screen is up.
+  bool rescanAfterClockSet_ = false;
   int startMinute_ = 0;
   int forecast_[studyui::kForecastDays] = {};
   int dueTotal_ = 0;

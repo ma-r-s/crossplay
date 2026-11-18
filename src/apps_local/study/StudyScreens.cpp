@@ -247,7 +247,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   if (warning[0] != '\0') {
     fui::TextStyle warn = small;
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), warning, warn);
-  } else if (model.deckCount > 1) {
+  } else if (model.deckCount > 1 && !model.clockUnset) {
+    // Not under a wrong clock: what waits in the other decks was counted from
+    // that same wrong date.
     fui::TextStyle scope = small;
     scope.color = fui::Color::DarkGray;
     char elsewhere[64];

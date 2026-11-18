@@ -5505,6 +5505,22 @@ void testStudyDeckUnderAWrongClockSaysTheDateNotTheCount() {
       CHECK(onSync.action == studyui::ActionStudy && onSync.value == 2);
     }
   }
+  // With other decks on the card, what waits in them was counted from the
+  // same wrong date, so it is not offered either.
+  {
+    Rendered out;
+    studyui::DeckModel model;
+    model.name = "Vocabulary";
+    model.total = 23;
+    model.forecast = forecast;
+    model.deckCount = 2;
+    model.otherWaiting = 3;
+    model.clockUnset = true;
+    buildStudyDeck(out, model);
+    CHECK(out.target.drew("WRONG DATE"));
+    CHECK(!out.target.drew("3 WAITING IN YOUR OTHER DECK"));
+    CHECK(!out.target.drew("REVIEW ANOTHER DECK"));
+  }
 }
 
 void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
