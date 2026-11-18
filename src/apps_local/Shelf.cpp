@@ -44,6 +44,7 @@
 #include "underhand/UnderhandActivity.h"
 #include "wallpapers/WallpapersActivity.h"
 #include "wavelength/WavelengthActivity.h"
+#include "weather/WeatherActivity.h"
 #include "wikipedia/WikipediaActivity.h"
 #include "wordle/WordleActivity.h"
 #include "xkcd/XkcdActivity.h"
@@ -95,6 +96,8 @@ constexpr shelf::Item kApps[] = {
     // Appended rather than placed beside Hacker News: a row inserted above
     // others moves every one of them under a thumb that knows where they were.
     {"RSS", &icon_rss_32, &RssActivity::create},
+    // Card #763. Appended, like RSS, so no row above it moves.
+    {"WEATHER", &icon_weather_32, &WeatherActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

@@ -74,6 +74,12 @@ constexpr int kLargeFontId = 0x70B0'000D;
 // Call from an activity's onEnter() before drawing. Idempotent and cheap.
 void ensureFonts(GfxRenderer& renderer);
 
+// Whether every reading cut (regular and bold, both sizes) has a glyph for
+// `cp`, asked of the font data rather than of a table copied out of it. For
+// text from outside that a screen sets in those cuts: what they cannot draw
+// draws as nothing, so it is better dropped where the text enters.
+bool readingCutsCarry(uint32_t cp);
+
 // Vertical metrics of the actual ink, which is not what GfxRenderer reports.
 // getTextHeight() returns the ASCENDER, and drawText() takes y as the top of the
 // ascender box. Centring on that centres the box, not the letters: capital ink

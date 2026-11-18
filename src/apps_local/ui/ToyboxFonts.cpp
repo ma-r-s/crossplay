@@ -158,6 +158,11 @@ void verifyCutMetrics() {
   }
 }
 
+bool readingCutsCarry(const uint32_t cp) {
+  return readingFamily.hasCodepoint(cp) && readingBoldFamily.hasCodepoint(cp) && readingSmallFamily.hasCodepoint(cp) &&
+         readingBoldSmallFamily.hasCodepoint(cp);
+}
+
 void ensureFonts(GfxRenderer& renderer) {
   if (registered) return;
   verifyCutMetrics();

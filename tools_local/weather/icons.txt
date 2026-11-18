@@ -1,0 +1,14 @@
+# The forecast's skies, one per weather::Icon, generated into
+# src/apps_local/weather/WeatherIcons.h by gen_weather_icons.sh. Format:
+# alias = lucide-name. The moon pair is for the reading taken at night only.
+
+wx_sun        = sun
+wx_moon       = moon
+wx_cloud_sun  = cloud-sun
+wx_cloud_moon = cloud-moon
+wx_cloud      = cloud
+wx_fog        = cloud-fog
+wx_drizzle    = cloud-drizzle
+wx_rain       = cloud-rain
+wx_snow       = cloud-snow
+wx_thunder    = cloud-lightning
