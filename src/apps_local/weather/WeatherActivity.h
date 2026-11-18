@@ -75,6 +75,11 @@ class WeatherActivity final : public Activity {
   void request(Pending what);
   void fetchForecast();
   void fetchMatches();
+  // One GET into a bounded string; false when it failed or was abandoned.
+  bool fetchAnswer(const std::string& url, std::string& out);
+  // Asked every 50 ms while a request holds the loop: pumps input, and answers
+  // true once Back or Home asks to abandon it.
+  bool pollDuringRequest();
 
   // --- Moving between screens ---------------------------------------------
   void openSearch();
@@ -98,6 +103,9 @@ class WeatherActivity final : public Activity {
   // A Back release only counts when this activity also saw the press: the
   // picker acts on the press and hands the release back here.
   bool backPressSeen_ = false;
+  // What abandoned the request in hand, acted on once it has returned.
+  enum class Interrupt : uint8_t { None, Back, Home };
+  Interrupt interrupt_ = Interrupt::None;
 
   weather::Place place_;
   bool havePlace_ = false;

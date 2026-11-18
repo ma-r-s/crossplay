@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../ui/ToyboxIcons.h"
+#include "../ui/ToyboxInk.h"
 #include "../ui/ToyboxText.h"
 #include "WeatherIcons.h"
 
@@ -12,7 +13,6 @@ namespace {
 
 constexpr int16_t kMargin = toybox::kMargin;
 constexpr int16_t kGutter = toybox::kGutter;
-constexpr const char* kSource = "WEATHER BY OPEN-METEO.COM";
 
 int16_t max16(const int a, const int b) { return static_cast<int16_t>(a > b ? a : b); }
 
@@ -86,27 +86,10 @@ void drawTemp(toybox::Screen& screen, const int16_t x, const int16_t lineTop, co
                color == fui::Color::Black ? fui::Color::White : fui::Color::Black);
 }
 
-// The same, placed by its baseline, so two cuts in one row share one.
-void drawTempOnBaseline(toybox::Screen& screen, const int16_t x, const int16_t baseline, const fui::FontId font,
-                        const std::string& text, const fui::Color color = fui::Color::Black) {
-  const Cap cap = capOf(screen, font);
-  drawTemp(screen, x, static_cast<int16_t>(baseline - cap.top - cap.height), font, text, color);
-}
-
 std::string number(const int value) { return std::to_string(value); }
 std::string highText(const DayRow& day) { return day.hasHigh ? number(day.high) : std::string("--"); }
 std::string lowText(const DayRow& day) { return day.hasLow ? number(day.low) : std::string("--"); }
 std::string rainLabel(const int rain) { return rain < 0 ? std::string() : number(rain) + "%"; }
-
-// A line of text placed by its baseline.
-void textOnBaseline(toybox::Screen& screen, const int16_t x, const int16_t baseline, const fui::FontId font,
-                    const char* text, const fui::Color color = fui::Color::Black) {
-  const Cap cap = capOf(screen, font);
-  const int16_t width = widthOf(screen, font, text);
-  screen.target().text(fui::makeRect(x, static_cast<int16_t>(baseline - cap.top - cap.height),
-                                     static_cast<int16_t>(width + 1), cap.line),
-                       text, ink(font, fui::TextAlign::Left, 1, color));
-}
 
 void blit(toybox::Screen& screen, const freeink::Icon& icon, const int16_t x, const int16_t y,
           const fui::Color color = fui::Color::Black) {
@@ -118,20 +101,12 @@ void hairline(toybox::Screen& screen, const int16_t x, const int16_t y, const in
   screen.target().fill(fui::makeRect(x, y, width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
 }
 
-// One line fitted to `width` in the largest cut that holds it whole, wrapping
-// to `lines` before anything is cut. Returns the height it took.
-int16_t fittedLine(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
-                   const fui::TextAlign align, const uint8_t lines = 1, const fui::Color color = fui::Color::Black) {
-  fui::TextStyle style = ink(font, align, lines, color);
-  const std::string fitted = toybox::fittedTitle(screen.target(), text, box.width, style);
-  const int16_t height = fui::measureWrappedText(screen.target(), fitted.c_str(), style, box.width).height;
-  screen.target().text(fui::makeRect(box.x, box.y, box.width, height), fitted.c_str(), style);
-  return height;
-}
-
 // --- The band ------------------------------------------------------------------
 
-void band(toybox::Screen& screen, const char* title, const fui::ActionId trailing, const char* trailingLabel) {
+// `insetTop` leaves the body three gutters under the rule, as most screens
+// here do; the main screen places its own composition by ink and takes none.
+void band(toybox::Screen& screen, const char* title, const fui::ActionId trailing, const char* trailingLabel,
+          const bool insetTop = true) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
@@ -148,7 +123,7 @@ void band(toybox::Screen& screen, const char* title, const fui::ActionId trailin
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   toybox::headerBand(screen, header);
-  screen.insetContent(fui::Insets{static_cast<int16_t>(kGutter * 3), kMargin, kMargin, kMargin});
+  screen.insetContent(fui::Insets{static_cast<int16_t>(insetTop ? kGutter * 3 : 0), kMargin, kMargin, kMargin});
 }
 
 // "OFFLINE. UPDATED 14:07": what the radio did, and when the reading is from.
@@ -161,58 +136,91 @@ std::string statusLine(const MainModel& model) {
   return line;
 }
 
-// The forecast's source, at the foot of the page. Open-Meteo asks for it
-// (CC BY 4.0), and it is the one place the screen says where the numbers came
-// from.
-void sourceLine(toybox::Screen& screen) {
-  const fui::Rect foot = screen.takeBottom(lineOf(screen, toybox::kSmallFont), kGutter);
-  screen.target().text(foot, kSource, ink(toybox::kSmallFont, fui::TextAlign::Left));
+// --- The main screen, by ink ---------------------------------------------------------
+//
+// Every gap below is between INKS, cap top to baseline (ui/ToyboxInk.h), and
+// comes from one scale chosen by relationship: lines of one reading a gutter
+// apart, the week's rows two, the three groups (the place, the reading, the
+// week) three. The composition is then centred between the band's rule and the
+// panel's foot, so the space it does not need is placed, equally above and
+// below, instead of being handed to whichever element came last.
+constexpr int16_t kLineGap = kGutter;
+constexpr int16_t kRowGap = kGutter * 2;
+constexpr int16_t kGroupGap = kGutter * 3;
+// The place, four lines of reading, the rule, the rows; or the place and the
+// four blocks of an empty screen.
+constexpr int kBlocks = 1 + 4 + 1 + kRows;
+using Column = toybox::InkColumn<kBlocks>;
+
+// Where the composition may sit: from the rule under the band to the foot of
+// the panel, never closer than a margin to either.
+int16_t spanTop() { return static_cast<int16_t>(toybox::kChromeHeight); }
+int16_t spanBottom(toybox::Screen& screen) { return screen.device().height; }
+
+// Draws `text` with its cap top at inkTop.
+void textAt(toybox::Screen& screen, const int16_t x, const int16_t inkTop, const int16_t width, const fui::FontId font,
+            const char* text, const uint8_t lines = 1) {
+  screen.target().text(toybox::inkRect(screen.target(), font, x, inkTop, width, lines), text,
+                       ink(font, fui::TextAlign::Left, lines));
 }
 
-// No forecast to draw: a headline, a sentence, and when it helps a way to try
-// again. Laid out as one block and centred as one.
-void emptyBlock(toybox::Screen& screen, const MainModel& model) {
-  sourceLine(screen);
+// A temperature and its ring with the cap top at inkTop.
+void tempAt(toybox::Screen& screen, const int16_t x, const int16_t inkTop, const fui::FontId font,
+            const std::string& text) {
+  drawTemp(screen, x, static_cast<int16_t>(inkTop - capOf(screen, font).top), font, text);
+}
+
+// An icon whose ink is centred on (centreX, centreY): the drawn shape, not the
+// square around it, which carries different padding from icon to icon.
+void iconCentred(toybox::Screen& screen, const freeink::Icon& icon, const int16_t centreX, const int16_t centreY) {
+  const fui::Rect drawn = toybox::iconInk(icon);
+  blit(screen, icon, static_cast<int16_t>(centreX - drawn.width / 2 - drawn.x),
+       static_cast<int16_t>(centreY - drawn.height / 2 - drawn.y));
+}
+
+// No forecast to draw: a headline, a sentence, the radio's state, and when it
+// helps a way to try again, left-aligned like everything else on the screen.
+int16_t emptyBlock(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
   const fui::Rect body = screen.body();
-  fui::TextStyle head = ink(toybox::kUiFont, fui::TextAlign::Center, 2);
-  fui::TextStyle message = ink(toybox::kSmallFont, fui::TextAlign::Center, 4);
+  const auto lines = [&screen, &body](const char* text, const fui::FontId font, const int most) {
+    fui::TextStyle style = ink(font, fui::TextAlign::Left, static_cast<uint8_t>(most));
+    const int16_t height = fui::measureWrappedText(screen.target(), text, style, body.width).height;
+    const int16_t line = screen.target().lineHeight(font);
+    return line > 0 ? max16(1, height / line) : 1;
+  };
   const std::string status = statusLine(model);
-  const int16_t headH = fui::measureWrappedText(screen.target(), model.emptyHeadline, head, body.width).height;
-  const int16_t messageH =
-      model.emptyMessage[0] ? fui::measureWrappedText(screen.target(), model.emptyMessage, message, body.width).height
-                            : 0;
-  const int16_t statusH = status.empty() ? 0 : lineOf(screen, toybox::kSmallFont);
-  const int16_t buttonH = model.offerRetry ? toybox::kPillHeight : 0;
-  const int16_t total = static_cast<int16_t>(headH + (messageH ? kGutter + messageH : 0) +
-                                             (statusH ? kGutter + statusH : 0) + (buttonH ? kGutter * 2 + buttonH : 0));
-  int16_t y = static_cast<int16_t>(body.y + max16(0, (body.height - total) / 2));
-  screen.target().text(fui::makeRect(body.x, y, body.width, headH), model.emptyHeadline, head);
-  y = static_cast<int16_t>(y + headH);
-  if (messageH) {
-    y = static_cast<int16_t>(y + kGutter);
-    screen.target().text(fui::makeRect(body.x, y, body.width, messageH), model.emptyMessage, message);
-    y = static_cast<int16_t>(y + messageH);
+  const int headLines = lines(model.emptyHeadline, toybox::kUiFont, 2);
+  const int messageLines = model.emptyMessage[0] ? lines(model.emptyMessage, toybox::kSmallFont, 4) : 0;
+  Column column;
+  const int place = column.add(0, placeInk);
+  const int head = column.add(kGroupGap, toybox::inkHeight(screen.target(), toybox::kUiFont, headLines));
+  const int message =
+      messageLines ? column.add(kLineGap, toybox::inkHeight(screen.target(), toybox::kSmallFont, messageLines)) : -1;
+  const int state = status.empty() ? -1 : column.add(kLineGap, toybox::inkHeight(screen.target(), toybox::kSmallFont));
+  const int retry = model.offerRetry ? column.add(kGroupGap, toybox::kPillHeight) : -1;
+  column.centre(spanTop(), spanBottom(screen), kMargin);
+
+  textAt(screen, body.x, column.top(head), body.width, toybox::kUiFont, model.emptyHeadline,
+         static_cast<uint8_t>(headLines));
+  if (message >= 0) {
+    textAt(screen, body.x, column.top(message), body.width, toybox::kSmallFont, model.emptyMessage,
+           static_cast<uint8_t>(messageLines));
   }
-  if (statusH) {
-    y = static_cast<int16_t>(y + kGutter);
-    screen.target().text(fui::makeRect(body.x, y, body.width, statusH), status.c_str(),
-                         ink(toybox::kSmallFont, fui::TextAlign::Center));
-    y = static_cast<int16_t>(y + statusH);
+  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status.c_str());
+  if (retry >= 0) {
+    fui::ButtonProps button;
+    button.label = "TRY AGAIN";
+    button.action = ActionRetry;
+    button.text = toybox::buttonText(screen.theme());
+    button.radius = toybox::kPillRadius;
+    screen.button(button,
+                  fui::makeRect(body.x, column.top(retry), static_cast<int16_t>(body.width / 2), toybox::kPillHeight));
   }
-  if (buttonH) {
-    y = static_cast<int16_t>(y + kGutter * 2);
-    const int16_t width = static_cast<int16_t>(body.width / 2);
-    fui::ButtonProps retry;
-    retry.label = "TRY AGAIN";
-    retry.action = ActionRetry;
-    retry.text = toybox::buttonText(screen.theme());
-    retry.radius = toybox::kPillRadius;
-    screen.button(retry, fui::makeRect(static_cast<int16_t>(body.x + (body.width - width) / 2), y, width, buttonH));
-  }
+  return column.top(place);
 }
 
-// "H 9  L 3  RAIN 20%" (with rings), the pieces measured once so a line can be
-// placed left, centred or inside a card from the same arithmetic.
+// "H 9  L 3  RAIN 20%" (with rings), measured once and drawn from the same
+// numbers.
 struct RangeLine {
   std::string high;
   std::string low;
@@ -221,9 +229,7 @@ struct RangeLine {
   int16_t lWidth = 0;
   int16_t highWidth = 0;
   int16_t lowWidth = 0;
-  int16_t rainWidth = 0;
   int16_t space = 0;
-  int16_t width = 0;
 };
 
 RangeLine rangeLine(toybox::Screen& screen, const DayRow& today, const fui::FontId font) {
@@ -237,81 +243,111 @@ RangeLine rangeLine(toybox::Screen& screen, const DayRow& today, const fui::Font
   line.lWidth = static_cast<int16_t>(widthOf(screen, font, "L") + letterGap);
   line.highWidth = tempWidth(screen, font, line.high);
   line.lowWidth = tempWidth(screen, font, line.low);
-  line.rainWidth = line.rain.empty() ? 0 : widthOf(screen, font, line.rain.c_str());
   line.space = static_cast<int16_t>(kGutter * 2);
-  line.width = static_cast<int16_t>(line.hWidth + line.highWidth + line.space + line.lWidth + line.lowWidth +
-                                    (line.rain.empty() ? 0 : line.space + line.rainWidth));
   return line;
 }
 
-void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, const int16_t lineTop,
-                   const fui::FontId font, const fui::Color color = fui::Color::Black) {
-  const int16_t height = lineOf(screen, font);
-  const fui::TextStyle style = ink(font, fui::TextAlign::Left, 1, color);
-  screen.target().text(fui::makeRect(x, lineTop, widthOf(screen, font, "H"), height), "H", style);
+void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, const int16_t inkTop,
+                   const fui::FontId font) {
+  textAt(screen, x, inkTop, widthOf(screen, font, "H"), font, "H");
   x = static_cast<int16_t>(x + line.hWidth);
-  drawTemp(screen, x, lineTop, font, line.high, color);
+  tempAt(screen, x, inkTop, font, line.high);
   x = static_cast<int16_t>(x + line.highWidth + line.space);
-  screen.target().text(fui::makeRect(x, lineTop, widthOf(screen, font, "L"), height), "L", style);
+  textAt(screen, x, inkTop, widthOf(screen, font, "L"), font, "L");
   x = static_cast<int16_t>(x + line.lWidth);
-  drawTemp(screen, x, lineTop, font, line.low, color);
+  tempAt(screen, x, inkTop, font, line.low);
   x = static_cast<int16_t>(x + line.lowWidth + line.space);
-  if (!line.rain.empty()) {
-    screen.target().text(fui::makeRect(x, lineTop, static_cast<int16_t>(line.rainWidth + 1), height), line.rain.c_str(),
-                         style);
-  }
-}
-
-// The big number's line-box top that centres its capitals in [top, top + h).
-int16_t bigLineTop(toybox::Screen& screen, const int16_t top, const int16_t height) {
-  const Cap cap = capOf(screen, toybox::kDisplayFont);
-  return static_cast<int16_t>(top + (height - cap.height) / 2 - cap.top);
+  if (!line.rain.empty()) textAt(screen, x, inkTop, widthOf(screen, font, line.rain.c_str()), font, line.rain.c_str());
 }
 
 std::string nowText(const MainModel& model) { return model.hasNow ? number(model.now) : std::string("--"); }
 
-// The widest day name this week, measured: the sky column starts after it, so
-// a wide MON or WED never runs into its own icon.
-int16_t nameColumn(toybox::Screen& screen, const MainModel& model) {
-  int16_t widest = 0;
+// The week's columns, measured from THIS week's strings, a gutter apart:
+// day | sky | chance of rain | low | the bar | high. Nothing is reserved for a
+// string that is not on screen, so no dead band opens between two columns.
+struct WeekColumns {
+  int16_t nameX = 0;
+  int16_t skyX = 0;  // the sky column, as wide as this week's widest sky ink
+  int16_t skyW = 0;
+  int16_t rainX = 0;
+  int16_t lowRight = 0;  // lows are right-aligned on this edge
+  int16_t barX = 0;
+  int16_t barW = 0;
+  int16_t highRight = 0;  // and highs on this one, the screen's right edge
+};
+
+WeekColumns weekColumns(toybox::Screen& screen, const MainModel& model, const int16_t left, const int16_t right) {
+  int16_t nameW = 0, skyW = 0, rainW = 0, lowW = 0, highW = 0;
   for (int i = 0; i < model.dayCount && i < kRows; ++i) {
-    widest = max16(widest, widthOf(screen, toybox::kUiFont, model.days[i].name));
+    const DayRow& day = model.days[i];
+    nameW = max16(nameW, widthOf(screen, toybox::kUiFont, day.name));
+    skyW = max16(skyW, toybox::iconInk(skyBitmap(day.icon, 32)).width);
+    rainW = max16(rainW, widthOf(screen, toybox::kSmallFont, rainLabel(day.rain).c_str()));
+    lowW = max16(lowW, tempWidth(screen, toybox::kUiFont, lowText(day)));
+    highW = max16(highW, tempWidth(screen, toybox::kUiFont, highText(day)));
   }
-  return widest;
+  WeekColumns c;
+  c.nameX = left;
+  c.skyX = static_cast<int16_t>(left + nameW + kGutter);
+  c.skyW = skyW;
+  c.rainX = static_cast<int16_t>(c.skyX + skyW + kGutter);
+  const int16_t lowX = rainW > 0 ? static_cast<int16_t>(c.rainX + rainW + kGutter) : c.rainX;
+  c.lowRight = static_cast<int16_t>(lowX + lowW);
+  c.highRight = right;
+  c.barX = static_cast<int16_t>(c.lowRight + kGutter);
+  c.barW = static_cast<int16_t>(right - highW - kGutter - c.barX);
+  return c;
 }
 
-// --- The reading and the week ------------------------------------------------------
-// The reading centred, and each day as a bar from its low to its high on one
-// scale for the week, so a cold snap is a shape rather than six numbers: the
-// ornament is the forecast itself (docs/design-language.md, "Ornament").
-
-void mainBody(toybox::Screen& screen, const MainModel& model) {
-  sourceLine(screen);
+int16_t mainBody(toybox::Screen& screen, const MainModel& model, const int16_t placeInk) {
   const fui::Rect body = screen.body();
   const int16_t right = static_cast<int16_t>(body.x + body.width);
-  const int16_t centre = static_cast<int16_t>(body.x + body.width / 2);
-  constexpr int16_t kHero = 96;
-  int16_t y = body.y;
-
-  const std::string now = nowText(model);
-  const int16_t heroWidth = static_cast<int16_t>(96 + kGutter * 2 + tempWidth(screen, toybox::kDisplayFont, now));
-  const int16_t heroX = static_cast<int16_t>(centre - heroWidth / 2);
-  blit(screen, skyBitmap(model.nowIcon, 96), heroX, y);
-  drawTemp(screen, static_cast<int16_t>(heroX + 96 + kGutter * 2), bigLineTop(screen, y, kHero), toybox::kDisplayFont,
-           now);
-  y = static_cast<int16_t>(y + kHero + kGutter / 2);
-
-  y = static_cast<int16_t>(y + fittedLine(screen, fui::makeRect(body.x, y, body.width, 0), model.sky, toybox::kUiFont,
-                                          fui::TextAlign::Center));
-  const RangeLine range = rangeLine(screen, model.today, toybox::kUiFont);
-  drawRangeLine(screen, range, static_cast<int16_t>(centre - range.width / 2), y, toybox::kUiFont);
-  y = static_cast<int16_t>(y + lineOf(screen, toybox::kUiFont));
+  const fui::DrawTarget& target = screen.target();
   const std::string status = statusLine(model);
-  screen.target().text(fui::makeRect(body.x, y, body.width, lineOf(screen, toybox::kSmallFont)), status.c_str(),
-                       ink(toybox::kSmallFont, fui::TextAlign::Center));
-  y = static_cast<int16_t>(y + lineOf(screen, toybox::kSmallFont) + kGutter);
-  hairline(screen, body.x, y, body.width);
-  y = static_cast<int16_t>(y + toybox::kHairline + kGutter / 2);
+  const int days = model.dayCount < kRows ? model.dayCount : kRows;
+  // A row is its text's capitals: the rhythm is the words', and each sky is
+  // centred on them (a 32px sky's ink is at most 29, so it reaches two pixels
+  // into the row gap either side and never near a neighbour).
+  const int16_t rowBand = toybox::inkHeight(target, toybox::kUiFont);
+
+  // The whole composition, gaps first; when it will not fit with a margin to
+  // spare, the rows close up to a gutter, then the groups to two.
+  int rowsAt[kRows] = {};
+  int place = 0, hero = 0, sky = -1, range = 0, state = -1, rule = -1;
+  Column column;
+  const int16_t room = static_cast<int16_t>(spanBottom(screen) - spanTop() - 2 * kMargin);
+  for (const int16_t tighten : {int16_t{0}, int16_t{1}, int16_t{2}}) {
+    const int16_t rowGap = tighten ? kLineGap : kRowGap;
+    const int16_t groupGap = tighten > 1 ? kRowGap : kGroupGap;
+    column = Column{};
+    place = column.add(0, placeInk);
+    hero = column.add(groupGap, toybox::inkHeight(target, toybox::kDisplayFont));
+    sky = model.sky[0] ? column.add(kLineGap, toybox::inkHeight(target, toybox::kUiFont)) : -1;
+    range = column.add(kLineGap, toybox::inkHeight(target, toybox::kUiFont));
+    state = status.empty() ? -1 : column.add(kLineGap, toybox::inkHeight(target, toybox::kSmallFont));
+    rule = days > 0 ? column.add(groupGap, toybox::kHairline) : -1;
+    for (int i = 0; i < days; ++i) rowsAt[i] = column.add(i == 0 ? groupGap : rowGap, rowBand);
+    if (column.height() <= room) break;
+  }
+  column.centre(spanTop(), spanBottom(screen), kMargin);
+
+  // The reading: the number at the left edge, its sky with its ink centred on
+  // the number's capitals at the right edge, then the lines under it.
+  const std::string now = nowText(model);
+  const int16_t heroTop = column.top(hero);
+  const int16_t heroCap = toybox::inkHeight(target, toybox::kDisplayFont);
+  tempAt(screen, body.x, heroTop, toybox::kDisplayFont, now);
+  {
+    const freeink::Icon& icon = skyBitmap(model.nowIcon, 88);
+    const fui::Rect drawn = toybox::iconInk(icon);
+    iconCentred(screen, icon, static_cast<int16_t>(right - drawn.width / 2),
+                static_cast<int16_t>(heroTop + heroCap / 2));
+  }
+  if (sky >= 0) textAt(screen, body.x, column.top(sky), body.width, toybox::kUiFont, model.sky);
+  drawRangeLine(screen, rangeLine(screen, model.today, toybox::kUiFont), body.x, column.top(range), toybox::kUiFont);
+  if (state >= 0) textAt(screen, body.x, column.top(state), body.width, toybox::kSmallFont, status.c_str());
+  if (rule < 0) return column.top(place);
+  hairline(screen, body.x, column.top(rule), body.width);
 
   // One scale for the whole week, today included, so every bar is comparable.
   int lo = 0, hi = 0;
@@ -329,43 +365,43 @@ void mainBody(toybox::Screen& screen, const MainModel& model) {
     }
   };
   take(model.today);
-  for (int i = 0; i < model.dayCount && i < kRows; ++i) take(model.days[i]);
+  for (int i = 0; i < days; ++i) take(model.days[i]);
   if (hi == lo) ++hi;
 
-  const int16_t rowH = static_cast<int16_t>((body.y + body.height - y) / kRows);
-  const Cap ui = capOf(screen, toybox::kUiFont);
-  const int16_t iconX = static_cast<int16_t>(body.x + nameColumn(screen, model) + kGutter / 2);
-  // The low column starts after the widest rain label this screen can draw.
-  const int16_t lowRight = static_cast<int16_t>(iconX + 32 + kGutter / 2 + widthOf(screen, toybox::kSmallFont, "100%") +
-                                                kGutter + tempWidth(screen, toybox::kUiFont, "-88"));
-  const int16_t highWidth = tempWidth(screen, toybox::kUiFont, "-88");
-  const int16_t barX = static_cast<int16_t>(lowRight + 10);
-  const int16_t barW = static_cast<int16_t>(right - highWidth - 10 - barX);
-  for (int i = 0; i < model.dayCount && i < kRows; ++i) {
+  // The week: text on one baseline per row, skies and bars centred on its caps.
+  const WeekColumns cols = weekColumns(screen, model, body.x, right);
+  const int16_t uiCap = toybox::inkHeight(target, toybox::kUiFont);
+  const int16_t smallCap = toybox::inkHeight(target, toybox::kSmallFont);
+  for (int i = 0; i < days; ++i) {
     const DayRow& day = model.days[i];
-    const int16_t top = static_cast<int16_t>(y + i * rowH);
-    const int16_t baseline = static_cast<int16_t>(top + (rowH + ui.height) / 2);
-    const int16_t mid = static_cast<int16_t>(top + rowH / 2);
-    textOnBaseline(screen, body.x, baseline, toybox::kUiFont, day.name);
-    blit(screen, skyBitmap(day.icon, 32), iconX, static_cast<int16_t>(mid - 16));
+    const int16_t top = column.top(rowsAt[i]);
+    const int16_t mid = static_cast<int16_t>(top + rowBand / 2);
+    const int16_t baseline = static_cast<int16_t>(top + uiCap);
+    textAt(screen, cols.nameX, static_cast<int16_t>(baseline - uiCap), widthOf(screen, toybox::kUiFont, day.name),
+           toybox::kUiFont, day.name);
+    iconCentred(screen, skyBitmap(day.icon, 32), static_cast<int16_t>(cols.skyX + cols.skyW / 2), mid);
     const std::string rain = rainLabel(day.rain);
-    if (!rain.empty())
-      textOnBaseline(screen, static_cast<int16_t>(iconX + 32 + kGutter / 2), baseline, toybox::kSmallFont,
-                     rain.c_str());
+    if (!rain.empty()) {
+      textAt(screen, cols.rainX, static_cast<int16_t>(baseline - smallCap),
+             widthOf(screen, toybox::kSmallFont, rain.c_str()), toybox::kSmallFont, rain.c_str());
+    }
     const std::string low = lowText(day);
     const std::string high = highText(day);
-    drawTempOnBaseline(screen, static_cast<int16_t>(lowRight - tempWidth(screen, toybox::kUiFont, low)), baseline,
-                       toybox::kUiFont, low);
-    drawTempOnBaseline(screen, static_cast<int16_t>(right - highWidth), baseline, toybox::kUiFont, high);
-    screen.target().fill(fui::makeRect(barX, static_cast<int16_t>(mid - 3), barW, 6),
+    tempAt(screen, static_cast<int16_t>(cols.lowRight - tempWidth(screen, toybox::kUiFont, low)),
+           static_cast<int16_t>(baseline - uiCap), toybox::kUiFont, low);
+    tempAt(screen, static_cast<int16_t>(cols.highRight - tempWidth(screen, toybox::kUiFont, high)),
+           static_cast<int16_t>(baseline - uiCap), toybox::kUiFont, high);
+    if (cols.barW <= 0) continue;
+    screen.target().fill(fui::makeRect(cols.barX, static_cast<int16_t>(mid - 3), cols.barW, 6),
                          fui::Paint::dither(fui::Color::LightGray));
     if (day.hasLow && day.hasHigh) {
-      const int16_t x0 = static_cast<int16_t>(barX + static_cast<long>(barW) * (day.low - lo) / (hi - lo));
-      const int16_t x1 = static_cast<int16_t>(barX + static_cast<long>(barW) * (day.high - lo) / (hi - lo));
+      const int16_t x0 = static_cast<int16_t>(cols.barX + static_cast<long>(cols.barW) * (day.low - lo) / (hi - lo));
+      const int16_t x1 = static_cast<int16_t>(cols.barX + static_cast<long>(cols.barW) * (day.high - lo) / (hi - lo));
       screen.target().fill(fui::makeRect(x0, static_cast<int16_t>(mid - 6), max16(8, x1 - x0), 12),
                            fui::Paint::solid(fui::Color::Black), 6);
     }
   }
+  return column.top(place);
 }
 
 // --- Search ----------------------------------------------------------------------
@@ -378,23 +414,28 @@ int16_t searchRowHeight(toybox::Screen& screen) {
 
 // --- Main --------------------------------------------------------------------------
 
-void buildMainTop(toybox::Screen& screen, const MainModel& model) {
-  band(screen, "WEATHER", ActionMenu, nullptr);
+MainPlace buildMainTop(toybox::Screen& screen, const MainModel& model) {
+  band(screen, "WEATHER", ActionMenu, nullptr, false);
   const fui::Rect body = screen.body();
-  // Centred, over the centred reading it names.
-  fui::TextStyle name = ink(toybox::kBodyFont, fui::TextAlign::Center, 2);
-  const std::string fitted = toybox::fittedTitle(screen.target(), model.place, body.width, name);
-  const int16_t height = fui::measureWrappedText(screen.target(), fitted.c_str(), name, body.width).height;
-  const fui::Rect line = screen.takeTop(height, kGutter);
-  screen.target().text(line, fitted.c_str(), name);
+  MainPlace place;
+  place.style = ink(toybox::kBodyFont, fui::TextAlign::Left, 2);
+  place.text = toybox::fittedTitle(screen.target(), model.place, body.width, place.style);
+  const int16_t height = fui::measureWrappedText(screen.target(), place.text.c_str(), place.style, body.width).height;
+  const int16_t line = screen.target().lineHeight(place.style.font);
+  place.lines = line > 0 ? max16(1, height / line) : 1;
+  place.inkHeight = toybox::inkHeight(screen.target(), place.style.font, place.lines);
+  return place;
 }
 
-void buildMainBody(toybox::Screen& screen, const MainModel& model) {
-  if (!model.hasForecast) {
-    emptyBlock(screen, model);
-    return;
-  }
-  mainBody(screen, model);
+int16_t buildMainBody(toybox::Screen& screen, const MainModel& model, const MainPlace& place) {
+  if (!model.hasForecast) return emptyBlock(screen, model, place.inkHeight);
+  return mainBody(screen, model, place.inkHeight);
+}
+
+void drawMainPlace(toybox::Screen& screen, const MainPlace& place, const int16_t inkTop) {
+  const fui::Rect body = screen.body();
+  screen.target().text(toybox::inkRect(screen.target(), place.style.font, body.x, inkTop, body.width, place.lines),
+                       place.text.c_str(), place.style);
 }
 
 // --- Search ---------------------------------------------------------------------------
@@ -567,40 +608,28 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       screen.target().text(fui::makeRect(body.x, y, body.width, smallLine), model.updated, ink(toybox::kSmallFont));
     }
   }
-
-  // Where the numbers come from, at the foot: Open-Meteo asks to be named,
-  // and the second line is the promise the app keeps about the battery.
-  {
-    fui::TextStyle source = ink(toybox::kSmallFont, fui::TextAlign::Left, 4);
-    const char* const text =
-        "WEATHER DATA BY OPEN-METEO.COM, UNDER CC BY 4.0. READ ONLY WHEN THIS APP OPENS OR YOU REFRESH, NEVER IN THE "
-        "BACKGROUND.";
-    const int16_t h = fui::measureWrappedText(screen.target(), text, source, body.width).height;
-    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + body.height - h), body.width, h), text,
-                         source);
-  }
 }
 
 // --- Skies ---------------------------------------------------------------------------------
 
 const freeink::Icon& skyBitmap(const weather::Icon icon, const int size) {
-  // One row per sky, one column per generated size: 32 for the rows, 96 for
-  // the reading.
+  // One row per sky, one column per generated size: 32 for the rows, 88 for
+  // the reading, whose ink then fits inside the number's capitals.
   static const freeink::Icon* const kTable[][2] = {
-      {&icon_wx_sun_32, &icon_wx_sun_96},
-      {&icon_wx_moon_32, &icon_wx_moon_96},
-      {&icon_wx_cloud_sun_32, &icon_wx_cloud_sun_96},
-      {&icon_wx_cloud_moon_32, &icon_wx_cloud_moon_96},
-      {&icon_wx_cloud_32, &icon_wx_cloud_96},
-      {&icon_wx_fog_32, &icon_wx_fog_96},
-      {&icon_wx_drizzle_32, &icon_wx_drizzle_96},
-      {&icon_wx_rain_32, &icon_wx_rain_96},
-      {&icon_wx_snow_32, &icon_wx_snow_96},
-      {&icon_wx_thunder_32, &icon_wx_thunder_96},
+      {&icon_wx_sun_32, &icon_wx_sun_88},
+      {&icon_wx_moon_32, &icon_wx_moon_88},
+      {&icon_wx_cloud_sun_32, &icon_wx_cloud_sun_88},
+      {&icon_wx_cloud_moon_32, &icon_wx_cloud_moon_88},
+      {&icon_wx_cloud_32, &icon_wx_cloud_88},
+      {&icon_wx_fog_32, &icon_wx_fog_88},
+      {&icon_wx_drizzle_32, &icon_wx_drizzle_88},
+      {&icon_wx_rain_32, &icon_wx_rain_88},
+      {&icon_wx_snow_32, &icon_wx_snow_88},
+      {&icon_wx_thunder_32, &icon_wx_thunder_88},
   };
   static_assert(sizeof(kTable) / sizeof(kTable[0]) == static_cast<size_t>(weather::Icon::Thunder) + 1,
                 "one row per weather::Icon");
-  return *kTable[static_cast<int>(icon)][size >= 96 ? 1 : 0];
+  return *kTable[static_cast<int>(icon)][size >= 88 ? 1 : 0];
 }
 
 }  // namespace weatherui

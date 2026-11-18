@@ -143,6 +143,10 @@ int firstDay(const Cache& cache, int64_t nowUtc);
 // against today when the clock knows it.
 std::string updatedLabel(const Cache& cache, int64_t nowUtc, bool twelveHour);
 
+// Every name weekdayShort() can answer, Sunday first. Exported so a screen can
+// size its day column to the widest of them, whichever days are showing.
+inline constexpr const char* kWeekdayNames[7] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
+
 // "MON".."SUN" for a calendar date.
 const char* weekdayShort(int year, int month, int day);
 const char* weekdayShort(const Day& day);

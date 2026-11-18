@@ -256,6 +256,26 @@ The same clamp applies to a **left- or right-aligned** run: alignment is
 horizontal, the clamp is vertical, and a left-aligned score in a short box is
 exactly as low as a centred one. Audit by box height, never by alignment.
 
+**Stack by ink, not by line boxes.** The same leading bites a whole page as
+much as one label. A screen that stacks lines by adding each font's line height
+plus a gap gets a visible gap of that gap PLUS both faces' leading, and Jersey,
+the reading serif and the small cuts all carry different leading: equal
+offsets in the code come out as unequal gaps on the panel. The first Weather
+screen measured 47.5, 25.5, 19.5, 17.5, 14.5, 17.5 and 20.5 px between its
+sections that way, no two alike, and nothing in the code looked uneven.
+
+[`ui/ToyboxInk.h`](../src/apps_local/ui/ToyboxInk.h) is the cure, and it is
+three pieces: `inkBand()` (where a cut's capitals sit in its line box, from the
+same table `inkCentred` reads), `inkRect()` (the line box that puts a cap top on
+a given y) and `InkColumn` (blocks added with the gap their ink keeps from the
+ink above, laid out as a whole and centred in a span, so the space a screen
+does not need is placed rather than left to whichever element came last).
+`iconInk()` measures an icon's drawn shape, whose padding differs from icon to
+icon, so an icon can be centred on a line of text and kept a gutter from it.
+Choose the gaps from one scale by relationship (lines of one group a gutter
+apart, groups further) and measure them in a test by ink: the ui suite's
+`mainInkFollowsOneScale` is the pattern.
+
 The rest of the cuts this fork ships, for the apps that do not speak Jersey and
 for the reading face a prose app binds to its body slot:
 

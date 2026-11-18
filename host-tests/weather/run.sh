@@ -20,3 +20,6 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/weather/WeatherCore.cpp \
   test_weather.cpp -o "$BUILD_DIR/test_weather"
 "$BUILD_DIR/test_weather"
+
+# Every request can be abandoned with Back within a poll (see abandon.py).
+python3 abandon.py ../..

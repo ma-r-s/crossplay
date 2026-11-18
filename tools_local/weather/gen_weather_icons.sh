@@ -14,6 +14,6 @@ cd "$REPO"
 uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
   --manifest tools_local/weather/icons.txt \
   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
-  --sizes 32,96 \
+  --sizes 32,88 \
   --out src/apps_local/weather/WeatherIcons.h
 echo "wrote src/apps_local/weather/WeatherIcons.h; run ./bin/clang-format-fix -g before committing"

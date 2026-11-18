@@ -276,12 +276,11 @@ void civilFromDays(int64_t z, int& y, int& m, int& d) {
 
 int64_t floorDiv(const int64_t a, const int64_t b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 
-constexpr const char* kWeekdays[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
 constexpr const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
 
 const char* weekdayOf(const int64_t days) {
   const int64_t w = (days + 4) % 7;  // 1970-01-01 was a Thursday
-  return kWeekdays[w < 0 ? w + 7 : w];
+  return kWeekdayNames[w < 0 ? w + 7 : w];
 }
 
 bool validDate(const int y, const int m, const int d) {

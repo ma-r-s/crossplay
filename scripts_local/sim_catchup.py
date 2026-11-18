@@ -800,6 +800,102 @@ def main(env):
         "SecureHttpClient::getCombinedHeader (one value per name on a host)",
         marker="getCombinedHeader",
     )
+    # A request the caller can abandon. On the device SecureClient asks the abort
+    # callback through the handshake, the wait for the status line and every
+    # body read, so Back ends a hung request at once (RssFetch, the Weather
+    # fetch). The simulator's curl ran to its own timeout with the callback
+    # asked only before and after, so a hung host held the app for the whole
+    # timeout and no simulator run could show the difference. Now the request
+    # in flight carries the callback (abortPoll), curl's output is read without
+    # blocking, the callback is asked every 50ms, and an abort ends curl.
+    # "echo $$; exec curl" hands back curl's own pid: exec keeps the shell's.
+    patch(
+        src / "SimHttpFetch.h",
+        '#include "SimHttpRoutes.h"',
+        "#include <fcntl.h>\n"
+        "#include <poll.h>\n"
+        "#include <signal.h>\n"
+        "\n"
+        "#include <functional>  // simAbortIncludes\n"
+        "\n"
+        '#include "SimHttpRoutes.h"',
+        "SimHttpFetch.h includes for an abortable curl",
+        marker="simAbortIncludes",
+    )
+    patch(
+        src / "SimHttpFetch.h",
+        "inline bool fetchWithCurl(",
+        "// The abort callback of the request in flight; one request runs at a time.\n"
+        "inline std::function<bool()>& abortPoll() {\n"
+        "  static std::function<bool()> poll;\n"
+        "  return poll;\n"
+        "}\n"
+        "\n"
+        "// Reads curl's output, its pid first, asking shouldAbort every 50ms. On an\n"
+        "// abort curl is ended and nothing it printed is kept.\n"
+        "inline void readAbortable(FILE* pipe, const std::function<bool()>& shouldAbort, std::string& out) {\n"
+        "  const int fd = fileno(pipe);\n"
+        "  fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);\n"
+        "  std::string raw;\n"
+        "  pid_t pid = 0;\n"
+        "  for (;;) {\n"
+        "    struct pollfd ready = {fd, POLLIN, 0};\n"
+        "    if (::poll(&ready, 1, 50) > 0) {\n"
+        "      char buffer[256];\n"
+        "      const ssize_t n = read(fd, buffer, sizeof(buffer));\n"
+        "      if (n == 0) break;\n"
+        "      if (n > 0) raw.append(buffer, static_cast<size_t>(n));\n"
+        "    }\n"
+        "    if (pid == 0) {\n"
+        "      const size_t newline = raw.find('\\n');\n"
+        "      if (newline != std::string::npos) {\n"
+        "        pid = static_cast<pid_t>(std::atol(raw.substr(0, newline).c_str()));\n"
+        "        raw.erase(0, newline + 1);\n"
+        "      }\n"
+        "    }\n"
+        "    if (shouldAbort()) {\n"
+        "      if (pid > 0) kill(pid, SIGTERM);\n"
+        "      raw.clear();\n"
+        "      break;\n"
+        "    }\n"
+        "  }\n"
+        "  out = raw;\n"
+        "}\n"
+        "\n"
+        "inline bool fetchWithCurl(",
+        "SimHttpFetch abortPoll + readAbortable (a hung host can be left)",
+        marker="readAbortable(FILE*",
+    )
+    patch(
+        src / "SimHttpFetch.h",
+        '  FILE* pipe = popen(cmd.c_str(), "r");',
+        "  const std::function<bool()> shouldAbort = abortPoll();  // simAbortCmd\n"
+        '  if (shouldAbort) cmd = "echo $$; exec " + cmd;\n'
+        '  FILE* pipe = popen(cmd.c_str(), "r");',
+        "fetchWithCurl runs curl so its pid is known when a request can be abandoned",
+        marker="simAbortCmd",
+    )
+    patch(
+        src / "SimHttpFetch.h",
+        "  while (fgets(statusBuffer.data(), static_cast<int>(statusBuffer.size()), pipe)) {\n"
+        "    statusText += statusBuffer.data();\n"
+        "  }",
+        "  if (shouldAbort) readAbortable(pipe, shouldAbort, statusText);  // simAbortRead\n"
+        "  while (!shouldAbort && fgets(statusBuffer.data(), static_cast<int>(statusBuffer.size()), pipe)) {\n"
+        "    statusText += statusBuffer.data();\n"
+        "  }",
+        "fetchWithCurl reads curl without blocking when a request can be abandoned",
+        marker="simAbortRead",
+    )
+    patch(
+        src / "ResumableFetch.h",
+        "    result.status = http.GET();",
+        "    sim_http_fetch::abortPoll() = shouldAbort;  // simAbortHook\n"
+        "    result.status = http.GET();\n"
+        "    sim_http_fetch::abortPoll() = nullptr;",
+        "fetchResumable hands its abort callback to the request in flight",
+        marker="simAbortHook",
+    )
     # Upstream's capacitive page keys (Metalio E-Ink 4, 2026-10): MappedInputManager
     # asks for them on every board, and a host has none.
     patch(

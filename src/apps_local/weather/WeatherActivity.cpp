@@ -17,8 +17,8 @@
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../fontIds.h"
-#include "../../network/HttpDownloader.h"
 #include "../Shelf.h"
+#include "../rss/RssFetch.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
 
@@ -89,25 +89,6 @@ bool writeText(const char* path, const std::string& text) {
     return false;
   }
   return true;
-}
-
-// One GET through HttpDownloader, the firmware's one door for requests (the
-// radio check, the agent string, the status), into a bounded string.
-bool fetchAnswer(const std::string& url, std::string& out) {
-  out.clear();
-  bool overLimit = false;
-  const unsigned long started = millis();
-  const bool ok = HttpDownloader::fetchUrl(url, [&out, &overLimit](const uint8_t* data, const size_t len) {
-    if (out.size() + len > kMaxAnswerBytes) {
-      overLimit = true;
-      return false;
-    }
-    out.append(reinterpret_cast<const char*>(data), len);
-    return true;
-  });
-  LOG_INF(kTag, "GET %s: %s, status %d, %u bytes, %lums", url.c_str(), ok && !overLimit ? "ok" : "failed",
-          HttpDownloader::lastStatus(), static_cast<unsigned>(out.size()), millis() - started);
-  return ok && !overLimit;
 }
 
 // The faces the main screen is drawn in, pass by pass (WeatherScreens.h).
@@ -259,6 +240,52 @@ void WeatherActivity::request(const Pending what) {
   requestUpdate();
 }
 
+// One GET that can be abandoned: RSS's cancellable fetch (RssFetch.h), so the
+// radio check, the agent string and a 20 s timeout are the ones RSS uses, and
+// Back is live for the whole wait. HttpDownloader's door could not do this: it
+// waits 60 s a socket operation and takes no poll, so a hung host held the
+// app until it gave up.
+bool WeatherActivity::fetchAnswer(const std::string& url, std::string& out) {
+  out.clear();
+  interrupt_ = Interrupt::None;
+  bool overLimit = false;
+  const unsigned long started = millis();
+  const rss::FetchOutcome outcome = rss::fetchStreaming(
+      url,
+      [&out, &overLimit](const uint8_t* data, const size_t len) {
+        if (out.size() + len > kMaxAnswerBytes) {
+          overLimit = true;
+          return false;
+        }
+        out.append(reinterpret_cast<const char*>(data), len);
+        return true;
+      },
+      [this] { return pollDuringRequest(); });
+  const bool ok = outcome.complete && !outcome.aborted && !overLimit;
+  // The endpoint without its query: the whole URL fills the log line and cut
+  // off the outcome after it, which is the part a log is read for.
+  const std::string endpointOnly = url.substr(0, url.find('?'));
+  LOG_INF(kTag, "GET %s: %s, status %d, %u bytes, %lums", endpointOnly.c_str(),
+          outcome.aborted ? "abandoned" : (ok ? "ok" : "failed"), outcome.status, static_cast<unsigned>(out.size()),
+          millis() - started);
+  return ok;
+}
+
+bool WeatherActivity::pollDuringRequest() {
+  // The request holds the loop, so nothing else is sampling input: this is the
+  // one place this app pumps it, and only while a request is out (the
+  // input-pump rule). The pump eats the one-shot Home gesture before
+  // ActivityManager could see it, so it is honoured here, after the abort.
+  mappedInput.update();
+  if (mappedInput.wasHomeGesture()) {
+    interrupt_ = Interrupt::Home;
+  } else if (mappedInput.wasPressed(MappedInputManager::Button::Back) ||
+             mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    interrupt_ = Interrupt::Back;
+  }
+  return interrupt_ != Interrupt::None;
+}
+
 void WeatherActivity::fetchForecast() {
   if (!havePlace_) return;
   const std::string url =
@@ -272,6 +299,12 @@ void WeatherActivity::fetchForecast() {
             answer.c_str());
   }
   RenderLock lock(*this);
+  if (interrupt_ != Interrupt::None) {
+    // Abandoned, not failed: the forecast on the card stands as it was.
+    status_ = Status::Current;
+    LOG_INF(kTag, "forecast request abandoned by %s", interrupt_ == Interrupt::Home ? "Home" : "Back");
+    return;
+  }
   if (!parsed) {
     status_ = WiFi.status() == WL_CONNECTED ? Status::Failed : Status::Offline;
     LOG_INF(kTag, "forecast not updated; showing %s", haveCache_ ? "the one on the card" : "nothing yet");
@@ -297,6 +330,11 @@ void WeatherActivity::fetchMatches() {
   const bool parsed = fetched && weather::parseMatches(answer, toybox::readingCutsCarry, found);
   RenderLock lock(*this);
   searched_ = query;
+  if (interrupt_ != Interrupt::None) {
+    searchState_ = weatherui::SearchModel::State::Typing;
+    LOG_INF(kTag, "search abandoned by %s", interrupt_ == Interrupt::Home ? "Home" : "Back");
+    return;
+  }
   if (!parsed) {
     if (fetched) LOG_ERR(kTag, "geocoder answer was not a list: %.80s", answer.c_str());
     searchState_ = weatherui::SearchModel::State::Failed;
@@ -476,6 +514,19 @@ void WeatherActivity::loop() {
       fetchMatches();
     }
     interactionsReady_ = false;
+    // A Back or Home that abandoned the request is then what it always is:
+    // Back from here, or Home.
+    const Interrupt interrupt = interrupt_;
+    interrupt_ = Interrupt::None;
+    backPressSeen_ = false;
+    if (interrupt == Interrupt::Home) {
+      onGoHome();
+      return;
+    }
+    if (interrupt == Interrupt::Back) {
+      back();
+      return;
+    }
     requestUpdate();
     return;
   }
@@ -612,17 +663,23 @@ void WeatherActivity::render(RenderLock&&) {
   const fui::InputSnapshot noInput{};
   switch (view_) {
     case View::Main: {
-      // Two passes, one rebind: the place in a cut that can draw its letters,
-      // then the numbers and the days in Jersey (WeatherScreens.h).
+      // Three passes, two rebinds: the place measured in a cut that can draw
+      // its letters, the screen laid out and drawn in Jersey, then the place
+      // drawn where that layout put it (WeatherScreens.h).
+      const auto bind = [](fui::GfxRendererTarget& target, const toybox::Faces& faces) {
+        target.setFont(fui::GfxRendererTarget::FONT_SMALL, faces.small);
+        target.setFont(fui::GfxRendererTarget::FONT_BODY, faces.body);
+        target.setFont(fui::GfxRendererTarget::FONT_TITLE, faces.title);
+      };
       fui::GfxRendererTarget target = toybox::makeTarget(renderer, kPlaceFaces);
       toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
       toybox::Screen screen(frame);
       const weatherui::MainModel model = mainModel();
-      weatherui::buildMainTop(screen, model);
-      target.setFont(fui::GfxRendererTarget::FONT_SMALL, kDataFaces.small);
-      target.setFont(fui::GfxRendererTarget::FONT_BODY, kDataFaces.body);
-      target.setFont(fui::GfxRendererTarget::FONT_TITLE, kDataFaces.title);
-      weatherui::buildMainBody(screen, model);
+      const weatherui::MainPlace place = weatherui::buildMainTop(screen, model);
+      bind(target, kDataFaces);
+      const int16_t placeTop = weatherui::buildMainBody(screen, model, place);
+      bind(target, kPlaceFaces);
+      weatherui::drawMainPlace(screen, place, placeTop);
       toybox::reportOverflow(interactions_, "Weather");
       break;
     }

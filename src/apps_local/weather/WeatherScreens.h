@@ -12,16 +12,19 @@
 //   menu    the city (a door back to search), Celsius or Fahrenheit, a
 //           refresh, and where the forecast comes from
 //
-// THE MAIN SCREEN IS BUILT IN TWO PASSES ON ONE SCREEN. It needs four faces
-// and a target binds three: the band's display cut, the Jersey UI and button
-// cuts for the numbers and the days, the huge cut for the temperature now, and
-// a reading cut for the place, because a place name is somebody else's text
-// and Jersey carries ASCII only ("Zurich" would lose its u-umlaut as a hole).
-// buildMainTop() draws the band and the place in placeFaces; the activity then
-// rebinds the slots to dataFaces and buildMainBody() draws the rest below it.
-// Connections rebinds between passes the same way.
+// THE MAIN SCREEN IS BUILT IN THREE PASSES ON ONE SCREEN. It needs four
+// faces and a target binds three: the band's display cut, the Jersey UI and
+// button cuts for the numbers and the days, the huge cut for the temperature
+// now, and a reading cut for the place, because a place name is somebody
+// else's text and Jersey carries ASCII only ("Zurich" would lose its u-umlaut
+// as a hole). buildMainTop() draws the band and MEASURES the place in
+// placeFaces; the activity rebinds to dataFaces and buildMainBody() lays the
+// whole screen out by ink and draws it; the activity rebinds back and
+// drawMainPlace() draws the place where the layout put it. Connections
+// rebinds between passes the same way.
 
 #include <cstdint>
+#include <string>
 
 #include "../ui/ToyboxScreen.h"
 #include "WeatherCore.h"
@@ -83,12 +86,24 @@ struct MainModel {
   bool offerRetry = false;
 };
 
-// Pass one, in placeFaces: SMALL the bold small reading cut, BODY the bold
-// reading cut, TITLE the display cut.
-void buildMainTop(toybox::Screen& screen, const MainModel& model);
-// Pass two, after the rebind to dataFaces: SMALL the Jersey button cut, BODY
-// the Jersey UI cut, TITLE the huge cut. Draws into whatever pass one left.
-void buildMainBody(toybox::Screen& screen, const MainModel& model);
+// The place, fitted and measured in pass one but drawn in pass three, because
+// where it goes depends on everything under it.
+struct MainPlace {
+  std::string text;
+  fui::TextStyle style;
+  int lines = 1;
+  int16_t inkHeight = 0;
+};
+
+// Pass one, in placeFaces (SMALL the bold small reading cut, BODY the bold
+// reading cut, TITLE the display cut): the band, and the place measured.
+MainPlace buildMainTop(toybox::Screen& screen, const MainModel& model);
+// Pass two, after the rebind to dataFaces (SMALL the Jersey button cut, BODY
+// the Jersey UI cut, TITLE the huge cut): lays the whole screen out by ink,
+// draws all of it but the place, and returns where the place's ink starts.
+int16_t buildMainBody(toybox::Screen& screen, const MainModel& model, const MainPlace& place);
+// Pass three, in placeFaces again: the place, with its cap top on `inkTop`.
+void drawMainPlace(toybox::Screen& screen, const MainPlace& place, int16_t inkTop);
 
 // --- Search ------------------------------------------------------------------
 
@@ -135,7 +150,7 @@ struct MenuModel {
 // display cut.
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
-// The bitmap for a sky at one of the generated sizes (32 or 96).
+// The bitmap for a sky at one of the generated sizes (32 or 88).
 const freeink::Icon& skyBitmap(weather::Icon icon, int size);
 
 }  // namespace weatherui
