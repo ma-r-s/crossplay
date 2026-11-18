@@ -1002,26 +1002,30 @@ else
 fi
 
 
-# -- the last step names the power button, on every device ----------------------
+# -- the last step names the button that starts the firmware ------------------
 #
-# GitHub #314: a Sticky flashed from the site ended on "Unplug the USB cable and
-# plug it back in" and sat there looking frozen. HalGPIO::coldBootImpliesPowerButton()
-# is true for the Xteinks, PaperMono and Sticky: a power-on from the cable is a
-# charge, not a boot, so the step that starts the firmware is the power button.
+# GitHub #314 and #336: a Sticky flashed from the site ended on "Unplug the USB
+# cable and plug it back in" and sat in the flasher stub, looking frozen. The
+# flow leaves every chip in the stub (no serial reset). A replug power-cycles
+# the battery-less boards, whose firmware then waits for the power button
+# (coldBootImpliesPowerButton); the Sticky's battery rides through a replug and
+# the stub ignores the power button, so only its reset pin restarts it.
 if restart_bad="$(python3 - "$INSTALL" <<'PY' 2>&1
 import re, sys
 src = open(sys.argv[1]).read()
 block = src[src.index("var DEVICES = {"):]
 block = block[:block.index("\n  };")]
+want = {"sticky": "reset button"}
 for dev, body in re.findall(r"\n    ([a-z0-9]+): \{(.*?)\n    \}", block, re.S):
     m = re.search(r"restart:\s*((?:\"[^\"]*\"\s*\+?\s*)+)", body)
     text = "".join(re.findall(r'"([^"]*)"', m.group(1))) if m else ""
-    if "power button" not in text:
-        print(f"{dev}: {text!r}")
+    need = want.get(dev, "power button")
+    if need not in text:
+        print(f"{dev} must name the {need}: {text!r}")
 PY
 )"; then
   if [ -z "$restart_bad" ]; then ok; else
-    while IFS= read -r line; do bad "install.js restart text never mentions the power button -- $line"; done <<< "$restart_bad"
+    while IFS= read -r line; do bad "install.js last step -- $line"; done <<< "$restart_bad"
   fi
 else
   bad "could not read install.js DEVICES: $restart_bad"
