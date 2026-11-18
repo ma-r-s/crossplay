@@ -17,6 +17,7 @@
 #include "../../components/HeaderLayoutRecord.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -2163,7 +2164,10 @@ void StudyActivity::syncTimeIfNeeded() {
 }
 
 bool StudyActivity::clockUntrusted() const {
-  return study::clockUntrusted(static_cast<int64_t>(time(nullptr)), today_, latestReviewDay_, clockConfirmedByNtp);
+  // Two witnesses: this firmware's build day (a clock earlier than it cannot be
+  // today, deck or no deck) and the deck's own last review.
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  return !clockfloor::trusted(now) || study::clockUntrusted(now, today_, latestReviewDay_, clockConfirmedByNtp);
 }
 
 void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const studyui::SyncSafety safety,
