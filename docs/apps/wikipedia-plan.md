@@ -796,3 +796,11 @@ found, and what changed.
   stood under its name until its manifest arrived), and the by-hand
   instruction says "a folder de inside a folder wikipedia" rather than a
   folder called "wikipedia/de".
+- *The install screen.* Every block is as tall as its own words measure in
+  the body face, and the code's square takes what the words leave, between
+  132 px (four pixels a module) and the 232 it always had. The fixed boxes
+  had cut "Deutsch on the card is not complete. The page copies wh..." at
+  two lines and drawn "1 OF 2 PARTS ON THE CARD" under TRY AGAIN, which sat
+  at a fixed spot. `testWikipediaInstallFitsEveryState` asks every stage,
+  language line and parts line for both properties at the reading cut's
+  40 px line.

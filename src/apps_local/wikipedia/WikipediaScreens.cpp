@@ -482,68 +482,115 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
   return shown;
 }
 
-// The first-open screen. The address first, the sentence, then the square
-// the activity fills with the QR code, then what the cable is doing. Every
-// box is sized from the body face's line height: the panel showed the
-// address and both sentences cut when a 72 px box met a 40 px line. The
-// body face here is the built-in reading cut (WikipediaActivity::render).
+// The first-open screen, top to bottom: the address, the sentence, the
+// square the activity fills with the QR code, what the cable is doing, which
+// language this is about, the parts on the card, and TRY AGAIN at the foot
+// when the card could not be shared. Every block is as tall as its own words
+// measure in the body face (the built-in reading cut, WikipediaActivity::
+// render), and the square takes what the words leave, between a code a phone
+// still reads and the size it has always had. Fixed boxes are what cut the
+// language line at two lines and put the parts line under the button.
+namespace {
+
+constexpr int16_t kInstallTop = 20;
+constexpr int16_t kAfterAddress = 10;
+constexpr int16_t kAfterOpen = 12;
+constexpr int16_t kAfterQr = 20;
+constexpr int16_t kAfterStatus = 8;
+constexpr int16_t kAfterLanguage = 4;
+// The square: the code has 33 modules (QrUtils picks version 4), so 132 is
+// four pixels a module and 232 seven.
+constexpr int16_t kQrMin = 132;
+constexpr int16_t kQrMax = 232;
+constexpr int16_t kActionHeight = 56;
+// TRY AGAIN's foot, and the air between it and the words above.
+constexpr int16_t kActionFoot = 24;
+constexpr int16_t kActionAir = 16;
+
+// The height `text` wraps to at `width` in the body face, one line at least.
+int16_t proseHeight(toybox::Screen& screen, const char* text, const int16_t width) {
+  fui::TextStyle style = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
+  style.maxLines = 16;
+  const int16_t lineHeight = screen.target().lineHeight(toybox::kBodyFont);
+  const int16_t height = fui::measureWrappedText(screen.target(), text, style, width).height;
+  return height > lineHeight ? height : lineHeight;
+}
+
+}  // namespace
+
 fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   chrome(screen, "GET WIKIPEDIA");
   const fui::Rect body = screen.body();
+  const int16_t x = static_cast<int16_t>(body.x + kMargin);
   const int16_t inner = static_cast<int16_t>(body.width - kMargin * 2);
   const int16_t lineHeight = screen.target().lineHeight(toybox::kBodyFont);
-  const int16_t twoLines = static_cast<int16_t>(lineHeight * 2);
-  int16_t y = static_cast<int16_t>(body.y + 20);
+  const bool failed = model.stage == InstallModel::Stage::Failed;
 
   // The one string that has to be read off the glass and typed: the reading
-  // face, bold. The install screen's built-in reading cut has no bold, so there
-  // the flag draws regular. It has no space to wrap at, so one line of it
-  // ended in an ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the
-  // host goes on one line and the path on the next, each whole.
+  // face, bold (the built-in reading cut has no bold, so there it draws
+  // regular). It has no space to wrap at, so one line of it ended in an
+  // ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the host goes
+  // on one line and the path on the next, each whole.
+  const char* url = model.url ? model.url : "";
+  const char* slash = strchr(url, '/');
+  const bool split = slash != nullptr && slash != url;
+  // No time here. It depends on the language and the route, which the page
+  // knows and this screen does not, and the page states it beside the choice.
+  const char* open = "Open this in Chrome or Edge on a computer.";
+  const char* status = "Then plug the reader into the computer with its cable.";
+  if (model.stage == InstallModel::Stage::Connected) status = "Connected. Follow the page on the computer.";
+  if (failed) status = "The card could not be shared. Try again.";
+
+  const int16_t addressHeight = static_cast<int16_t>(lineHeight * (split ? 2 : 1));
+  const int16_t openHeight = proseHeight(screen, open, inner);
+  const int16_t statusHeight = proseHeight(screen, status, inner);
+  const int16_t languageHeight = model.languageLine ? proseHeight(screen, model.languageLine, inner) : 0;
+  const int16_t partsHeight = model.partsLine ? kCaptionHeight : 0;
+  const int16_t lowest = static_cast<int16_t>(failed ? body.bottom() - kActionFoot - kActionHeight - kActionAir
+                                                     : body.bottom() - kActionAir);
+  const int16_t words = static_cast<int16_t>(
+      kInstallTop + addressHeight + kAfterAddress + openHeight + kAfterOpen + kAfterQr + statusHeight +
+      (languageHeight ? kAfterStatus + languageHeight : 0) + (partsHeight ? kAfterLanguage + partsHeight : 0));
+  int16_t side = static_cast<int16_t>(lowest - body.y - words);
+  if (side > kQrMax) side = kQrMax;
+  if (side < kQrMin) side = kQrMin;
+
+  int16_t y = static_cast<int16_t>(body.y + kInstallTop);
   fui::TextStyle address = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
   address.bold = true;
   address.maxLines = 1;
-  const char* slash = model.url == nullptr ? nullptr : strchr(model.url, '/');
-  if (slash != nullptr && slash != model.url) {
+  if (split) {
     char host[64];
-    const size_t n = static_cast<size_t>(slash - model.url) < sizeof(host) - 1 ? static_cast<size_t>(slash - model.url)
-                                                                               : sizeof(host) - 1;
-    memcpy(host, model.url, n);
+    const size_t n =
+        static_cast<size_t>(slash - url) < sizeof(host) - 1 ? static_cast<size_t>(slash - url) : sizeof(host) - 1;
+    memcpy(host, url, n);
     host[n] = '\0';
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, host, address);
-    y = static_cast<int16_t>(y + lineHeight);
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, slash, address);
+    screen.target().text(fui::Rect{x, y, inner, lineHeight}, host, address);
+    screen.target().text(fui::Rect{x, static_cast<int16_t>(y + lineHeight), inner, lineHeight}, slash, address);
   } else {
-    screen.target().text(fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, lineHeight}, model.url, address);
+    screen.target().text(fui::Rect{x, y, inner, lineHeight}, url, address);
   }
-  y = static_cast<int16_t>(y + lineHeight + 10);
-  // No time here. It depends on the language and the route, which the page
-  // knows and this screen does not, and the page states it beside the choice.
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines},
-            "Open this in Chrome or Edge on a computer.", fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + twoLines + 12);
+  y = static_cast<int16_t>(y + addressHeight + kAfterAddress);
+  drawProse(screen, fui::Rect{x, y, inner, openHeight}, open, fui::TextAlign::Center);
+  y = static_cast<int16_t>(y + openHeight + kAfterOpen);
 
-  const int16_t side = 232;
   const fui::Rect qr{static_cast<int16_t>(body.x + (body.width - side) / 2), y, side, side};
-  y = static_cast<int16_t>(qr.bottom() + 20);
+  y = static_cast<int16_t>(qr.bottom() + kAfterQr);
 
-  const char* status = "Then plug the reader into the computer with its cable.";
-  if (model.stage == InstallModel::Stage::Connected) status = "Connected. Follow the page on the computer.";
-  if (model.stage == InstallModel::Stage::Failed) status = "The card could not be shared. Try again.";
-  drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, status,
-            fui::TextAlign::Center);
-  y = static_cast<int16_t>(y + twoLines + 8);
+  drawProse(screen, fui::Rect{x, y, inner, statusHeight}, status, fui::TextAlign::Center);
+  y = static_cast<int16_t>(y + statusHeight);
   if (model.languageLine) {
-    drawProse(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, twoLines}, model.languageLine,
-              fui::TextAlign::Center);
-    y = static_cast<int16_t>(y + twoLines + 4);
+    y = static_cast<int16_t>(y + kAfterStatus);
+    drawProse(screen, fui::Rect{x, y, inner, languageHeight}, model.languageLine, fui::TextAlign::Center);
+    y = static_cast<int16_t>(y + languageHeight);
   }
   if (model.partsLine) {
-    drawLabel(screen, fui::Rect{static_cast<int16_t>(body.x + kMargin), y, inner, 28}, model.partsLine,
-              toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+    y = static_cast<int16_t>(y + kAfterLanguage);
+    drawLabel(screen, fui::Rect{x, y, inner, partsHeight}, model.partsLine, toybox::kSmallFont, fui::TextAlign::Center,
+              toybox::kButtonCut);
   }
-  if (model.stage == InstallModel::Stage::Failed) {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.bottom() - 80), inner, 56};
+  if (failed) {
+    const fui::Rect box{x, static_cast<int16_t>(body.bottom() - kActionFoot - kActionHeight), inner, kActionHeight};
     drawAction(screen, box, "TRY AGAIN", ActionRetry, true);
   }
   return qr;

@@ -14604,12 +14604,11 @@ void testWikipediaInstallSaysTheAddressFirst() {
     CHECK(url->style.maxLines == 1 && path->style.maxLines == 1);
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
-  // Each sentence has two lines of the reader's face, whatever its height.
+  // Each sentence is as tall as its words wrap to, in lines of the face.
   const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer.");
   CHECK(open != nullptr);
   if (open != nullptr) {
-    CHECK(open->style.maxLines == 2);
-    CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+    CHECK(open->rect.height == open->style.maxLines * out.target.lineHeight(toybox::kBodyFont));
   }
   // No time on the device: it was "About ten minutes" for every language and
   // route, and the page now works one out per language (14 minutes for
@@ -14754,6 +14753,98 @@ void testWikipediaInstallNamesTheLanguage() {
   Rendered blank;
   buildWikiInstall(blank, first);
   CHECK(blank.target.drew("Choose the language on the page."));
+}
+
+// --- The install screen: every state, nothing cut, nothing on anything ------
+//
+// Card #651's review: in the "could not be shared" state the parts line was
+// drawn under TRY AGAIN (the language line pushed it down; the button sat at a
+// fixed spot), and a two-line box cut "Deutsch on the card is not complete.
+// The page copies wh...". Both came from fixed boxes, so this asks every
+// state for the two properties that make either impossible, at the reading
+// cut's real line height (40px, reading_serif_14) and about its width per
+// letter: every run holds its words, and no run, the button or the code's
+// square lands on another.
+void testWikipediaInstallFitsEveryState() {
+  using Stage = wikiui::InstallModel::Stage;
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+  };
+  static const Stage kStages[] = {Stage::Waiting, Stage::Connected, Stage::Failed};
+  static const char* const kLines[] = {
+      nullptr,
+      "Choose the language on the page.",
+      "On the card: Deutsch, October 2026.",
+      "Deutsch on the card is not complete. The page copies what is missing.",
+      // the most the chooser lists, and the sentence after them
+      "On the card: English, Deutsch, Fran\xC3\xA7"
+      "ais, Espa\xC3\xB1ol, Italiano, Nederlands. The page lists "
+      "the languages you can add.",
+  };
+  static const char* const kParts[] = {nullptr, "1 OF 2 PARTS ON THE CARD", "38 OF 41 PARTS ON THE CARD"};
+  int cases = 0;
+  for (const Stage stage : kStages) {
+    for (const char* line : kLines) {
+      for (const char* parts : kParts) {
+        wikiui::InstallModel model;
+        model.stage = stage;
+        model.url = "crossplay.ma-r-s.com/wikipedia";
+        model.languageLine = line;
+        model.partsLine = parts;
+        Rendered out;
+        out.target.lineH = 40;
+        out.target.charW = 11;
+        out.target.perCodePoint = true;
+        const fui::Rect qr = buildWikiInstall(out, model);
+        ++cases;
+        char where[96];
+        std::snprintf(where, sizeof where, "stage %d, line \"%.24s\", parts %s", static_cast<int>(stage),
+                      line ? line : "-", parts ? parts : "-");
+        check(qr.width == qr.height && qr.width >= 132, where, __LINE__);
+        // the button's fill, when there is one
+        fui::Rect button{};
+        const FakeTarget::TextRun* retry = out.target.find("TRY AGAIN");
+        check((retry != nullptr) == (stage == Stage::Failed), where, __LINE__);
+        if (retry != nullptr) {
+          for (const fui::Rect& f : out.target.fills) {
+            if (f.x <= retry->rect.x && f.right() >= retry->rect.right() && f.y <= retry->rect.y + 20 &&
+                f.bottom() >= retry->rect.y + 20) {
+              button = f;
+            }
+          }
+          check(button.width > 0 && button.bottom() <= 800, where, __LINE__);
+        }
+        for (size_t i = 0; i < out.target.texts.size(); ++i) {
+          const FakeTarget::TextRun& run = out.target.texts[i];
+          if (run.rect.y < toybox::kHeaderHeight) continue;  // the band
+          // holds its words: one line wide enough, or as many lines as they wrap to
+          fui::TextStyle all = run.style;
+          all.maxLines = 16;
+          const int16_t need = fui::measureWrappedText(out.target, run.text.c_str(), all, run.rect.width).height;
+          const int lines = need / out.target.lineH;
+          if (run.style.maxLines <= 1) {
+            check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width, where,
+                  __LINE__);
+          } else {
+            check(lines <= run.style.maxLines && need <= run.rect.height, where, __LINE__);
+          }
+          check(run.rect.bottom() <= 800, where, __LINE__);
+          check(!overlaps(run.rect, qr), where, __LINE__);
+          if (button.width > 0 && &run != retry) check(!overlaps(run.rect, button), where, __LINE__);
+          for (size_t j = i + 1; j < out.target.texts.size(); ++j) {
+            const FakeTarget::TextRun& other = out.target.texts[j];
+            if (other.rect.y < toybox::kHeaderHeight) continue;
+            if (overlaps(run.rect, other.rect)) {
+              std::printf("  %s: \"%s\" lands on \"%s\"\n", where, run.text.c_str(), other.text.c_str());
+              check(false, where, __LINE__);
+            }
+          }
+        }
+        if (button.width > 0) check(!overlaps(qr, button), where, __LINE__);
+      }
+    }
+  }
+  check(cases == 3 * 5 * 3, "every stage, language line and parts line was drawn", __LINE__);
 }
 
 // --- The keyboard draws every key label whole -------------------------------
@@ -15999,6 +16090,7 @@ int main() {
   testWikipediaChooserFitsEveryPack();
   testWikipediaHomeBandNamesTheLanguage();
   testWikipediaInstallNamesTheLanguage();
+  testWikipediaInstallFitsEveryState();
   testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
