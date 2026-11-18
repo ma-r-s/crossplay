@@ -13,6 +13,7 @@
 #include "../../activities/ActivityManager.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../network/HttpDownloader.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -73,12 +74,14 @@ bool readAt(void* ctx, const uint32_t offset, void* dst, const uint32_t len) {
   return file->read(dst, len) == static_cast<int>(len);
 }
 
-// Today, as YYYYMMDD. The device keeps an RTC; without one this falls back to
-// the newest puzzle in the pack, which is what indexOnOrBefore already does for
-// any date past the end.
+// Today, as YYYYMMDD. A clock earlier than this firmware's build cannot be
+// today (a never-set RTC reads months back), so it falls back to the newest
+// puzzle in the pack, which is what indexOnOrBefore already does for any date
+// past the end. Without that, the menu promised the newest puzzle and PLAY
+// opened the clock's.
 uint32_t today() {
   const time_t now = time(nullptr);
-  if (now <= 0) return 99999999u;
+  if (!clockfloor::trusted(static_cast<int64_t>(now))) return 99999999u;
   struct tm parts;
   localtime_r(&now, &parts);
   return static_cast<uint32_t>((parts.tm_year + 1900) * 10000 + (parts.tm_mon + 1) * 100 + parts.tm_mday);

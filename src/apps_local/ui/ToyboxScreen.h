@@ -176,7 +176,7 @@ inline int16_t headerTitleWidth(Screen& screen, const freeink::ui::Rect& band, c
   const fui::BitmapRef leading =
       props.leadingIcon ? props.leadingIcon : fui::resolveBitmap(screen.frame().assets(), props.leadingIconAsset);
   if (leading && props.leadingAction != fui::NO_ACTION && !props.centered) {
-    width = static_cast<int16_t>(width - (band.height - 8) - 8);
+    width = static_cast<int16_t>(width - (band.height - 8) - 8 - (props.leadingInset - 4));
   }
 
   const fui::BitmapRef trailing =
@@ -313,6 +313,9 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   // cuts instead.
   if (fui::textStyleUnset(fitted.trailingText)) fitted.trailingText = screen.theme().bodyText;
   if (fitted.sidePadding < 0) fitted.sidePadding = screen.theme().headerSidePadding;
+  // A leading button mirrors the trailing one: Wikipedia's back chip sat 4px
+  // from the left edge across the band from a contents chip 12px from the right.
+  fitted.leadingInset = fui::kHeaderTrailingInset;
   const fui::TextStyle asked = fitted.titleText;
   std::string title =
       fittedTitle(screen.target(), fitted.title, headerTitleWidth(screen, ink, fitted), fitted.titleText);

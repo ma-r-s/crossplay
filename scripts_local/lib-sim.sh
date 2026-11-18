@@ -12,7 +12,15 @@ set -uo pipefail
 # Resolve through the symlink: the workspace-root scripts/ entries are symlinks
 # to these, so BASH_SOURCE may be either path.
 SCRIPTS_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
-ENV_NAME="simulator_x4_pro"
+# The X4 Pro profile unless CROSSPOINT_SIM_ENV names another simulator env in
+# platformio.sim.ini: simulator_picco runs the same firmware against the BOOX
+# Picco's profile (no Home key, the slide switch on T), which is the only Picco
+# anybody here can run. Each env builds into its own .pio/build/<env>.
+ENV_NAME="${CROSSPOINT_SIM_ENV:-simulator_x4_pro}"
+case "$ENV_NAME" in
+  simulator_*) ;;
+  *) echo "error: CROSSPOINT_SIM_ENV must name a simulator_* env (got '$ENV_NAME')" >&2; exit 2 ;;
+esac
 
 # The workspace is the directory holding every tree. Found by walking up for the
 # marker rather than by counting ".." levels, because firmware-next/ sits one

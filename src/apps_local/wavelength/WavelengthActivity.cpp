@@ -8,6 +8,7 @@
 #include <ctime>
 
 #include "../../components/UITheme.h"
+#include "../ClockFloor.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
@@ -28,9 +29,11 @@ constexpr char kSaveTmpPath[] = "/.crosspoint/wavelength.tmp";
 
 }  // namespace
 
+// 0 for a clock earlier than this firmware's build: minutesSince() then says
+// nothing rather than measuring from a wrong date.
 uint32_t WavelengthActivity::nowOrZero() {
   const int64_t now = static_cast<int64_t>(std::time(nullptr));
-  return now > static_cast<int64_t>(wl::kClockFloor) ? static_cast<uint32_t>(now) : 0u;
+  return clockfloor::trusted(now) ? static_cast<uint32_t>(now) : 0u;
 }
 
 // One value per run of the chip, and a different one on the next run.

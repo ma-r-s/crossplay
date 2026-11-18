@@ -213,9 +213,10 @@ export.
   buttons. The side keys are the reader's page keys, so Settings > Controls >
   Layout swaps or disables them here as it does in a book: page forward turns
   the page, page back turns back, and on the last page of the question the
-  next press shows the answer. A long answer starts on a page of its own and
-  opens there, with the answer at the top; the question it repeats is on the
-  pages before it. A
+  next press shows the answer. The answer opens on the page where its own
+  text begins: under the question it repeats when that question fits on one
+  page, and at the top of a page of its own when the question took more than
+  one, with the question on the pages before it. A
   swipe up or down, or the pager's arrows, also turn pages, but only within
   the side you are on. Grading is only ever a tap on the four buttons: no
   page turn, at the end of the answer or anywhere, grades a card. A line is
@@ -280,6 +281,7 @@ nothing the second time.
 | Symptom                                  | Cause and fix                                                                                                                                   |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
+| WRONG DATE on the deck screen            | The reader's clock is earlier than the deck's last review, so everything due would read as not due yet. Tap SYNC: it sets the clock from the internet (the reTerminal Sticky's chip too) before anything else, and the deck opens. Reviews are not recorded until then, because they would be dated wrong in Anki. |
 | A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
 | Japanese readings appear beside the word, not above it | The deck has no ruby cut. Re-run `setup`, or `make_fonts.py`, after a conversion that reported a `ruby` glyph count. |
 | Korean draws as blank | An older card, converted before Hangul was classified correctly. Re-run `setup`; the fonts are rebuilt with the `hangul` interval. |

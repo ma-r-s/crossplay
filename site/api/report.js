@@ -21,12 +21,12 @@
 // proxy wrote. It took the first until card #444, which let a caller pick its
 // own bucket by sending the header.
 //
-// `device` names one or both of the two boards the fork runs on, comma-joined
-// ("x4pro", "sticky", "x4pro,sticky"). There is no "not sure": a person
-// reporting from a device knows which one they hold, and a report naming
-// neither is refused rather than filed under a value nobody can act on. The
-// card keeps the joined string, in a fixed order, so two reports about both
-// boards read the same.
+// `device` names one or more of the boards the fork runs on (DEVICES),
+// comma-joined ("x4pro", "sticky", "x4pro,sticky"). There is no "not sure": a
+// person reporting from a device knows which one they hold, and a report
+// naming none is refused rather than filed under a value nobody can act on.
+// The card keeps the joined string, in a fixed order, so two reports about the
+// same boards read the same.
 //
 // The photo comes in a second request because a buffered Vercel request body
 // is capped at 4.5MB and a phone photo is bigger than that until the page
@@ -50,7 +50,7 @@ const PHOTO_TYPES = {
   "image/png": "png",
   "image/webp": "webp",
 };
-const DEVICES = ["x4pro", "sticky", "papermono"];
+const DEVICES = ["x4pro", "sticky", "papermono", "picco"];
 const VERSION = /^v?\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 

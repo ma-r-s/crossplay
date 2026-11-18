@@ -47,6 +47,33 @@ An interaction that _requires_ the third key would be unreachable on the X4
 Pro, so the Sticky's Confirm is a convenience alias for a tap, never the only
 way to do something.
 
+### The BOOX Picco has the same two, a switch, and no Home key
+
+The Picco (experimental, and not on anyone's desk here; [picco.md](picco.md))
+wires the same pair to logical **Up** (GPIO21) and **Down** (GPIO9), both
+marked hardware-confirmed in the SDK profile, plus Power on GPIO2:
+
+```cpp
+// {back, confirm, left, right, up, down, power, powerActiveHigh, adcLadderPin, toggleSwitch}
+{PIN_UNASSIGNED, 5, PIN_UNASSIGNED, PIN_UNASSIGNED, 21, 9, 2, false, PIN_UNASSIGNED, 6},
+```
+
+`freeink-sdk/.../BoardConfig.h`, `PICCO`
+
+GPIO5 is carried as Confirm with its physical role marked unconfirmed in that
+profile; if it is a key, it is an alias like the Sticky's third one and nothing
+needs it. GPIO6 is a two-position **slide switch**, which is not a button: it
+is a level, and upstream binds it to the frontlight, night mode or the
+reader's touch controls (Settings > Controls > Slide Switch). No app reads it.
+
+Like the Sticky it has no capacitive Home key, so Home is the bottom-edge
+up-swipe there too (section 4). `host-tests/picco` holds the SDK profile to all
+of this against the Sticky's, so the rule below covers the Picco unchanged.
+
+Its keys are volume keys on the case edge rather than the X4 Pro's moulded
+page keys, so the landscape mapping in section 3 (Up is the BOTTOM key once
+the panel turns counter-clockwise) is unconfirmed there.
+
 ## 2. Back is a swipe, and it already works
 
 Worth stating plainly, because the pin map above looks alarming and it is not.
@@ -209,7 +236,7 @@ using them for anything: a down-swipe starting in the top 14% is the light-panel
 gesture, and an up-swipe starting in the bottom 14% is the Home gesture **on
 boards with no home key**. The X4 Pro has a capacitive home key
 (`BoardConfig` `hasHomeKey = true`), so its bottom edge is free and its Home
-gesture is the key; the Sticky has no key and does spend that band.
+gesture is the key; the Sticky and the Picco have no key and do spend that band.
 
 ---
 
