@@ -14964,6 +14964,76 @@ std::vector<std::string> wrappedLines(const FakeTarget& target, const FakeTarget
 
 bool hasSoftHyphen(const std::string& s) { return s.find("\xC2\xAD") != std::string::npos; }
 
+// "Aufmerksamkeitsdefizit-/Hyperaktivitaetsstoerung" with the pack's soft
+// hyphens. At every width it breaks, no line starts with the "/": the break
+// goes after "-/" or at a soft hyphen, never between the two.
+void testWikipediaTitleNeverStartsALineWithASlash() {
+  static const char* kAdhs =
+      "Auf\xC2\xAD"
+      "merk\xC2\xAD"
+      "sam\xC2\xAD"
+      "keits\xC2\xAD"
+      "de\xC2\xAD"
+      "fi\xC2\xAD"
+      "zit-/Hy\xC2\xAD"
+      "per\xC2\xAD"
+      "ak\xC2\xAD"
+      "ti\xC2\xAD"
+      "vi\xC2\xAD"
+      "t\xC3\xA4ts\xC2\xAD"
+      "st\xC3\xB6"
+      "rung";
+  FakeTarget t;
+  t.charW = 10;
+  fui::TextStyle style;
+  int breaks = 0;
+  for (int16_t width = 60; width <= 320; width = static_cast<int16_t>(width + 10)) {
+    const std::string out = wikiui::breakTitle(t, style, kAdhs, width);
+    size_t start = 0;
+    while (start <= out.size()) {
+      size_t end = out.find(' ', start);
+      if (end == std::string::npos) end = out.size();
+      const std::string line = out.substr(start, end - start);
+      check(line.empty() || line[0] != '/', line.c_str(), __LINE__);
+      if (end != out.size()) ++breaks;
+      start = end + 1;
+    }
+  }
+  CHECK(breaks > 0);  // the sweep really broke the title
+}
+
+// RECENT is drawn only with a row under it. The guard assumed a one-line
+// first row; a two-line German compound in the last row's worth of room above
+// the keyboard left the caption alone (RoundedRaff, keyboard up).
+void testWikipediaRecentCaptionNeverStandsAlone() {
+  static const char* kLong = "Hochleistungsfl\xC3\xBCssigkeitschromatographie und mehr";
+  int alone = 0;
+  int withRows = 0;
+  int without = 0;
+  for (int16_t keyboard = 0; keyboard <= 640; keyboard = static_cast<int16_t>(keyboard + 4)) {
+    wikiui::SearchModel home;
+    home.footer = "50,000 ARTICLES, OCTOBER 2026";
+    home.recent[0].title = kLong;
+    home.recent[1].title = "Hauptbahnhof";
+    home.recentCount = 2;
+    home.keyboardHeight = keyboard;
+    Rendered out;
+    out.target.charW = 12;
+    out.target.perCodePoint = true;
+    buildWikiSearch(out, home);
+    bool row = false;
+    for (const auto& run : out.target.texts) {
+      if (run.text.rfind("Hoch", 0) == 0) row = true;
+    }
+    const bool caption = out.target.drew("RECENT");
+    if (caption && !row) ++alone;
+    if (caption && row) ++withRows;
+    if (!caption) ++without;
+  }
+  CHECK(alone == 0);
+  CHECK(withRows > 0 && without > 0);  // the sweep crossed the edge both ways
+}
+
 void testWikipediaTitlesBreakWhereTheirLanguageDoes() {
   static const char* kHplc =
       "Hoch\xC2\xAD"
@@ -18008,6 +18078,8 @@ int main() {
   testWikipediaHomeBandNamesTheLanguage();
   testWikipediaInstallNamesTheLanguage();
   testWikipediaInstallFitsEveryState();
+  testWikipediaTitleNeverStartsALineWithASlash();
+  testWikipediaRecentCaptionNeverStandsAlone();
   testWikipediaTitlesBreakWhereTheirLanguageDoes();
   testWikipediaShiftReadsOneWayEverywhere();
   testWikipediaArticleBandSaysWhenItCutsTheTitle();

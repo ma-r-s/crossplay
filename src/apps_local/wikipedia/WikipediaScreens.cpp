@@ -124,7 +124,10 @@ std::deque<Piece> titlePieces(const char* text) {
       continue;
     }
     cur += *p;
-    if ((*p == '-' || *p == '/') && p[1] != '\0' && p[1] != ' ') flush(Glue::After);
+    // After a run of them, never inside one: "defizit-/Hyper" breaks after
+    // "-/", never before the "/", which would start a line with it.
+    const auto breaks = [](const char c) { return c == '-' || c == '/'; };
+    if (breaks(*p) && p[1] != '\0' && p[1] != ' ' && !breaks(p[1])) flush(Glue::After);
   }
   flush(Glue::None);
   return out;
@@ -469,8 +472,14 @@ int16_t drawPartsRow(toybox::Screen& screen, const SearchModel& model, const int
 // The recent trail: as many as fit above `bottom`. The activity leaves out the
 // article you are in, which CONTINUE already names.
 int16_t drawRecent(toybox::Screen& screen, const SearchModel& model, int16_t y, const int16_t bottom) {
-  if (model.recentCount == 0 || y + kCaptionHeight + kRowMin > bottom) return y;
+  if (model.recentCount == 0) return y;
   const fui::Rect body = screen.body();
+  // The caption only with a row under it, so the first title is measured: a
+  // two-line German compound is taller than one row, and a bare RECENT reads
+  // as a list that failed to load.
+  const TitleFit first =
+      fitTitle(screen, static_cast<int16_t>(body.width - kMargin * 2), model.recent[0].title, toybox::kBodyFont);
+  if (y + kCaptionHeight + first.height > bottom) return y;
   drawCaption(screen, fui::Rect{body.x, y, body.width, kCaptionHeight}, "RECENT");
   y = static_cast<int16_t>(y + kCaptionHeight);
   // Divided, not underlined: a rule goes between two rows, never under the
