@@ -475,3 +475,9 @@ rss           = rss
 # the warning at the top of this file); the forecast's own skies are generated
 # into src/apps_local/weather/WeatherIcons.h from tools_local/weather/icons.txt.
 weather       = cloud-sun
+
+# READING STATS: three rising columns, the chart the app opens on. Spliced into
+# ToyboxIcons.h by hand per the warning at the top of this file. `book-open-check`
+# was the literal pick and reads as Study's sibling at 32px; `chart-column`
+# carries axes that fill in at one bit.
+readingstats = chart-no-axes-column-increasing

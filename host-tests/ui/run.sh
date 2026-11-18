@@ -93,5 +93,7 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/yahtzee/YahtzeeScreens.cpp \
   ../../src/apps_local/wikipedia/WikipediaScreens.cpp \
   ../../src/apps_local/weather/WeatherScreens.cpp \
+  ../../src/apps_local/readingstats/ReadingStatsScreens.cpp \
+  ../../src/apps_local/readingstats/ReadingStatsTitles.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

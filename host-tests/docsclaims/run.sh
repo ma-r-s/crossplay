@@ -378,6 +378,31 @@ for label, names in ROWS:
         check(int(m.group(1)) == real, "docs/buttons.md button census is stale",
               f"{label}: says {m.group(1)}, {real} app directories read it")
 
+# The sentence under the table. Two app branches each moved it by one and a
+# merge of both kept one side's number, so it is counted rather than trusted.
+WORDS = ("zero one two three four five six seven eight nine ten eleven twelve "
+         "thirteen fourteen fifteen sixteen seventeen eighteen nineteen").split()
+TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
+
+
+def word_number(text):
+    text = text.lower()
+    if text in WORDS:
+        return WORDS.index(text)
+    head, _, tail = text.partition("-")
+    return TENS.get(head, -1000) + (WORDS.index(tail) if tail else 0)
+
+
+m = re.search(r"^([A-Z][a-z-]+) of the ([a-z-]+) directories use Back and nothing else\.",
+              buttons, re.M)
+check(bool(m), "docs/buttons.md no longer says how many directories use Back alone",
+      "the sentence under the census table")
+if m:
+    back_only = sum(1 for s in button_use.values() if s == {"Back"})
+    check(word_number(m.group(1)) == back_only and word_number(m.group(2)) == len(button_use),
+          "docs/buttons.md Back-only sentence is stale",
+          f"says {m.group(1)} of {m.group(2)}, real {back_only} of {len(button_use)}")
+
 # ---------------------------------------------------------------------------
 # docs/contributing/README.md is the index of its own directory. It went stale
 # by omission: landing-and-integration.md existed and nothing linked it.

@@ -33,6 +33,7 @@
 #include "notes/NotesActivity.h"
 #include "picross/PicrossActivity.h"
 #include "player/PlayerActivity.h"
+#include "readingstats/ReadingStatsActivity.h"
 #include "rss/RssActivity.h"
 #include "seasalt/SeaSaltActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -98,6 +99,8 @@ constexpr shelf::Item kApps[] = {
     {"RSS", &icon_rss_32, &RssActivity::create},
     // Card #763. Appended, like RSS, so no row above it moves.
     {"WEATHER", &icon_weather_32, &WeatherActivity::create},
+    // Card #762. Appended, for the same reason RSS was.
+    {"READING STATS", &icon_readingstats_32, &ReadingStatsActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because
