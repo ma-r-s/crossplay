@@ -296,8 +296,12 @@ jobs:
   # to a temporary, in the one finding the fork had). The medium and low
   # findings (18 and 374 on 2026-09-04) are card #136's backlog; this job's log
   # lists them on every run, so the number is never a guess.
+  # Pinned to 24.04, not ubuntu-latest: latest became 26.04, which has no
+  # libpcre3 at all, and PlatformIO's tool-cppcheck binary is linked against
+  # it (see the install step below). On 26.04 the install step fails with
+  # "Unable to locate package libpcre3" before any analysis runs.
   cppcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:

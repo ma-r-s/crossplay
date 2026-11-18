@@ -15,11 +15,20 @@ on their first build.
 Kept as a `pre:` hook rather than a flag in platformio.sim.ini because the flag
 is wrong on macOS: there is no linkable libcrypto there, so a static entry in
 build_flags would trade a Linux failure for a macOS one.
+
+C files are pinned to gnu17 here too, on every host. A compiler whose default
+C dialect is C23 (GCC 15, the default on ubuntu-latest since it became 26.04)
+makes `bool`, `true` and `false` keywords, and the QRCode library's own
+`typedef uint8_t bool;` then stops compiling. Device builds use the ESP
+toolchain's own default and are not affected. CFLAGS reaches C only, so the
+C++ dialect set in platformio.sim.ini is untouched.
 """
 
 import sys
 
 Import("env")  # noqa: F821  (SCons injects this)
+
+env.Append(CFLAGS=["-std=gnu17"])  # noqa: F821
 
 if sys.platform.startswith("linux"):
     env.Append(LIBS=["crypto"])  # noqa: F821
