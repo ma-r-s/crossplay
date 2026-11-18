@@ -38,8 +38,11 @@ then grep for `Entering activity: X`". That is a real regression test and it
 runs headless.
 
 It also measures every screenshot it takes: a header whose back arrow or chip
-sits off its title's line fails the run with a `HEADER ROW` line saying by how
-many pixels (`tools_local/header_row_check.py`). A "before" shot of a bug it
+sits off its title's line, or whose back arrow has words drawn over it, fails
+the run with a `HEADER ROW` line saying which and by how many logical pixels
+(`tools_local/header_row_check.py`; a 2x capture is measured at 1x). The theme's
+arrow is found by its shape, read from `headerIcons.h`, so a band with no rule
+under it (Classic, RoundedRaff) is measured too. A "before" shot of a bug it
 catches will fail too; that is the point of taking one.
 
 ### Landscape, and the one thing it breaks
