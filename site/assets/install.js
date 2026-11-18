@@ -55,7 +55,11 @@
     },
     sticky: {
       name: "Seeed reTerminal Sticky",
-      restart: "Unplug the USB cable and plug it back in.",
+      // The battery keeps the chip in the flasher stub through a replug, and
+      // the stub ignores the power button: only the reset pin restarts it.
+      restart:
+        "Press the reset button with a pin or paperclip: the small hole on the " +
+        "bottom, first on the left. The reader then starts CrossPlay.",
     },
   };
 
