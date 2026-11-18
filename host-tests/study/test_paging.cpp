@@ -483,10 +483,10 @@ void testButtonsPageThenReveal() {
 }
 
 void testAnswerOpensWhereItBegins() {
-  // The answer face repeats the question above the answer. On a paged face
-  // the first line of the answer's own text starts a new page, so the page
-  // before ends with the question, and a reveal opens on the answer's page
-  // with the answer at its top.
+  // The answer face repeats the question above the answer. When that
+  // question runs past one page, the first line of the answer's own text
+  // starts a new page, so the page before ends with the question, and a reveal
+  // opens on the answer's page with the answer at its top.
   //
   // 50px pages, two lines each. The repeated question is three lines: page 1
   // holds two, page 2 the third (150-170). A 6px gap, then the answer: "xxx"
@@ -564,6 +564,40 @@ void testAnswerOpensWhereItBegins() {
   CHECK(study::resolveCardPage(study::kAnswerStartPage, 5, 3) == 2, "a start past the count is capped");
   CHECK(study::resolveCardPage(0, 2, 3) == 0, "a page turned to is kept, not sent back to the start");
   CHECK(study::resolveCardPage(9, 2, 3) == 2, "and capped like any held page");
+}
+
+void testShortQuestionKeepsItsAnswer() {
+  // A question that fits on one page does not push a long answer onto a page
+  // of its own: page 1 holding one line of question and nothing else was the
+  // shape the 1.15.0 review photographed. The answer follows the question as it
+  // did before paging existed, and runs on from wherever a line stops fitting.
+  //
+  // 50px pages, two lines each. "aaa" is the question (100-120), a 6px gap,
+  // then "xxx" fits under it (126-146); "yyy" crosses the foot and opens page
+  // 2, "zzz" follows it.
+  const auto drawAnswer = [](const int page, Recorder& target, const char* question) {
+    study::TextFlow flow = pagedFlow(100, 50, page);
+    int y = field(target, flow, 100, 30, question);
+    y += 6;
+    flow.marking = true;
+    field(target, flow, y, 30, "xxx yyy zzz");
+    return flow;
+  };
+  Recorder measure;
+  const study::TextFlow flow = drawAnswer(0, measure, "aaa");
+  CHECK(flow.pages.count() == 2, "a one-line question and a three-line answer take two pages, not three");
+  CHECK(flow.markPage == 0, "the answer begins on page 1, under its question");
+  CHECK(lines(measure) == (std::vector<std::string>{"aaa", "xxx"}), "page 1 holds the question and the answer's start");
+  Recorder second;
+  drawAnswer(1, second, "aaa");
+  CHECK(lines(second) == (std::vector<std::string>{"yyy", "zzz"}), "page 2 carries the rest of the answer");
+
+  // A one-page question that leaves no room under it: the answer's first line
+  // crosses the foot like any line and opens page 2 by the ordinary rule.
+  Recorder full;
+  const study::TextFlow fullFlow = drawAnswer(0, full, "aaa bbb");
+  CHECK(fullFlow.markPage == 1, "a question that fills its page still hands the answer the next one");
+  CHECK(lines(full) == (std::vector<std::string>{"aaa", "bbb"}), "and page 1 is the whole question");
 }
 
 void testStalePageIsCapped() {
@@ -671,6 +705,7 @@ int main() {
   testButtonsPageThenReveal();
   testStalePageIsCapped();
   testAnswerOpensWhereItBegins();
+  testShortQuestionKeepsItsAnswer();
   testNoPageTurnEverGrades();
   testTapsKeepTheirMeaning();
   std::printf("%s %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);

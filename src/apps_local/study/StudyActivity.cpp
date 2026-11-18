@@ -1400,8 +1400,9 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   int y = body.y + kCardInset;
 
   y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
-  // The answer's own text starts below the word: on a paged face its first
-  // line starts a new page, and that page is where a reveal opens (drawCard).
+  // The answer's own text starts below the word, and the page its first line
+  // lands on is where a reveal opens (drawCard). It starts a new page only
+  // when the question above it already ran past one (StudyText.h TextFlow).
   // A field the question face also showed is drawn unmarked, so the mark
   // cannot land on it.
   textFlow_.marking = answer;
