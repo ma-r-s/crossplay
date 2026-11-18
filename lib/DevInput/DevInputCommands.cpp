@@ -2,8 +2,15 @@
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
 
+// InputManager.h is named although only HalGPIO.h uses it. This library
+// cannot inherit that path: lib/hal includes DevInputInjector.h, so
+// PlatformIO's dependency finder sees hal and DevInput as a cycle and gives
+// whichever it builds second only the other's own include dir. Scan order
+// decides which, and after the 2026-11-17 sync it was this one, in every dev
+// env. Naming the header makes InputManager a direct dependency.
 #include <BoardConfig.h>
 #include <HalGPIO.h>
+#include <InputManager.h>
 
 #include <cctype>
 #include <cstdarg>

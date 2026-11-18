@@ -224,11 +224,9 @@ def deck_has_cjk(deck_dir):
     exactly the characters the device will be asked to draw -- not from the
     deck name or a language guess.
     """
-    text = ""
-    for stem in ("glyphs-headword", "glyphs-sentence"):
-        f = deck_dir / f"{stem}.txt"
-        if f.is_file():
-            text += f.read_text(encoding="utf-8")
+    import scripts
+
+    text = "".join(scripts.read_glyph_list(deck_dir, name) or "" for name in ("headword", "sentence"))
     return any(a <= ord(c) <= b for c in text for a, b in [r for r in CJK_RANGES])
 
 
@@ -495,14 +493,14 @@ def cmd_setup(args):
     ):
         die("Conversion failed; nothing was changed on the card.")
 
-    # Fonts only matter when the deck needs glyphs the built-in serif lacks, or
+    # Fonts only matter when the deck needs glyphs the built-in font lacks, or
     # when the user asked for a face of their own. A Latin-script deck without
-    # --font skips the whole pipeline: the built-in serif draws it, and the
+    # --font skips the whole pipeline: the built-in font draws it, and the
     # device falls back per card even if stale fonts are lying around.
     needs_cjk = deck_has_cjk(deck_dir)
     if not needs_cjk and not args.font and not args.no_font:
         # Offer the big face rather than requiring the user to know it exists.
-        # The built-in serif works, but at 18pt where the fitted face is three
+        # The built-in font works, but at 18pt where the fitted face is three
         # times that -- the difference between "works" and "looks right".
         found = next((f for f in SYSTEM_FONTS if pathlib.Path(f).is_file()), None)
         if found:

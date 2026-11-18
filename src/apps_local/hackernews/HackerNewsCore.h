@@ -28,6 +28,30 @@
 
 namespace hn {
 
+// --- The extractor -------------------------------------------------------
+//
+// The text extractor. It answers Markdown for an arbitrary page, which is the
+// one job this device cannot do for itself: extracting readable prose from
+// somebody's HTML is the actual hard problem, and there is no free open API
+// that returns an article as text without a service like this in the middle.
+//
+// Worth being clear-eyed about the cost, because it is a real one: every
+// article opened here tells this third party what is being read, and the app
+// stops working the day they stop answering. That is why it is only ever
+// reached for the article body. Everything that makes this app worth having --
+// the front page, every comment, every thread -- comes from Algolia and would
+// keep working if this line were deleted.
+//
+// RSS reaches it for the posts a feed only links to, through this same
+// address, for the same reason and at the same cost.
+inline constexpr const char* kExtractorPrefix = "https://r.jina.ai/";
+
+// An article is fetched into RAM rather than to the card, because it is small
+// and because the readability gate has to see the whole body before deciding
+// anything. Bounded so a runaway page cannot decide the memory ceiling: the
+// largest real article measured was 32KB.
+inline constexpr size_t kMaxArticleBytes = 96u * 1024u;
+
 // --- The readability gate ------------------------------------------------
 //
 // Whether a page "is basically someone talking about something", which is the

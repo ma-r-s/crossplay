@@ -89,6 +89,31 @@ bool readCanned(const std::string& url, const HttpDownloader::DataCallback& onDa
 // got a reply, which is what a missing canned file is.
 int HttpDownloader::lastStatus() { return 0; }
 
+// A canned answer comes from the card, so nothing is ever redirected.
+bool HttpDownloader::lastAnswerRedirected() { return false; }
+
+// CrossPoint 2.0's OPDS path (bearer tokens, Accept negotiation, a status out):
+// none of that changes which canned file answers, so only the status is set.
+bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData, const FetchOptions& options) {
+  const bool ok = readCanned(url, onData);
+  if (options.statusOut) *options.statusOut = ok ? 200 : 0;
+  return ok;
+}
+
+// POSTs reach a server that is not there: an OAuth token request and an LCP
+// license fetch both fail as an unreachable host would, which is what the
+// browser build is.
+bool HttpDownloader::postForm(const std::string&, const std::string&, std::string& outResponse, int* statusOut) {
+  outResponse.clear();
+  if (statusOut) *statusOut = 0;
+  return false;
+}
+
+HttpDownloader::DownloadError HttpDownloader::postToFile(const std::string&, const std::string&, const std::string&,
+                                                         const std::string&, ProgressCallback, const bool*) {
+  return HTTP_ERROR;
+}
+
 bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, const std::string&, const std::string&) {
   outContent.clear();
   return readCanned(url, [&outContent](const uint8_t* data, const size_t len) {
@@ -97,7 +122,8 @@ bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, c
   });
 }
 
-bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std::string&, const std::string&) {
+bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std::string&, const std::string&,
+                              const std::vector<Header>&) {
   return readCanned(url, [&stream](const uint8_t* data, const size_t len) {
     stream.write(data, len);
     return true;
@@ -105,7 +131,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, Stream& stream, const std:
 }
 
 bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData, const std::string&,
-                              const std::string&) {
+                              const std::string&, const std::vector<Header>&) {
   return readCanned(url, onData);
 }
 

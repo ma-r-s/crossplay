@@ -14,6 +14,7 @@
 #include "ChapterPosition.h"
 #include "ClipSelectionActivity.h"
 #include "EpubReaderMenuActivity.h"
+#include "LinkNoteTitle.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
@@ -21,6 +22,7 @@
 
 class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
+  std::unique_ptr<Epub::SyncMetadata> vocabularyMetadata;
   std::unique_ptr<Section> section = nullptr;
   int currentSpineIndex = 0;
   int nextPageNumber = 0;
@@ -41,15 +43,20 @@ class EpubReaderActivity final : public ReaderActivity {
   bool pendingSyncSaveError = false;
   uint8_t pageLoadRetryCount = 0;
   static constexpr uint8_t MAX_PAGE_LOAD_RETRIES = 3;
-  bool skipNextButtonCheck = false;
   bool automaticPageTurnActive = false;
   bool showBookmarkMessage = false;
   bool showDictionaryMessage = false;
   unsigned long dictionaryMessageTime = 0UL;
+  bool showFontDamagedMessage = false;
+  unsigned long fontDamagedMessageTime = 0UL;
   bool showClippingMessage = false;
   StrId clippingMessage = StrId::STR_CLIPPING_SAVED;
   unsigned long clippingMessageTime = 0UL;
   bool currentPageBookmarked = false;
+  int idlePrewarmSpine = -1;
+  int idlePrewarmPage = -1;
+  int idlePrewarmOffset = 0;
+  unsigned long lastRenderCompleteMs = 0;
   bool bookmarkRemoved = false;
   std::vector<BookmarkEntry> cachedBookmarks;
   bool recentsEntryRemoved = false;
@@ -99,6 +106,7 @@ class EpubReaderActivity final : public ReaderActivity {
   void settleOverlayRefresh();
   int autoTurnOption = 0;  // current auto page-turn rate index (More panel)
   std::vector<EpubReaderMenuActivity::MenuItem> moreItems;
+  EpubReaderMenuActivity::MenuAction selectedMenuAction = EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;
@@ -124,6 +132,9 @@ class EpubReaderActivity final : public ReaderActivity {
   int lastSavedSpineIndex = -1;
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
+  // Chapter title shown in the status bar, cached per spine item.
+  mutable int statusTitleSpine = -1;
+  mutable std::string statusTitle;
 
   static constexpr int BUILD_PAGES_PER_CHUNK = 8;
   static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 2;
@@ -133,8 +144,26 @@ class EpubReaderActivity final : public ReaderActivity {
   bool backgroundBuildWanted() const;
   bool buildTickHeapGate();
   bool buildHeapPaused = false;
+  // One bounded build step on the loop task, in a frame whose input did nothing. Lays out about
+  // BACKGROUND_BUILD_PAGES_PER_TICK pages (one 1 KB parse step may add more) and hands the loop
+  // back as soon as a button is down, so a short press is seen before more pages are built.
+  // Returns true if a repaint was requested (caller should skip idle prewarm for this frame).
+  bool backgroundBuildTick();
+  void idlePrewarmTick();
+  bool anyButtonPressed() const;
+  // A background build failed in this spine. The error would likely recur, so from then on the
+  // spine is built only as far as the reader goes; pages from earlier build steps stay readable.
+  int backgroundBuildFailedSpine = -1;
+  // Bluetooth page turner: every chapter build stops the radio until the chapter is built and its
+  // page is shown. False: the radio still holds or is taking the heap, and the build must not run.
+  std::atomic<bool> radioReleasedForBuild{false};
+  bool makeRoomForChapterBuild();
+  static constexpr uint32_t BUILD_ROOM_WAIT_MS = 5000;
+  static constexpr uint32_t BUILD_ROOM_STEP_MS = 50;
+  bool inputOverPage() const override { return overlay != Overlay::None || ReaderActivity::inputOverPage(); }
+  // "Connecting Bluetooth…" or "Bluetooth failed" in place of the status bar title.
+  mutable LinkNoteTitle linkNoteTitle;
   static constexpr size_t RENDER_MIN_FREE_HEAP = 24 * 1024;
-  static constexpr int BUILD_WINDOW_AHEAD = 5;
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
   static constexpr int BUILD_POPUP_PAGE_THRESHOLD = 20;
   static constexpr size_t BUILD_POPUP_BYTE_THRESHOLD = 96 * 1024;
@@ -147,6 +176,7 @@ class EpubReaderActivity final : public ReaderActivity {
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
+  int currentTocIndex() const;
   // Live section position, or the values cached before a child screen
   // released the section.
   ChapterPosition chapterPosition() const;
@@ -177,6 +207,9 @@ class EpubReaderActivity final : public ReaderActivity {
   void activateMoreRow(int row);
   void openFootnoteSelect(bool reopenMenuOnCancel);
   void openDictionaryWordSelect();
+  // Selection to restore when returning from a dictionary lookup.
+  ClipSelectionActivity::Selection pendingLookupSelection;
+  ClipSelectionActivity::Selection lookupReturnSelection;
   void startClipSelection(int initialX = -1, int initialY = -1,
                           ClipSelectionActivity::Mode mode = ClipSelectionActivity::Mode::Clip);
   int clippingAtPoint(const Page& page, int x, int y) const;
@@ -235,6 +268,7 @@ class EpubReaderActivity final : public ReaderActivity {
 
   bool pageTurn(bool isForward) override;
   bool skipPages(int amount) override;
+  bool remoteShortcut(bool readerMenu) override;
   bool isAtEndOfBook() const override;
   void onReturnFromEndOfBook() override;
 

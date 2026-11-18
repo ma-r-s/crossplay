@@ -158,8 +158,21 @@ echo "writing over the cable (no pairing code, no Developer Mode) ..."
 # So otadata is written as blank bytes in the same write_flash as the app.
 OTABLANK="${TMPDIR:-/tmp}/xteink-otadata-blank.bin"
 python3 -c "import sys; open(sys.argv[1],'wb').write(b'\xff' * 0x2000)" "$OTABLANK"
-if "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud 921600 \
-     --before usb_reset --after hard_reset write_flash 0xe000 "$OTABLANK" 0x10000 "$IMAGE"; then
+# Which reset reaches the chip depends on what is on the other end of the cable.
+# The S3's own USB (the X4 Pro) reports its MAC as the USB serial number and is
+# reset by the USB control request above. A USB-UART bridge (the Sticky's CH343)
+# reports the BRIDGE's serial instead, carries the auto-reset circuit on its
+# DTR/RTS lines like any devkit, ignores usb_reset entirely ("No serial data
+# received" again), and drops bytes past 460800 on macOS. Such a device cannot
+# be named by --mac either: its serial is not its MAC.
+if printf '%s' "$MAC" | grep -Eq '^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'; then
+  BEFORE=usb_reset BAUD=921600
+else
+  BEFORE=default_reset BAUD=460800
+fi
+echo "reset:  $BEFORE at $BAUD"
+if "$PIO_PY" "$ESPTOOL" --chip esp32s3 --port "$PORT" --baud "$BAUD" \
+     --before "$BEFORE" --after hard_reset write_flash 0xe000 "$OTABLANK" 0x10000 "$IMAGE"; then
   echo "flashed $MAC"
 else
   echo "error: the write failed. The device holds its previous firmware." >&2

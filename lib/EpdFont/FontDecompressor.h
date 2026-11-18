@@ -7,7 +7,7 @@
 class FontDecompressor {
  public:
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
-  static constexpr uint8_t MAX_PAGE_SLOTS = 4;  // One per font style (R/B/I/BI)
+  static constexpr uint8_t MAX_PAGE_SLOTS = 8;  // One per font/style pair: body R/B/I/BI plus heading sizes
 
   // Groups a single prewarm will hold in its page buffer. This sizes BOTH of
   // prewarmCache's stack arrays (neededGroups, groupAlignedTracker) and caps
@@ -61,7 +61,7 @@ class FontDecompressor {
   InflateReader inflateReader;
 
   // Page buffer slots: each style gets its own flat glyph buffer with sorted lookup.
-  // Up to MAX_PAGE_SLOTS (4) styles can be prewarmed simultaneously.
+  // Up to MAX_PAGE_SLOTS font/style pairs can be prewarmed simultaneously.
   struct PageGlyphEntry {
     uint32_t glyphIndex;
     uint32_t bufferOffset;

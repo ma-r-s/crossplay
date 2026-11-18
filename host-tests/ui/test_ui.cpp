@@ -41,6 +41,7 @@
 #include "../../src/apps_local/picross/PicrossScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/rss/RssScreens.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/solitaire/SolitaireScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
@@ -505,6 +506,79 @@ std::string bandLabel(const FakeTarget& t, const fui::Rect& band) {
   return "?";
 }
 
+// A text box that crosses a drawn outline without sitting inside it: a title
+// running into a header chip, a label over a button's border. Card #759: the
+// Wikipedia article's title ran into its back chip for weeks, because every
+// probe here asked whether content cleared the CHROME and none asked whether
+// two things inside it cleared each other. Measured on every render, like the
+// chrome probe, so no screen has to remember to ask.
+bool rectsCross(const fui::Rect& a, const fui::Rect& b) {
+  return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+}
+bool rectInside(const fui::Rect& inner, const fui::Rect& outer) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.right() <= outer.right() && inner.bottom() <= outer.bottom();
+}
+// Inside the header band only. Everywhere else a text box (the line box, taller
+// than its ink) legitimately crosses outlines: fanned cards, a digit seated on a
+// tile's top edge. In the band every outline is a chip and every text run is a
+// title, a label or a chip's own word, so a crossing is always a defect.
+void checkBandTextClearsChips(const FakeTarget& target, const fui::Rect& band) {
+  if (band.height == 0) return;
+  for (const auto& run : target.texts) {
+    if (run.text.empty() || run.rect.width <= 0 || run.rect.height <= 0 || run.rect.y >= band.bottom()) continue;
+    for (const auto& stroke : target.strokes) {
+      if (stroke.width == 0 || stroke.rect.y >= band.bottom()) continue;
+      if (!rectsCross(run.rect, stroke.rect) || rectInside(run.rect, stroke.rect)) continue;
+      ++checksFailed;
+      std::printf("FAIL band text: \"%s\" [%d,%d %dx%d] runs into a chip [%d,%d %dx%d]\n",
+                  run.text.substr(0, 40).c_str(), run.rect.x, run.rect.y, run.rect.width, run.rect.height,
+                  stroke.rect.x, stroke.rect.y, stroke.rect.width, stroke.rect.height);
+      break;
+    }
+  }
+}
+
+// The back control and the title share one line. Study's count once sat
+// 12.5px above its own back arrow because two pieces of code each placed half
+// of the row; this asks every header render the same question the screenshot
+// check (tools_local/header_row_check.py) asks every simulator shot, so a
+// header drawn by this library cannot drift either. Ink to ink: the control's
+// box centre (icons and chips are drawn centred in their boxes) against the
+// title's capital ink, never the title's line box.
+int headerRowsMeasured = 0;
+void checkBandRowAligned(const FakeTarget& target, const fui::Rect& band) {
+  if (band.height == 0) return;
+  fui::Rect control{};
+  bool found = false;
+  const auto consider = [&](const fui::Rect& r) {
+    if (r.bottom() > band.height || r.x >= 60 || r.height < 14 || r.width >= 90) return;
+    if (!found || r.x < control.x || (r.x == control.x && r.height > control.height)) {
+      control = r;
+      found = true;
+    }
+  };
+  for (const auto& blit : target.blits) consider(blit.rect);
+  for (const auto& stroke : target.strokes) consider(stroke.rect);
+  if (!found) return;
+  const FakeTarget::TextRun* title = nullptr;
+  for (const auto& run : target.texts) {
+    if (run.text.empty() || run.style.maxLines > 1 || run.rect.bottom() > band.height) continue;
+    const int gap = run.rect.x - control.right();
+    if (gap < 0 || gap > 60) continue;
+    if (title == nullptr || run.rect.x < title->rect.x) title = &run;
+  }
+  if (title == nullptr) return;
+  ++headerRowsMeasured;
+  const fui::Rect ink = inkBandOf(*title);
+  const int controlMid2 = 2 * control.y + control.height;  // doubled: no half pixels lost
+  const int titleMid2 = 2 * ink.y + ink.height;
+  if (std::abs(controlMid2 - titleMid2) <= 2 * 3) return;
+  ++checksFailed;
+  std::printf("FAIL header row: [%s] control [%d,%d %dx%d] centred at %.1f, title ink centred at %.1f\n",
+              title->text.substr(0, 40).c_str(), control.x, control.y, control.width, control.height, controlMid2 / 2.0,
+              titleMid2 / 2.0);
+}
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -546,6 +620,9 @@ struct Rendered {
   // probe above for why this is not a per-screen assertion.
   ~Rendered() {
     const fui::Rect band = bandRectOf(target);
+    ++checksRun;
+    checkBandTextClearsChips(target, band);
+    checkBandRowAligned(target, band);
     if (band.height == 0) {
       // Not a header render: a popup, a headerless play screen (Forehead's
       // round, every Wavelength screen), or a build that drew nothing. Counted
@@ -4590,6 +4667,60 @@ hnui::ReaderModel articleModel() {
   return model;
 }
 
+// Mario 2026-11-17, on the review shots: "I see some stuff overlapping". The
+// Wikipedia article's title ran into its outlined back chip, and a reader's
+// page count into its SAVE chip. Both are the header component's placement,
+// so both are measured on the real screens: every text box in the band clears
+// every outlined chip in it.
+std::vector<fui::Rect> bandChips(const Rendered& out) {
+  std::vector<fui::Rect> chips;
+  for (const auto& stroke : out.target.strokes) {
+    if (stroke.rect.y < toybox::kHeaderHeight && stroke.rect.height >= 24) chips.push_back(stroke.rect);
+  }
+  std::sort(chips.begin(), chips.end(), [](const fui::Rect& a, const fui::Rect& b) { return a.x < b.x; });
+  return chips;
+}
+
+const FakeTarget::TextRun* runOf(const Rendered& out, const char* text) {
+  for (const auto& run : out.target.texts) {
+    if (run.text == text) return &run;
+  }
+  return nullptr;
+}
+
+void testHeaderTextClearsItsChips() {
+  constexpr int kClear = 6;
+  {
+    Rendered wiki;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(wiki.target, ctx, noInput, wiki.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      wikiui::ArticleChromeModel model;
+      model.title = "Pharming (genetics)";
+      wikiui::buildArticleChrome(screen, model);
+    }
+    const auto chips = bandChips(wiki);
+    const auto* title = runOf(wiki, "Pharming (genetics)");
+    CHECK(title != nullptr && chips.size() >= 2);
+    if (title != nullptr && chips.size() >= 2) {
+      CHECK(title->rect.x >= chips.front().right() + kClear);
+      CHECK(title->rect.right() <= chips.back().x - kClear);
+    }
+  }
+  {
+    Rendered hn;
+    hnui::ReaderModel model = articleModel();
+    model.canSave = true;
+    buildHnReader(hn, model);
+    const auto chips = bandChips(hn);
+    const auto* label = runOf(hn, "1/3");
+    CHECK(label != nullptr && !chips.empty());
+    if (label != nullptr && !chips.empty()) CHECK(label->rect.right() <= chips.back().x - kClear);
+  }
+}
+
 bool drewText(const Rendered& out, const char* needle) {
   for (const auto& run : out.target.texts) {
     if (run.text.find(needle) != std::string::npos) return true;
@@ -5456,6 +5587,121 @@ void testStudyPanelSaysSoWhenItHasNothing() {
   Rendered some;
   buildStudyDeck(some, model);
   CHECK(!some.target.drew("NOTHING RECORDED YET"));
+}
+
+// --- the study card pager (card #761) ----------------------------------------
+//
+// A card longer than its screen pages, and the pager at the foot of the card
+// body is the touch route to the pages the side keys turn. Drawn into the
+// card body the review screen uses: below the header, above the 128px footer.
+
+fui::Rect studyCardBody() { return fui::makeRect(0, 89, 480, 800 - 89 - 128); }
+
+bool insideRect(const fui::Rect& outer, const fui::Rect& inner) {
+  return inner.x >= outer.x && inner.y >= outer.y && inner.right() <= outer.right() && inner.bottom() <= outer.bottom();
+}
+
+bool pointInside(const fui::Rect& outer, const fui::Point& p) {
+  return p.x >= outer.x && p.x <= outer.right() && p.y >= outer.y && p.y <= outer.bottom();
+}
+
+void testStudyPagerTakesTheFootOfTheCard() {
+  const fui::Rect body = studyCardBody();
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(body);
+  // The band is the foot of the body, so the card's text stops above it and
+  // the footer below it is untouched.
+  CHECK(pager.band.y == body.bottom() - studyui::kCardPagerBand);
+  CHECK(pager.band.bottom() == body.bottom());
+  CHECK(pager.band.x == body.x && pager.band.width == body.width);
+  CHECK(insideRect(pager.band, pager.pill));
+  CHECK(pager.pill.x - body.x == body.right() - pager.pill.right());  // centred
+  // The two targets are inside the band, do not overlap, and each covers the
+  // arrow drawn at its end of the pill.
+  CHECK(insideRect(pager.band, pager.previous));
+  CHECK(insideRect(pager.band, pager.next));
+  CHECK(pager.previous.right() <= pager.next.x);
+  CHECK(pager.previous.x <= pager.pill.x && pager.previous.right() > pager.pill.x + 20);
+  CHECK(pager.next.right() >= pager.pill.right() && pager.next.x < pager.pill.right() - 20);
+}
+
+void testStudyPagerDrawsOnlyForALongFace() {
+  const fui::Rect body = studyCardBody();
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(body);
+
+  // One page: nothing at all, so a card that fits looks as it always did.
+  Rendered single;
+  studyui::drawCardPager(single.target, pager, 0, 1);
+  CHECK(single.target.texts.empty() && single.target.fills.empty() && single.target.strokes.empty() &&
+        single.target.lines.empty());
+
+  // Three pages, on the first: the count, the outline, and both chevrons, all
+  // inside the band.
+  Rendered first;
+  studyui::drawCardPager(first.target, pager, 0, 3);
+  CHECK(first.target.drew("1 / 3"));
+  CHECK(first.target.outlined(pager.pill));
+  bool linesInside = !first.target.lines.empty();
+  for (const auto& segment : first.target.lines) {
+    linesInside = linesInside && pointInside(pager.pill, segment.a) && pointInside(pager.pill, segment.b);
+  }
+  CHECK(linesInside);
+  // Two strokes per chevron, two dividers.
+  CHECK(first.target.lines.size() == 6);
+  // The count sits inside the pill, one line of it.
+  CHECK(first.target.texts.size() == 1);
+  for (const auto& run : first.target.texts) CHECK(insideRect(pager.pill, run.rect) && run.style.maxLines == 1);
+}
+
+// Whether a dithered ground was laid over the left or the right end of the pill.
+bool dimmedAt(const Rendered& out, const studyui::CardPagerLayout& pager, const bool right) {
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    if (out.target.fillPaints[i].kind != fui::PaintKind::Dither) continue;
+    const fui::Rect& rect = out.target.fills[i];
+    const int centre = rect.x + rect.width / 2;
+    if (right ? centre > pager.pill.x + pager.pill.width / 2 : centre < pager.pill.x + pager.pill.width / 2) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void testStudyPagerDimsTheSpentArrow() {
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(studyCardBody());
+  // A control that cannot act dims; it does not disappear
+  // (docs/design-language.md). Both arrows are always drawn.
+  Rendered first;
+  studyui::drawCardPager(first.target, pager, 0, 3);
+  CHECK(dimmedAt(first, pager, false));
+  CHECK(!dimmedAt(first, pager, true));
+
+  Rendered middle;
+  studyui::drawCardPager(middle.target, pager, 1, 3);
+  CHECK(middle.target.drew("2 / 3"));
+  CHECK(!dimmedAt(middle, pager, false));
+  CHECK(!dimmedAt(middle, pager, true));
+
+  Rendered last;
+  studyui::drawCardPager(last.target, pager, 2, 3);
+  CHECK(last.target.drew("3 / 3"));
+  CHECK(!dimmedAt(last, pager, false));
+  CHECK(dimmedAt(last, pager, true));
+  CHECK(last.target.lines.size() == first.target.lines.size());
+}
+
+void testStudyPagerArrowsAreWhereTheyAreDrawn() {
+  const studyui::CardPagerLayout pager = studyui::cardPagerLayout(studyCardBody());
+  const int midY = pager.pill.y + pager.pill.height / 2;
+  using Hit = studyui::CardPagerHit;
+  // On each chevron, and beside it out to the edge of the band.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, midY) == Hit::Previous);
+  CHECK(studyui::cardPagerHit(pager, pager.pill.right() - 22, midY) == Hit::Next);
+  CHECK(studyui::cardPagerHit(pager, 2, pager.band.y + 2) == Hit::Previous);
+  CHECK(studyui::cardPagerHit(pager, 477, pager.band.bottom() - 2) == Hit::Next);
+  // The count between them takes the tap and is neither.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + pager.pill.width / 2, midY) == Hit::Between);
+  // Above the band is the card, and below it the footer.
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, pager.band.y - 1) == Hit::Outside);
+  CHECK(studyui::cardPagerHit(pager, pager.pill.x + 22, pager.band.bottom()) == Hit::Outside);
 }
 
 void testStudyWarnsWhenAReviewDidNotSave() {
@@ -14865,6 +15111,296 @@ void theMenuOffersTodayOnlyWhenThereIsOne() {
 
 }  // namespace wordletest
 
+// --- RSS -------------------------------------------------------------------
+
+void buildRssPosts(Rendered& out, const rssui::ListModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::buildPosts(screen, model);
+}
+
+void buildRssFeeds(Rendered& out, const rssui::ListModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::buildFeeds(screen, model);
+}
+
+// The rows the activity hands over: a window of the page on screen, each row
+// carrying its ABSOLUTE index, with a mark in front and a site at the right.
+struct RssRows {
+  std::vector<std::string> labels;
+  std::vector<std::string> values;
+  std::vector<fui::ListItem> items;
+  RssRows(const int first, const int count, const bool marks) {
+    labels.reserve(static_cast<size_t>(count));
+    values.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+      labels.push_back("Post number " + std::to_string(first + i));
+      values.push_back(i % 2 == 0 ? "Kettle" : "Field Notes");
+    }
+    for (int i = 0; i < count; ++i) {
+      fui::ListItem item;
+      item.label = labels[static_cast<size_t>(i)].c_str();
+      item.value = values[static_cast<size_t>(i)].c_str();
+      item.actionValue = static_cast<int16_t>(first + i);
+      if (marks) item.icon = i % 2 == 0 ? rssui::unreadMark() : rssui::readMark();
+      items.push_back(item);
+    }
+  }
+};
+
+int rssVisibleRows() {
+  FakeTarget target;
+  return fui::listVisibleRows(rssui::postsBand(device()), rssui::postRowHeight(target, toybox::themeTokens()),
+                              toybox::themeTokens().listRowGap);
+}
+
+void testRssPostsRowsOpenTheirOwnPost() {
+  // Page three of a long list: the rows handed over are a window, and a tap must
+  // open the post at the row's ABSOLUTE index, or page three opens page one.
+  const int perPage = rssVisibleRows();
+  CHECK(perPage >= 4);
+  const int first = perPage * 2;
+  RssRows rows(first, perPage, true);
+  rssui::ListModel model;
+  model.items = rows.items.data();
+  model.count = perPage * 5;
+  model.windowFirst = first;
+  model.windowCount = perPage;
+  model.topIndex = first;
+  Rendered out;
+  buildRssPosts(out, model);
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewText(out, rows.labels[0].c_str()));
+  CHECK(drewText(out, "Kettle"));
+
+  std::vector<bool> opened(static_cast<size_t>(perPage), false);
+  const fui::Rect band = rssui::postsBand(device());
+  for (int y = band.y; y < band.y + band.height; ++y) {
+    const fui::ActionEvent event = out.tap(240, y);
+    if (event.action != rssui::ActionOpenPost) continue;
+    CHECK(event.value >= first && event.value < first + perPage);
+    if (event.value >= first && event.value < first + perPage) opened[static_cast<size_t>(event.value - first)] = true;
+  }
+  for (int i = 0; i < perPage; ++i) CHECK(opened[static_cast<size_t>(i)]);
+
+  // The unread mark is drawn, and the read one is the same size: the headline
+  // starts at one x whether or not its post has been opened.
+  CHECK(rssui::unreadMark().width == rssui::readMark().width);
+  CHECK(rssui::unreadMark().height == rssui::readMark().height);
+  bool sawDot = false;
+  for (const auto& blit : out.target.blits) sawDot = sawDot || blit.data == rssui::unreadMark().data;
+  CHECK(sawDot);
+}
+
+void testRssSegments() {
+  RssRows rows(0, 2, true);
+  const fui::DeviceContext ctx = device();
+  const int y = ctx.height - toybox::kMargin - toybox::kPillHeight / 2;
+  const auto routes = [&](const rssui::ListModel& model, const bool feeds, const int x) {
+    Rendered out;
+    if (feeds) {
+      buildRssFeeds(out, model);
+    } else {
+      buildRssPosts(out, model);
+    }
+    return out.tap(x, y).action;
+  };
+  rssui::ListModel all;
+  all.items = rows.items.data();
+  all.count = 2;
+  all.windowCount = 2;
+  // Where you are is filled and inert; the other two are live, edge to edge.
+  CHECK(routes(all, false, toybox::kMargin + 2) == fui::NO_ACTION);
+  CHECK(routes(all, false, ctx.width / 2) == rssui::ActionShowFeeds);
+  CHECK(routes(all, false, ctx.width - toybox::kMargin - 2) == rssui::ActionShowSaved);
+
+  // A list narrowed to one feed keeps FEEDS filled -- and live, because it is
+  // the way back to the list of feeds.
+  rssui::ListModel narrowed = all;
+  narrowed.tab = rssui::Tab::Feeds;
+  narrowed.narrowed = true;
+  narrowed.title = "Field Notes";
+  CHECK(routes(narrowed, false, ctx.width / 2) == rssui::ActionShowFeeds);
+  CHECK(routes(narrowed, false, toybox::kMargin + 2) == rssui::ActionShowAll);
+
+  // On the feeds list itself FEEDS is inert again.
+  rssui::ListModel feeds = all;
+  feeds.tab = rssui::Tab::Feeds;
+  feeds.title = "FEEDS";
+  CHECK(routes(feeds, true, ctx.width / 2) == fui::NO_ACTION);
+}
+
+void testRssFeedsScreen() {
+  // A full page of feeds and the door to the phone, all reachable.
+  FakeTarget measure;
+  const int perPage =
+      fui::listVisibleRows(rssui::feedsBand(device()), rssui::feedRowHeight(measure, toybox::themeTokens()),
+                           toybox::themeTokens().listRowGap);
+  CHECK(perPage >= 4);
+  RssRows rows(0, perPage, false);
+  rssui::ListModel model;
+  model.tab = rssui::Tab::Feeds;
+  model.title = "FEEDS";
+  model.items = rows.items.data();
+  model.count = perPage + 3;
+  model.windowCount = perPage;
+  Rendered out;
+  buildRssFeeds(out, model);
+  CHECK(!out.interactions.overflowed());
+  CHECK(drewLabelWhole(out, "ADD OR REMOVE"));
+  bool door = false;
+  std::vector<bool> opened(static_cast<size_t>(perPage), false);
+  for (int y = 0; y < device().height; ++y) {
+    const fui::ActionEvent event = out.tap(240, y);
+    if (event.action == rssui::ActionAddFeeds) door = true;
+    if (event.action == rssui::ActionOpenFeed && event.value >= 0 && event.value < perPage) {
+      opened[static_cast<size_t>(event.value)] = true;
+    }
+  }
+  CHECK(door);
+  for (int i = 0; i < perPage; ++i) CHECK(opened[static_cast<size_t>(i)]);
+  // The rows stop above the door: no feed row is drawn under the button.
+  const fui::Rect band = rssui::feedsBand(device());
+  CHECK(band.y + band.height <= device().height - toybox::kMargin - 2 * toybox::kPillHeight - toybox::kGutter);
+}
+
+void testRssEmptyStates() {
+  // No feeds at all: the first screen, and it carries the way to add some.
+  const rssui::Empty first = rssui::emptyFor(rssui::Tab::All, false, false);
+  CHECK(first.action == rssui::ActionAddFeeds);
+  rssui::ListModel model;
+  model.emptyHeadline = first.headline;
+  model.emptyMessage = first.message;
+  model.emptyActionLabel = first.actionLabel;
+  model.emptyAction = first.action;
+  Rendered out;
+  buildRssPosts(out, model);
+  CHECK(drewText(out, "NO FEEDS YET"));
+  CHECK(drewLabelWhole(out, "ADD FEEDS"));
+  bool found = false;
+  for (int y = 0; y < device().height && !found; ++y) found = out.tap(240, y).action == rssui::ActionAddFeeds;
+  CHECK(found);
+  const FakeTarget::TextRun* headline = out.target.find("NO FEEDS YET");
+  CHECK(headline != nullptr && headline->color == fui::Color::Black);
+
+  // The saved shelf empty is complete, not a fault: no control.
+  CHECK(rssui::emptyFor(rssui::Tab::Saved, true, false).action == fui::NO_ACTION);
+  CHECK(rssui::emptyFor(rssui::Tab::Saved, false, false).action == fui::NO_ACTION);
+  // Feeds that have no posts yet, and one narrowed feed with none, say so
+  // without offering to add what is already there.
+  CHECK(rssui::emptyFor(rssui::Tab::All, true, false).action == fui::NO_ACTION);
+  CHECK(rssui::emptyFor(rssui::Tab::Feeds, true, true).action == fui::NO_ACTION);
+  CHECK(std::string(rssui::emptyFor(rssui::Tab::Feeds, true, true).headline) !=
+        rssui::emptyFor(rssui::Tab::All, true, false).headline);
+}
+
+void testRssPhoneScreen() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  Rendered out;
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  rssui::PhoneModel model;
+  model.url = "http://192.168.68.76/r";
+  model.readable = "http://crossplay-a1b2c3.local/r";
+  model.status = "Added Hacker News: Front Page.";
+  const fui::Rect qr = rssui::buildPhone(screen, model);
+  // A square, on the panel, clear of the band and of DONE.
+  CHECK(qr.width == qr.height);
+  CHECK(qr.width >= 120);
+  CHECK(qr.y >= toybox::kBodyTop);
+  CHECK(qr.x >= 0 && qr.x + qr.width <= ctx.width);
+  const FakeTarget::TextRun* address = out.target.find(model.readable);
+  const FakeTarget::TextRun* status = out.target.find(model.status);
+  CHECK(address != nullptr);
+  CHECK(status != nullptr);
+  if (address != nullptr) CHECK(address->rect.y >= qr.y + qr.height);
+  if (address != nullptr && status != nullptr) CHECK(status->rect.y >= address->rect.y + address->rect.height);
+  bool done = false;
+  int doneTop = ctx.height;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (out.tap(240, y).action == rssui::ActionPhoneDone) {
+      done = true;
+      doneTop = std::min(doneTop, y);
+    }
+  }
+  CHECK(done);
+  // Nothing the phone page says is drawn under DONE.
+  if (status != nullptr) CHECK(status->rect.y + status->rect.height <= doneTop);
+  CHECK(!out.interactions.overflowed());
+}
+
+void testRssReaderHasNoSecondView() {
+  // RSS reads its posts through Hacker News's reader with no second view: no
+  // COMMENTS door that never opens, and two arrows that share the footer.
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.hasSwap = false;
+  model.canPagePrev = true;
+  model.canSave = true;
+  buildHnReader(out, model);
+  CHECK(!drewText(out, "COMMENTS"));
+  CHECK(!out.has(hnui::ActionSwapView));
+  CHECK(out.has(hnui::ActionSave));
+  const int y = device().height - toybox::kMargin - toybox::kPillHeight / 2;
+  // Edge to edge, and nothing dead in the middle.
+  CHECK(out.tap(toybox::kMargin + 2, y).action == hnui::ActionPagePrev);
+  CHECK(out.tap(device().width / 2 - toybox::kGutter / 2 - 2, y).action == hnui::ActionPagePrev);
+  CHECK(out.tap(device().width / 2 + toybox::kGutter / 2 + 2, y).action == hnui::ActionPageNext);
+  CHECK(out.tap(device().width - toybox::kMargin - 2, y).action == hnui::ActionPageNext);
+
+  // Hacker News keeps its three.
+  Rendered hn;
+  hnui::ReaderModel three = articleModel();
+  buildHnReader(hn, three);
+  CHECK(hn.has(hnui::ActionSwapView));
+}
+
+void testRssRefreshCarriesAWayOut() {
+  // A refresh across many feeds is the longest wait in the app, and the
+  // left-edge swipe that is Back is written nowhere: the screen carries STOP,
+  // under the app's own band rather than Hacker News's.
+  Rendered out;
+  hnui::NoticeModel model;
+  model.band = "RSS";
+  model.headline = "REFRESHING";
+  model.message = "Hacker News: Front Page\n4 of 9";
+  model.actionLabel = "STOP";
+  model.action = rssui::ActionStopRefresh;
+  buildHnNotice(out, model);
+  CHECK(drewText(out, "RSS"));
+  CHECK(!drewText(out, "HACKER NEWS"));
+  CHECK(drewLabelWhole(out, "STOP"));
+  bool stop = false;
+  for (int y = 0; y < device().height && !stop; ++y) stop = out.tap(240, y).action == rssui::ActionStopRefresh;
+  CHECK(stop);
+  // And Hacker News's own notices still say Hacker News.
+  Rendered hn;
+  hnui::NoticeModel plain;
+  plain.headline = "NO LUCK";
+  buildHnNotice(hn, plain);
+  CHECK(drewText(hn, "HACKER NEWS"));
+}
+
+void testRssHeadlineRoomFollowsTheSite() {
+  // Each row's headline gets what ITS site name leaves, so a short name gives
+  // the headline more room and no name gives it all.
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+  const int16_t none = rssui::postTitleWidth(ctx, tokens, 0);
+  const int16_t shortName = rssui::postTitleWidth(ctx, tokens, 40);
+  const int16_t longest = rssui::postTitleWidth(ctx, tokens, rssui::postSiteWidth());
+  CHECK(none > shortName);
+  CHECK(shortName > longest);
+  CHECK(longest > rssui::postsBand(ctx).width / 2);
+  CHECK(none < rssui::postsBand(ctx).width);
+}
+
 int main() {
   notestest::aNoteAsleepIsReadOnlyAndTaller();
   wordletest::everyKeyIsWhereItIsDrawn();
@@ -14955,6 +15491,7 @@ int main() {
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testTheSudokuGridAndItsHitTestAreExactInverses();
+  testHeaderTextClearsItsChips();
   testSudokuBoxRulesStandOutFromCellLines();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
@@ -15025,6 +15562,14 @@ int main() {
   testHnReaderTextStaysInItsRect();
   testHnNotice();
   testHnEveryNoticeCarriesAWayOff();
+  testRssPostsRowsOpenTheirOwnPost();
+  testRssSegments();
+  testRssFeedsScreen();
+  testRssEmptyStates();
+  testRssPhoneScreen();
+  testRssReaderHasNoSecondView();
+  testRssRefreshCarriesAWayOut();
+  testRssHeadlineRoomFollowsTheSite();
   testHnList();
   testHnEmptyFrontPageOffersAWayOnward();
   testHnEmptyStateStacksWithoutOverlap();
@@ -15100,6 +15645,10 @@ int main() {
   testStudyRecordShowsTheStreak();
   testStudyPanelSaysSoWhenItHasNothing();
   testStudyWarnsWhenAReviewDidNotSave();
+  testStudyPagerTakesTheFootOfTheCard();
+  testStudyPagerDrawsOnlyForALongFace();
+  testStudyPagerDimsTheSpentArrow();
+  testStudyPagerArrowsAreWhereTheyAreDrawn();
   testInsiderCitizenIsNeverToldTheWord();
   testInsiderFaceDownCardShowsNothingAtAll();
   testInsiderFaceDownCardTakesATapAnywhere();
@@ -15175,6 +15724,7 @@ int main() {
 
   std::printf("chrome probe: %d header renders measured, %d renders had no band\n", chromeScreensMeasured,
               chromeScreensSkipped);
+  std::printf("header row probe: %d headers had a back control beside a title\n", headerRowsMeasured);
   // The probe measuring nothing is a silent regression, not a pass. This number
   // only goes up as screens are added; if it collapses, the renders stopped
   // drawing chrome and the probe quietly stopped being a check.

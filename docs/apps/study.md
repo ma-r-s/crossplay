@@ -105,7 +105,7 @@ them:
   Japanese Support add-on's Expression / Reading / Meaning note type is
   handled as Anki's own template handles it -- the furigana lives in the
   Reading field, and that is the form the headword is drawn from. Slots drawn
-  in the built-in serif get the readings alone or the kanji alone, exactly as
+  in the built-in font get the readings alone or the kanji alone, exactly as
   `{{kana:}}` and `{{kanji:}}` would.
 - **Korean** needs a Korean TTF via `--font`. (Hangul used to be treated as
   Latin, which sent it to the built-in face -- 1070 glyphs and no Hangul -- so
@@ -133,7 +133,7 @@ exactly as they would in Anki.
   the typeface per card, which stops you learning the shape of one font instead
   of the character. Ship whichever of the five you have; the reader uses what
   it finds.
-- **Any other deck** needs nothing: the built-in serif draws it. Setup offers
+- **Any other deck** needs nothing: the built-in font draws it. Setup offers
   to build a large headword face from a font your system already has (Georgia
   on a Mac); accept and the type looks right with no further thought. To pick
   your own face, hand it any TTF -- and `--no-font` skips the question:
@@ -207,6 +207,21 @@ export.
 
 - Tap anywhere to reveal the answer; tap AGAIN / HARD / GOOD / EASY to grade.
   The times on the buttons are computed the same way Anki computes them.
+- The side keys work too: either one reveals a question that fits the screen.
+- **A long card pages.** A card is drawn as large as it fits, stepping down to
+  12pt; one still longer than the screen gets a `< 1 / 3 >` pager above the
+  buttons. The side keys are the reader's page keys, so Settings > Controls >
+  Layout swaps or disables them here as it does in a book: page forward turns
+  the page, page back turns back, and on the last page of the question the
+  next press shows the answer. A long answer starts on a page of its own and
+  opens there, with the answer at the top; the question it repeats is on the
+  pages before it. A
+  swipe up or down, or the pager's arrows, also turn pages, but only within
+  the side you are on. Grading is only ever a tap on the four buttons: no
+  page turn, at the end of the answer or anywhere, grades a card. A line is
+  never split between pages, and a reading stays with the word it reads.
+- A word wider than the screen (a chemical name, a URL) is set smaller when
+  that fits it whole, and broken at the edge when nothing does.
 - **UNDO** (footer, question side) takes back the last answer -- one level,
   during the session.
 - **PHOTO** (header, answer side) shows the card's picture full screen, when
@@ -223,7 +238,7 @@ than by position or by content:
 
 | | |
 | --- | --- |
-| `deck.dat`, `meta.dat`, `glyphs-*.txt`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
+| `deck.dat`, `meta.dat`, `glyphs-*.lst`, `fonts/` | Card text, parameters, faces. Rewritten every conversion. |
 | `cards.dat` | Scheduling state -- each record carries the Anki card id it belongs to. |
 | `revlog.dat` | Every review, keyed by card id and the millisecond it was answered, which is Anki's own revlog primary key. |
 
@@ -293,5 +308,12 @@ deliberately left behind -- with the reason in each case -- is
 
 The on-card format, the FSRS implementation and its Anki-agreement tests, and
 the sync mechanics are documented in
-[study-deck-format.md](study-deck-format.md). The one-page printable version of
+[study-deck-format.md](study-deck-format.md).
+
+Long-card paging is adapted from
+[CrossNext](https://github.com/manuelx900/CrossNext) by manuelx900 (MIT), a
+fork built from this one: its page-turn rule (the press past the last
+question page reveals, a page turn never grades) and its page arithmetic
+(every field of a face on one run of pages, broken on whole lines only).
+CrossPlay keeps its own card look and size steps around them. The one-page printable version of
 this guide is [study-quick-reference.pdf](study-quick-reference.pdf).

@@ -30,29 +30,14 @@ constexpr const char* kFrontPageUrl = "https://hn.algolia.com/api/v1/search?tags
 // One request for a whole thread, already nested.
 constexpr const char* kItemUrlPrefix = "https://hn.algolia.com/api/v1/items/";
 
-// The text extractor. It answers Markdown for an arbitrary page, which is the
-// one job this device cannot do for itself: extracting readable prose from
-// somebody's HTML is the actual hard problem, and there is no free open API
-// that returns an article as text without a service like this in the middle.
-//
-// Worth being clear-eyed about the cost, because it is a real one: every
-// article opened here tells this third party what is being read, and the app
-// stops working the day they stop answering. That is why it is only ever
-// reached for the article body. Everything that makes this app worth having --
-// the front page, every comment, every thread -- comes from Algolia and would
-// keep working if this line were deleted.
-constexpr const char* kExtractorPrefix = "https://r.jina.ai/";
+// The text extractor and its cap, kExtractorPrefix and kMaxArticleBytes, live
+// in HackerNewsCore.h now: RSS reads the pages its feeds only link to through
+// the same one, and two copies of a third party's address drift.
 
 // The front page JSON is ~22KB. It goes to the card first so the TLS buffers
 // are freed before ArduinoJson allocates, which is the same order the font
 // downloader uses and for the same reason.
 constexpr const char* kFrontPageTmp = "/hn_front.tmp";
-
-// An article is fetched into RAM rather than to the card, because it is small
-// and because the readability gate has to see the whole body before deciding
-// anything. Bounded so a runaway page cannot decide the memory ceiling: the
-// largest real article measured was 32KB.
-constexpr size_t kMaxArticleBytes = 96u * 1024u;
 
 constexpr int kMaxStories = 30;
 
@@ -514,11 +499,11 @@ bool HackerNewsActivity::fetchArticle() {
   }
 
   std::string response;
-  std::string url = kExtractorPrefix;
+  std::string url = hn::kExtractorPrefix;
   url += story->url;
   bool overLimit = false;
   const bool ok = HttpDownloader::fetchUrl(url, [&response, &overLimit](const uint8_t* data, const size_t len) {
-    if (response.size() + len > kMaxArticleBytes) {
+    if (response.size() + len > hn::kMaxArticleBytes) {
       overLimit = true;
       return false;
     }

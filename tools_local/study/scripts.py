@@ -12,7 +12,7 @@ and whether the wrap may break beside it.
 The hole it exists to close: `is_cjk` tested 0x2E80-0x9FFF, 0xF900-0xFAFF and
 0xFF00-0xFFEF. Hangul syllables live at 0xAC00-0xD7A3 and are in none of
 them, so every Korean character was classified as Latin -- which routed it to
-the built-in serif, which has 1070 glyphs and no Hangul. A Korean deck
+the built-in font, which has 1070 glyphs and no Hangul. A Korean deck
 converted with no error, no warning and no readable card. The same range
 missed CJK Extension A (0x3400-0x4DBF), where a few thousand rare hanzi and
 kanji live.
@@ -37,7 +37,7 @@ _RANGES = (
     (0xD7B0, 0xD7FF, "hangul"),  # jamo extended-B
     # Shared CJK punctuation and the fullwidth forms. Called "han" because
     # what matters here is which face draws them, and the answer is the same
-    # face that draws the characters around them -- the built-in serif has no
+    # face that draws the characters around them -- the built-in font has no
     # fullwidth comma.
     (0x3000, 0x303F, "han"),
     (0xFF00, 0xFFEF, "han"),
@@ -67,7 +67,7 @@ WIDE = frozenset({"han", "kana"})
 # curly quotes, en/em dashes, the ellipsis -- ordinary English typography,
 # not a foreign script. Before this existed, a curly quote in an otherwise
 # plain English sentence was classified the same as Greek or Cyrillic and
-# reported as "a script the reader has no face for", when the built-in serif
+# reported as "a script the reader has no face for", when the built-in font
 # draws it without trouble.
 _LATIN_EXT_RANGES = (
     (0x0100, 0x024F),
@@ -90,7 +90,7 @@ def script_of(ch):
         if first <= o <= last:
             return "latin"
     # Greek, Cyrillic, Arabic, Hebrew, Devanagari and the rest. Not "latin",
-    # because the built-in serif cannot draw them either and calling them
+    # because the built-in font cannot draw them either and calling them
     # Latin is how they used to reach it silently.
     if 0x0370 <= o <= 0x2DFF or 0xA000 <= o <= 0xABFF:
         return "other"
@@ -292,3 +292,17 @@ def visible_text(encoded):
 def reading_text(encoded):
     """Just the readings, for the glyph set the ruby-size face is built from."""
     return "".join(reading for _base, reading in decode_ruby(encoded))
+
+
+# The glyph lists the converter writes for the font pipeline, one per size the
+# device draws at. They are ".lst" because the reader's Library lists every
+# ".txt" on the card as a book: four per deck, on the shelf.
+def glyph_list_path(deck_dir, name):
+    """Where the converter writes the `name` glyph list."""
+    return deck_dir / f"glyphs-{name}.lst"
+
+
+def read_glyph_list(deck_dir, name):
+    """The `name` glyph list, or None when the deck has none."""
+    path = glyph_list_path(deck_dir, name)
+    return path.read_text(encoding="utf-8") if path.is_file() else None

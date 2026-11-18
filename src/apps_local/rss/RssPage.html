@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111110">
+<title>RSS on the reader</title>
+<style>
+/* The site's tokens, copied from site/styles.css rather than remembered, the
+   same set Notes' page carries. No webfont: the reader serves this with no
+   internet, so the display face falls back to the stack the site declares. */
+:root{
+  --ink:#111110; --paper:#f5f2ea; --paper-2:#ebe7db; --edge:#a9a494; --muted:#46443c;
+  --display:"Arial Narrow",Helvetica,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --gutter:clamp(1.25rem,4vw,2rem);
+}
+@media (prefers-color-scheme:dark){
+  :root{--ink:#f2f1ec; --paper:#100f0e; --paper-2:#1a1917; --edge:#5a564c; --muted:#b8b5aa}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.6 var(--body);-webkit-text-size-adjust:100%}
+
+/* The black band and its rule stay black in both themes: it is the one element
+   that is the same object on the panel and on the web. */
+.band{background:#111110;color:#faf9f6;font-family:var(--display);font-weight:400;
+  font-size:clamp(1.6rem,7vw,2.2rem);letter-spacing:.02em;
+  padding:.45em var(--gutter) .3em;display:flex;align-items:baseline;justify-content:space-between;gap:1rem}
+.band-note{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;opacity:.75}
+.band-rule{height:3px;background:var(--ink)}
+
+main{max-width:34rem;margin:0 auto;padding:1.6rem var(--gutter) 3rem}
+.eyebrow{font-family:var(--mono);font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);margin:0 0 .8rem;display:flex;align-items:center}
+.eyebrow::before{content:"";width:2rem;height:1px;background:currentColor;margin-right:.7rem}
+.eyebrow span{margin-left:auto}
+
+form{display:flex;gap:.6rem;margin:0}
+input{flex:1 1 auto;min-width:0;font:inherit;color:var(--ink);background:var(--paper-2);
+  border:2px solid var(--edge);border-radius:0;padding:.65rem .75rem}
+input:focus{outline:3px solid var(--ink);outline-offset:0;border-color:var(--ink)}
+.btn{flex:0 0 auto;font-family:var(--display);font-weight:400;font-size:1.2rem;letter-spacing:.03em;
+  padding:.5em 1.15em .38em;border:3px solid var(--ink);background:var(--ink);color:var(--paper);cursor:pointer}
+.btn[disabled]{opacity:.42;cursor:default}
+.note{min-height:1.6em;margin:.7rem 0 2rem;color:var(--muted)}
+.note.bad{color:var(--ink)}
+
+ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--edge)}
+li{display:flex;align-items:center;gap:.75rem;border-bottom:1px solid var(--edge);padding:.7rem 0}
+li .what{flex:1 1 auto;min-width:0}
+li .name{display:block;overflow-wrap:anywhere}
+li .url{display:block;font-family:var(--mono);font-size:.72rem;color:var(--muted);overflow-wrap:anywhere}
+li .why{display:block;font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase}
+li .drop{flex:0 0 auto;font-family:var(--display);font-size:1rem;letter-spacing:.03em;padding:.4em .9em .3em;
+  border:2px solid var(--ink);background:var(--paper);color:var(--ink);cursor:pointer}
+li .drop[disabled]{opacity:.42;cursor:default}
+.empty{color:var(--muted);border-bottom:1px solid var(--edge);padding:.7rem 0;margin:0}
+.foot{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--muted);margin:1.6rem 0 0}
+</style>
+</head>
+<body>
+<div class="band"><span>RSS</span><span class="band-note" id="state">Loading</span></div>
+<div class="band-rule"></div>
+<main>
+<p class="eyebrow">A site, or its feed</p>
+<form id="add">
+  <input id="address" type="text" inputmode="url" autocomplete="off" autocapitalize="off" autocorrect="off"
+         spellcheck="false" placeholder="kottke.org" aria-label="A site's address or a feed's address">
+  <button class="btn" id="go" type="submit">Add</button>
+</form>
+<p class="note" id="note" role="status"></p>
+<p class="eyebrow">On the reader <span id="count"></span></p>
+<div id="feeds"></div>
+<p class="foot">Served by the reader itself. It reads each feed straight from its site.</p>
+</main>
+<script>
+// Wrapped, so no top-level name collides with a property of window.
+(function () {
+var stateEl = document.getElementById('state');
+var noteEl = document.getElementById('note');
+var feedsEl = document.getElementById('feeds');
+var countEl = document.getElementById('count');
+var form = document.getElementById('add');
+var addressEl = document.getElementById('address');
+var goEl = document.getElementById('go');
+var waiting = false;
+
+function say(msg) { stateEl.textContent = msg; }
+function note(msg, bad) { noteEl.textContent = msg; noteEl.className = bad ? 'note bad' : 'note'; }
+
+function draw(state) {
+  countEl.textContent = state.feeds.length + ' of ' + state.max;
+  feedsEl.innerHTML = '';
+  if (!state.feeds.length) {
+    var empty = document.createElement('p');
+    empty.className = 'empty';
+    empty.textContent = 'Nothing yet. Paste the address of a site you read.';
+    feedsEl.appendChild(empty);
+    return;
+  }
+  var list = document.createElement('ul');
+  state.feeds.forEach(function (feed) {
+    var li = document.createElement('li');
+    var what = document.createElement('span');
+    what.className = 'what';
+    var name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = feed.title;
+    var url = document.createElement('span');
+    url.className = 'url';
+    url.textContent = feed.url;
+    what.appendChild(name);
+    what.appendChild(url);
+    if (feed.failed) {
+      var why = document.createElement('span');
+      why.className = 'why';
+      why.textContent = 'Did not answer last time';
+      what.appendChild(why);
+    }
+    var drop = document.createElement('button');
+    drop.className = 'drop';
+    drop.type = 'button';
+    drop.textContent = 'Remove';
+    drop.disabled = waiting;
+    drop.addEventListener('click', function () { send('/r/remove', feed.url, 'Removing'); });
+    li.appendChild(what);
+    li.appendChild(drop);
+    list.appendChild(li);
+  });
+  feedsEl.appendChild(list);
+}
+
+function load() {
+  return fetch('/r/state', { cache: 'no-store' }).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }).then(function (state) {
+    draw(state);
+    if (!waiting) say('Ready');
+    return state;
+  });
+}
+
+function busy(on) {
+  waiting = on;
+  goEl.disabled = on;
+  var drops = feedsEl.querySelectorAll('.drop');
+  for (var i = 0; i < drops.length; i++) drops[i].disabled = on;
+}
+
+// The reader answers from its own loop, and adding means reading the feed, so
+// the answer is polled for rather than waited on.
+function follow(job, started) {
+  load().then(function (state) {
+    var found = null;
+    state.jobs.forEach(function (j) { if (j.id === job) found = j; });
+    if (found && (found.state === 'done' || found.state === 'failed')) {
+      busy(false);
+      note(found.message, found.state === 'failed');
+      say(found.state === 'done' ? 'Done' : 'Ready');
+      if (found.state === 'done') addressEl.value = '';
+      load();
+      return;
+    }
+    if (Date.now() - started > 120000) {
+      busy(false);
+      say('No answer');
+      note('The reader stopped answering. Check it is still on the screen with the code.', true);
+      return;
+    }
+    setTimeout(function () { follow(job, started); }, 800);
+  }).catch(function () {
+    setTimeout(function () { follow(job, started); }, 1500);
+  });
+}
+
+function send(path, body, doing) {
+  if (waiting) return;
+  busy(true);
+  say(doing);
+  note('');
+  fetch(path, { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: body })
+    .then(function (r) {
+      if (!r.ok) return r.text().then(function (m) { throw new Error(m || r.status); });
+      return r.json();
+    }).then(function (reply) {
+      follow(reply.job, Date.now());
+    }).catch(function (e) {
+      busy(false);
+      say('Ready');
+      note(String(e.message || e).slice(0, 120), true);
+    });
+}
+
+form.addEventListener('submit', function (e) {
+  e.preventDefault();
+  var address = addressEl.value.trim();
+  if (!address) { addressEl.focus(); return; }
+  send('/r/add', address, 'Adding');
+});
+
+load().catch(function () {
+  say('No answer');
+  note('The reader is not answering. Check it is still on the screen with the code.', true);
+});
+})();
+</script>
+</body>
+</html>

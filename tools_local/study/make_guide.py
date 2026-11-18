@@ -235,7 +235,11 @@ right.append(
     )
 )
 right.append(
-    Paragraph("<b>Back</b> leaves at any point. Everything else is a tap.", NOTE)
+    Paragraph(
+        "<b>Back</b> leaves at any point. Everything else is a tap; the side keys "
+        "also reveal, and turn the pages of a card too long for one screen.",
+        NOTE,
+    )
 )
 
 cols = Table([[left, right]], colWidths=[86 * mm, 92 * mm])

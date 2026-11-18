@@ -17,6 +17,7 @@
 // this owns the card.
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "HackerNewsSaved.h"
@@ -25,6 +26,11 @@ namespace hn {
 
 class Library {
  public:
+  // Hacker News's own shelf. The directory is a parameter because RSS keeps
+  // its saved posts the same way, in a folder of its own: one format and one
+  // set of rules for a read-later shelf, two shelves that never mix.
+  explicit Library(std::string dir = "/.crosspoint/hn") : dir_(std::move(dir)) {}
+
   // Reads the index once. Cheap and idempotent, so callers do not have to
   // remember whether they are the first.
   void load();
@@ -51,7 +57,10 @@ class Library {
 
  private:
   bool writeIndex();
+  std::string indexPath() const { return dir_ + "/saved.tsv"; }
+  std::string articlePath(const std::string& id) const { return dir_ + "/" + id + ".txt"; }
 
+  std::string dir_;
   std::vector<SavedArticle> articles_;
   bool loaded_ = false;
 };

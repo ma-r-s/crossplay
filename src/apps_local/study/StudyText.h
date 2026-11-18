@@ -329,11 +329,13 @@ struct WrappedLine {
 //
 // A break unit is a whole word for Latin and a single character for CJK,
 // because Chinese is written without spaces and a space-only rule finds no
-// break at all -- every sentence then runs off both edges. A word longer than
-// the line is not broken: it overhangs, and fitsAsDrawn() is what catches
-// that before it is drawn.
+// break at all -- every sentence then runs off both edges. A word wider than
+// the whole line overhangs unless `breakLong` is set, in which case it is
+// broken by codepoint at the width; either way `*overlong` is set, which is
+// how the card picks a smaller size before it settles for either.
 template <typename Measure, typename Emit>
-void wrapText(const char* text, const int maxWidth, char* line, const int lineBytes, Measure measure, Emit emit) {
+void wrapText(const char* text, const int maxWidth, char* line, const int lineBytes, Measure measure, Emit emit,
+              const bool breakLong = false, bool* overlong = nullptr) {
   if (text == nullptr || *text == '\0' || lineBytes < 8) return;
 
   int lineLength = 0;
@@ -412,7 +414,21 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
       continue;
     }
 
-    if (unitBytes >= lineBytes) {
+    // A word that would not fit even a line of its own. Asked only at the
+    // head of a line, which is where every unit lands once the greedy pass
+    // below has flushed the line it did not fit on; a ruby segment is never
+    // broken, so it is never asked.
+    bool tooWide = false;
+    if ((breakLong || overlong != nullptr) && lineLength == 0 && *p != kRubyStart && unitBytes < lineBytes) {
+      std::memcpy(line, p, static_cast<size_t>(unitBytes));
+      line[unitBytes] = '\0';
+      if (measure(line) > maxWidth) {
+        if (overlong != nullptr) *overlong = true;
+        tooWide = breakLong;
+      }
+    }
+
+    if (unitBytes >= lineBytes || tooWide) {
       // A run with no break in it that is longer than the whole line buffer:
       // a URL, a chemical name, a paragraph of a script this build does not
       // know breaks in. It used to end the wrap, so the run AND everything
@@ -432,6 +448,7 @@ void wrapText(const char* text, const int maxWidth, char* line, const int lineBy
         // takes nothing is a loop that never advances.
         if (taken > 0 && measure(line) > maxWidth) {
           line[taken] = '\0';
+          if (overlong != nullptr) *overlong = true;
           break;
         }
         taken += width;
@@ -523,6 +540,79 @@ inline bool spanOnLine(const WrappedLine& line, const int spanStart, const int s
   return to > from;
 }
 
+// --- Pages --------------------------------------------------------------------
+//
+// A face longer than its body is read a page at a time, and every field of
+// the face shares ONE sequence of pages: the question, the rule, the
+// sentence and its translation flow on as if the body were endlessly tall,
+// and the page a line lands on is just where that endless y falls. Nothing is
+// copied and no offsets are kept; drawing page n lays the face out again and
+// draws only the lines that land on it.
+//
+// A line is placed whole. One that would cross the foot of a page starts the
+// next page instead, so a line is never cut in half, and a line carrying
+// furigana is placed with its reading as one block, so a reading can never
+// sit at the foot of one page with its base at the head of the next.
+//
+// Adapted from CrossNext (github.com/manuelx900/CrossNext, MIT), a fork built
+// from this one, whose TextPages this is.
+struct TextPages {
+  int top = 0;     // the screen row every page's first line starts on
+  int height = 0;  // the room a page has below `top`; zero means not paged
+  int selected = 0;
+  int total = 1;  // the count a measuring pass found, for whatever is drawn after the lines
+  int last = -1;  // the highest page any line has been placed on
+  int rule = -1;  // the y of a hairline waiting to be drawn above the next line
+
+  bool paging() const { return height > 0; }
+  int pageOf(const int y) const { return paging() && y > top ? (y - top) / height : 0; }
+  int count() const { return last < 0 ? 1 : last + 1; }
+
+  // Where a line `advance` tall that would start at `y` actually starts.
+  int placeLine(int y, const int advance) {
+    if (!paging()) return y;
+    const int offset = (y - top) % height;
+    if (offset > 0 && offset + advance > height) {
+      // Onto the next page -- unless nothing is on this one yet, which is a
+      // gap between two fields that ran over the foot of the last page. The
+      // line then starts this page rather than leave it blank.
+      y += pageOf(y) > last ? -offset : height - offset;
+    }
+    if (pageOf(y) > last) last = pageOf(y);
+    return y;
+  }
+  // Where a line that must open a page of its own, and would start at `y`,
+  // starts: the top of the next page, or of this one when nothing is on it
+  // yet (a gap ran onto it) or `y` already is its top.
+  int startPage(int y) const {
+    if (!paging()) return y;
+    const int offset = (y - top) % height;
+    if (offset > 0) y += pageOf(y) > last ? -offset : height - offset;
+    return y;
+  }
+  bool visible(const int y) const { return !paging() || pageOf(y) == selected; }
+  int screenY(const int y) const { return paging() ? top + (y - top) % height : y; }
+};
+
+// What a face's layout carries from one field to the next: the pages, and
+// what to do with a word wider than a line.
+struct TextFlow {
+  TextPages pages;
+  bool breakLong = false;  // break such a word at the width instead of letting it overhang
+  bool overlong = false;   // set when one was met, broken or not
+  // `markPage` is the page of the first line placed while `marking` is set,
+  // or -1. The answer face repeats the question above the answer; the card
+  // marks where its own text begins so a long answer opens there. On a paged
+  // face that first marked line also starts a new page, so the answer opens
+  // at the top of its page and the page before it ends with the question.
+  bool marking = false;
+  int markPage = -1;
+  // Where the last line placed ends. A layout's own returned y also carries
+  // the gaps it leaves after fields that turned out empty; whether a face
+  // needs pages is a question about its lines, not about its gaps.
+  int lineEnd = 0;
+};
+
 // Draw `text` centred, wrapped, with the codepoint run
 // [spanStart, spanStart + spanLength) underlined. Returns the y below the last
 // line, so callers stack blocks by threading it.
@@ -546,11 +636,15 @@ inline bool spanOnLine(const WrappedLine& line, const int spanStart, const int s
 // would cross it is not drawn and `*clipped` is set, so a card longer than its
 // body stops above the grading buttons instead of printing over them. The
 // return value is still the full height, so a measure and a draw agree.
+//
+// `flow`, when given, pages the text (see TextPages): `y` and the return value
+// are then positions on the endless page, only the lines landing on
+// `flow->pages.selected` are drawn, and `bottom` is a screen row.
 template <typename Target>
 int drawWrappedMarked(const Target& target, const int fontId, int y, const int maxWidth, const char* text,
                       const int spanStart, const int spanLength, const bool measureOnly, char* line,
                       const int lineBytes, char* scratch, const int rubyFontId = 0, const int bottom = INT_MAX,
-                      bool* clipped = nullptr) {
+                      bool* clipped = nullptr, TextFlow* flow = nullptr) {
   if (text == nullptr || *text == '\0') return y;
 
   const int lineHeight = target.getTextHeight(fontId);
@@ -566,14 +660,30 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
     return measureRubyText(candidate, measureBase, measureRuby, scratch, lineBytes);
   };
 
-  wrapText(text, maxWidth, line, lineBytes, measureLine, [&](const WrappedLine& laid) {
+  TextPages* const pages = flow != nullptr && flow->pages.paging() ? &flow->pages : nullptr;
+  const auto emit = [&](const WrappedLine& laid) {
     // A line carrying a reading is taller by the height of that reading, and
     // only that line: a card whose first sentence has furigana and whose
     // second does not should not be double-spaced throughout.
     const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
-    const bool past = y + above + lineHeight > bottom;
+    const bool firstMarked = flow != nullptr && flow->marking && flow->markPage < 0;
+    if (pages != nullptr && firstMarked) y = pages->startPage(y);
+    if (pages != nullptr) y = pages->placeLine(y, above + lineHeight);
+    if (firstMarked) flow->markPage = flow->pages.pageOf(y);
+    const int drawY = pages != nullptr ? pages->screenY(y) : y;
+    const bool shown = pages == nullptr || pages->visible(y);
+    if (pages != nullptr && pages->rule >= 0) {
+      // The rule between two fields, drawn only on the page that also holds
+      // the line under it: a rule left alone at the foot of a page divides
+      // nothing from nothing.
+      if (!measureOnly && shown && pages->rule < y && pages->pageOf(pages->rule) == pages->pageOf(y)) {
+        target.fillRect((screenWidth - maxWidth) / 2, pages->screenY(pages->rule), maxWidth, 1, true);
+      }
+      pages->rule = -1;
+    }
+    const bool past = shown && drawY + above + lineHeight > bottom;
     if (past && clipped != nullptr) *clipped = true;
-    if (!measureOnly && !past) {
+    if (!measureOnly && !past && shown) {
       const int totalWidth = measureLine(laid.text);
       int x = (screenWidth - totalWidth) / 2;
       int cp = laid.startCodepoint;
@@ -585,7 +695,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
         copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
         const int baseWidth = target.getTextWidth(fontId, scratch);
         const int baseX = x + (width - baseWidth) / 2;
-        target.drawText(fontId, baseX, y + above, scratch, true);
+        target.drawText(fontId, baseX, drawY + above, scratch, true);
 
         // The emphasis span, underlined. Measured inside THIS segment, which
         // is what makes one code path serve a plain line and a ruby one: a
@@ -608,14 +718,14 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
           const int x0 = baseX + target.getTextWidth(fontId, scratch);
           // Two pixels clear of the baseline so descenders are not struck
           // through, and one pixel thick: this is a mark, not a rule.
-          if (x1 > x0) target.fillRect(x0, y + above + lineHeight - 2, x1 - x0, 1, true);
+          if (x1 > x0) target.fillRect(x0, drawY + above + lineHeight - 2, x1 - x0, 1, true);
           copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
         }
         // The reading, centred over its base.
         if (segment.ruby != nullptr && rubyFontId != 0) {
           copyRun(segment.ruby, segment.rubyBytes, scratch, lineBytes);
           const int rubyWidth = target.getTextWidth(rubyFontId, scratch);
-          target.drawText(rubyFontId, x + (width - rubyWidth) / 2, y, scratch, true);
+          target.drawText(rubyFontId, x + (width - rubyWidth) / 2, drawY, scratch, true);
         }
 
         x += width;
@@ -623,7 +733,10 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
       });
     }
     y += lineHeight + above;
-  });
+    if (flow != nullptr) flow->lineEnd = y;
+  };
+  wrapText(text, maxWidth, line, lineBytes, measureLine, emit, flow != nullptr && flow->breakLong,
+           flow != nullptr ? &flow->overlong : nullptr);
   return y;
 }
 
@@ -650,7 +763,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
 // characters -- a bare kana or kanji headword, the ordinary case for every
 // Japanese and Chinese deck -- left the buffer permanently empty, nothing was
 // ever weighed, and a font that drew the card perfectly was rejected as
-// drawing nothing. Every such headword then fell back to the built-in serif,
+// drawing nothing. Every such headword then fell back to the built-in face,
 // which has none of them, and drew as a literal question mark.
 template <typename Measure>
 bool fitsAsDrawn(const int fontId, const char* text, const int maxWidth, Measure measure, char* buffer,

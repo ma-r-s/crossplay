@@ -95,6 +95,13 @@ struct ListModel {
 
 void buildList(toybox::Screen& screen, const ListModel& model);
 
+// What an empty list draws instead of rows: a headline, an optional sentence
+// and an optional control, laid out and centred as one block in the body.
+// buildList's own empty state, and RSS's, which draws its lists the same way.
+// The control is drawn only when BOTH its label and its action are set.
+void emptyBlock(toybox::Screen& screen, const char* headline, const char* message, const char* actionLabel,
+                fui::ActionId action);
+
 // The band the list draws into. Shared with the Activity so its scroll maths
 // and the drawn rows come from one function rather than two that are only ever
 // wrong together.
@@ -150,6 +157,11 @@ struct ReaderModel {
   // A story with no comments yet, or an unreadable link with no article: the
   // button dims rather than disappearing, so the footer keeps its shape.
   bool swapAvailable = true;
+  // Whether there is a second view at all. Hacker News always has one; RSS,
+  // which reads its posts through this same screen, has none -- and a dimmed
+  // COMMENTS button on every post would be a door that never opens. Without
+  // it the two page arrows share the footer.
+  bool hasSwap = true;
   bool canPagePrev = false;
   bool canPageNext = false;
   // The band's save mark, over whatever the reader is holding: the article on
@@ -195,6 +207,9 @@ fui::Rect readerBody(const fui::DeviceContext& device);
 // --- Loading, failure, and "not readable here" ---------------------------
 
 struct NoticeModel {
+  // The band. Always the app's own name, never the notice's subject; RSS sets
+  // its own.
+  const char* band = "HACKER NEWS";
   const char* headline = "";
   const char* message = "";
   // Drawn above the headline when set. The unreadable mark, and only that.

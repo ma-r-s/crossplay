@@ -4,6 +4,9 @@
 
 #include "util/ButtonReleaseGate.h"
 #include "util/HomeButtonInput.h"
+#include "util/PowerButtonClickInput.h"
+#include "util/PowerButtonInput.h"
+#include "util/RemoteButtonInput.h"
 
 class GfxRenderer;
 namespace freeink {
@@ -74,11 +77,39 @@ class MappedInputManager {
   void swallowNextReleaseOfHeldButtons() const;
   // For logging and tests only.
   uint8_t heldReleaseGateMask() const { return releaseGate.armedMask(); }
-#if FREEINK_CAP_TOUCH
-  // X4 Pro delays a single power click until its frontlight double-click window
-  // expires. The main loop supplies that one-frame event here.
-  void setPowerConfirmClickFrame(const bool clicked) { powerConfirmClickFrame = clicked; }
+  bool powerSleepClick() const { return powerSleepFrame; }
+  bool wasPowerSingleClick() const {
+    return powerSingleClickFrame || (wasReleased(Button::Power) && wasShortPowerReleased());
+  }
+  void resetPowerButtonInput() const {
+    powerButtonClickInput.reset();
+    powerSingleClickFrame = false;
+    powerSleepFrame = false;
+    deferredPowerSleepFrame = false;
+  }
+  bool isPowerHeld() const {
+#ifdef SIMULATOR
+    return gpio.isPressed(HalGPIO::BTN_POWER);
+#else
+    return gpio.isPressed(HalGPIO::BTN_POWER) || gpio.isPowerButtonPhysicallyPressed();
 #endif
+  }
+  void beginPowerInput(bool suppressHold, bool held) {
+    powerButtonInput.begin(suppressHold, held);
+    resetPowerButtonInput();
+  }
+  bool wasShortPowerReleased() const {
+    return gpio.wasReleased(HalGPIO::BTN_POWER) && powerButtonInput.wasShortReleased();
+  }
+  bool powerSleepRequested() const { return powerButtonInput.shouldSleep(); }
+  bool wasPowerReleaseConsumed() const { return powerButtonInput.wasReleaseConsumed(); }
+  void consumePowerGesture() const {
+    powerButtonInput.consume();
+    resetPowerButtonInput();
+  }
+  bool suppressPowerAfterRestart() const { return isPowerHeld() && powerButtonInput.suppressesHold(); }
+  bool injectRemoteClick(RemoteButton button);
+  bool hasRemoteClick() const { return remoteInput.button != RemoteButton::None; }
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   // One-shot threshold event while the button is down; consumes its release.
@@ -138,7 +169,6 @@ class MappedInputManager {
   // (which wasScreenTapped never reports). InputSnapshot builders forward it
   // off-target so FreeInkUI routing clears its pressed-element state.
   bool wasScreenTouchReleased() const;
-  bool wasTapInRect(int x, int y, int width, int height) const;
 
   // Combined touch interaction for a band of equal rows with caller-supplied
   // geometry — the shared hit-test for lists the theme helpers above do not
@@ -152,7 +182,7 @@ class MappedInputManager {
   // Horizontal variant for side-by-side button pairs (confirmation prompts).
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
-  SwipeDir wasSwipe() const;
+  SwipeDir wasSwipe(int* startX = nullptr, int* startY = nullptr) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
   // page turns (reader) can exclude it from a plain SwipeDir::Right.
   bool wasBackGesture() const;
@@ -172,8 +202,8 @@ class MappedInputManager {
   // key and the bottom edge is free; elsewhere the same swipe is the Home
   // gesture and this returns false.
   bool wasReaderMenuSwipeUp() const;
-  // Top-edge down-swipe opens the light panel when the active board actually
-  // has a frontlight. ActivityManager consumes it before activity input.
+  // Top-edge down-swipe opens the control center on touch boards.
+  // ActivityManager consumes it before activity input.
   bool wasLightPanelGesture() const;
   unsigned long getHeldTime() const;
   const GfxRenderer& getRenderer() const { return renderer; }
@@ -199,6 +229,7 @@ class MappedInputManager {
   const GfxRenderer& renderer;
 
   Button mapScreenDirection(Button button) const;
+  bool areSidePageButtonsSwapped() const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
   // The ONE place a physical button index is read. Every logical button in
@@ -227,7 +258,13 @@ class MappedInputManager {
   // accessor on this class is const and the bookkeeping rides along with them.
   mutable ButtonReleaseGate releaseGate;
 
+  mutable RemoteButtonInput remoteInput;
   mutable HomeButtonInput homeButtonInput;
+  mutable PowerButtonInput powerButtonInput;
+  mutable PowerButtonClickInput powerButtonClickInput;
+  mutable bool powerSingleClickFrame = false;
+  mutable bool powerSleepFrame = false;
+  mutable bool deferredPowerSleepFrame = false;
   mutable HomeButtonAction homeAction = HomeButtonAction::Ignore;
   mutable HomeButtonAction deferredHomeAction = HomeButtonAction::Ignore;
   mutable bool touchHeldOverrideValid = false;
@@ -235,7 +272,4 @@ class MappedInputManager {
   mutable unsigned long touchHeldOverrideAt = 0;
   mutable uint16_t longPressFiredButtons = 0;
   mutable uint16_t suppressedReleaseButtons = 0;
-#if FREEINK_CAP_TOUCH
-  bool powerConfirmClickFrame = false;
-#endif
 };

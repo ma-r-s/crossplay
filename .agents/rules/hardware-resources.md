@@ -35,11 +35,48 @@ null rather than falling back to internal RAM. Preserve that failure contract.
 1. Stack Safety: Limit local function variables to < 256 bytes. The ESP32-C3 default stack is small; use std::unique_ptr or static pools for larger buffers.
 2. Heap Fragmentation: Avoid repeated new/delete in loops. Allocate buffers once during onEnter() and reuse them.
 3. Flash Persistence: Give large immutable tables static storage and const qualification so the linker can place them in flash. Check the build map for material memory claims; data needed while the flash cache is disabled must be in accessible internal RAM.
-4. String Policy: Prohibit std::string and Arduino String in hot paths. Use std::string_view for read-only access and snprintf with fixed char[] buffers for construction.
-5. UI Strings: All user-facing text must use the `tr()` macro (e.g., `tr(STR_LOADING)`) for i18n support. Never hardcode UI strings directly. For the avoidance of doubt, logging messages (LOG_DBG/LOG_ERR) can be hardcoded, but user-facing text must use `tr()`.
+4. String Policy: std::string and Arduino String are acceptable in cold file-I/O/setup paths. Hot/render paths use std::string_view for read-only access and snprintf with fixed char[] buffers; an unavoidable std::string must reserve storage first.
+5. User-facing strings follow the [translation workflow](generated-files-cache.md#translation-workflow).
 6. `constexpr` First: Use `constexpr` for compile-time constants and lookup tables, and `static constexpr` for class-level constants. This enables constant evaluation; it does not guarantee flash placement or remove runtime storage in every use.
 7. `std::vector` Pre-allocation: Always call `.reserve(N)` before any `push_back()` loop. Each growth event allocates a new block (2×), copies all elements, then frees the old one — three heap operations that fragment DRAM. When the final size is unknown, estimate conservatively.
 8. SD Persistence Throttling: Settings, state, credentials, and other `PersistableStore` JSON files live on SD under `/.crosspoint/` through `HalStorage`; SPIFFS is not mounted. Guard redundant writes and debounce progress saves to avoid serialization, SD I/O, and `storageMutex` cost.
-9. `new` is not nothrow on ESP32: With `-fno-exceptions`, bare `new` that fails calls `abort()` — it does NOT return `nullptr`. Always use `new (std::nothrow)` and null-check the result, or use `makeUniqueNoThrow<T>()` from `lib/Memory/Memory.h`. Never write bare `new` for any fallible allocation.
+9. Fallible storage follows the [checked-allocation contract](coding-standards.md#heap-buffer-allocation); budget peak coexistence during container growth, not just final size.
+
+### Flash size: unused features must cost nothing
+
+Flash is limited, and every release target pays for shared code. A new optional
+feature must not grow builds, screens or call sites that do not use it. Before
+adding one to shared code, check each of these, and prefer a design that avoids
+the cost over one that needs measuring:
+
+* **Templates** (FreeInkUI's `list()` and `Frame<N>`, and anything else
+  instantiated per caller): code added inside a template is compiled into every
+  instantiation. Put anything that does not depend on the template parameter in
+  a non-template function and call it. A 10-line branch added to `list()` cost
+  about 250 bytes per instantiation and grew every target by 3.2-3.6 KB.
+* **Per-item and per-call structs** (`ListItem`, `ListProps`, `SettingInfo` and
+  similar): every field is initialized at every construction site and enlarges
+  every array, vector and stack frame that holds one. Do not add a by-value
+  sub-struct for an optional feature. Use a pointer that defaults to `nullptr`,
+  or reuse an existing field.
+* **Header-only `inline` functions** with more than a few lines that many
+  callers use: mark them `__attribute__((noinline))` or move the body to a
+  `.cpp` file so there is one copy.
+* **Device-specific code**: `BoardConfig::ACTIVE` is selected at runtime, so a
+  `BoardConfig::isX4Pro()`-style check does not remove code from other
+  targets. Put anything sizeable behind the device's or capability's build
+  flag (`FREEINK_DEVICE_*`, `FREEINK_CAP_*`); a runtime check is fine for a
+  line or two.
+* **SDK bumps**: a submodule bump that grows every target has pulled in a
+  change of the kinds above. Find it and fix it in the SDK instead of
+  accepting the growth here.
+
+CI posts a per-target size comparison on each pull request. If a feature still
+adds code for targets or callers that do not use it, state the number in the PR
+description with the reason; "the feature needs it" is not one when a pointer,
+a shared function or a build flag would avoid it. To measure before pushing,
+compile one translation unit that uses the component with the target compiler
+at `-Os`, before and after the change, and compare with `size` and
+`nm -S --size-sort`.
 
 ---
