@@ -151,13 +151,18 @@ class PackError extends Error {
 
 async function loadManifest() {
   $("loadError").hidden = true;
+  // A language picked while this one was on its way wins: the answer for the
+  // one before it is dropped, not shown under the new name.
+  const asked = state.language;
   try {
     const resp = await fetch(baseUrl + "manifest.json", { cache: "no-store" });
     if (!resp.ok) throw new Error("the pack's host answered " + resp.status);
     const text = await resp.text();
+    if (state.language !== asked) return;
     state.manifest = parseManifest(text);
     state.manifestText = text;
   } catch (e) {
+    if (state.language !== asked) return;
     showLoadError(e);
     return;
   }
