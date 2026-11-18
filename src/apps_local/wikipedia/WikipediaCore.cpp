@@ -1,6 +1,7 @@
 #include "WikipediaCore.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "WikipediaFold.h"
@@ -337,6 +338,34 @@ bool isPackDirName(const char* name) {
     if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')) return false;
   }
   return true;
+}
+
+std::string snapshotMonth(const std::string& snapshot) {
+  static const char* const kMonths[] = {"January", "February", "March",     "April",   "May",      "June",
+                                        "July",    "August",   "September", "October", "November", "December"};
+  int year = 0;
+  int month = 0;
+  if (std::sscanf(snapshot.c_str(), "%d-%d", &year, &month) == 2 && month >= 1 && month <= 12) {
+    return std::string(kMonths[month - 1]) + " " + std::to_string(year);
+  }
+  return snapshot;
+}
+
+std::string installLine(const std::vector<PackSummary>& packs, const PackSummary* open, const std::string& failed) {
+  if (open) return "On the card: " + open->name + ", " + snapshotMonth(open->snapshot) + ".";
+  if (!failed.empty()) {
+    std::string name = failed;
+    for (const auto& p : packs) {
+      if (p.pack == failed) name = p.name;
+    }
+    return name + " on the card is not complete. The page copies what is missing.";
+  }
+  if (!packs.empty()) {
+    std::string line = "On the card:";
+    for (size_t i = 0; i < packs.size(); ++i) line += (i ? ", " : " ") + packs[i].name;
+    return line + ". The page lists the languages you can add.";
+  }
+  return "Choose the language on the page.";
 }
 
 std::string installJson(const std::vector<PackSummary>& packs, const char* want, const char* firmware,

@@ -117,6 +117,15 @@ struct PackSummary {
 std::string installJson(const std::vector<PackSummary>& packs, const char* want, const char* firmware,
                         const char* device);
 
+// "2026-10-10" -> "October 2026"; anything else as it came.
+std::string snapshotMonth(const std::string& snapshot);
+
+// The install screen's line about the card, in the reading face: the pack
+// whose door opened the screen ("On the card: Deutsch, October 2026."), the
+// one that would not open (`failed`, its code), every pack when the chooser
+// opened it, or what to do on an empty card. `open` is null unless a pack is.
+std::string installLine(const std::vector<PackSummary>& packs, const PackSummary* open, const std::string& failed);
+
 // ------------------------------------------------------------- blocks.dir
 
 struct BlockRecord {

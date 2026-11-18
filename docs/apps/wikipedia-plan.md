@@ -770,3 +770,81 @@ that cannot draws the arrow the system keyboard uses (freeink-sdk
 minutes": the time depends on the language and the route, the page works
 it out from the measured rates and shows it beside the choice, and the
 device knows neither.
+
+**The second review (1.16.0).** What a cold UX review of the German work
+found, and what changed.
+
+- *The Kurzinfo box.* Every country's box nests a table of its flag and
+  arms with their names in the row under them, and the converter read that
+  row as a fact ("Flagge | Wappen", 442 rows of the 50,000). A row under
+  pictures set side by side in a nested table is their captions, unless its
+  key says it is one (a header cell, bold, "Key:"), which keeps a duchy's
+  "Landeshauptstadt" under its arms. A value's lines used to be joined with
+  commas, which left "Amtssprachen:, Kroatisch" and ", - anerkannte
+  Minderheitssprachen" (706 and 41 values): a label now runs into what it
+  labels, a later label opens a group after a semicolon, a dashed line
+  follows the one above after a dash, and a whole parenthesis belongs to the
+  line above (3,068 values read "652.015, (1. Jan. 2024)"). The counts are
+  over the whole pack, before and after (`zim_article.join_items`).
+  Republished as `de-2026-10-top2` (from 10c57c6d7; the stable name
+  `https://packs.ma-r-s.com/wikipedia/de/` flipped, `de-2026-10-top1` left on
+  disk, `en-2026-05-full7` untouched), built on the pack host from the same
+  ZIM as before; its digest over every article's title, headings and XHTML,
+  `18821b9d...c59e`, and all 64 buckets equal this Mac's build. Checked over
+  the public URL: languages.json lists en and de, the de manifest's `base` is
+  the new directory, dict, blocks.dir, the title index and both shards match
+  their sha256, a ranged shard request answers 206 with CORS.
+- *The page.* A route a language does not publish looked like a choice
+  (same edge, full contrast, a pointer): it is dashed, faded and
+  not-allowed now. The sentence under the heading names the language in
+  English ("This is German Wikipedia", from the browser's
+  `Intl.DisplayNames`; the button keeps "Deutsch"), the heading is
+  "Wikipedia, on the card." because "All of" was untrue of a 50,000-article
+  pack, the figures go blank the moment another language is picked (they
+  stood under its name until its manifest arrived), and the by-hand
+  instruction says "a folder de inside a folder wikipedia" rather than a
+  folder called "wikipedia/de".
+- *The install screen.* Every block is as tall as its own words measure in
+  the body face, and the code's square takes what the words leave, between
+  132 px (four pixels a module) and the 232 it always had. The fixed boxes
+  had cut "Deutsch on the card is not complete. The page copies wh..." at
+  two lines and drawn "1 OF 2 PARTS ON THE CARD" under TRY AGAIN, which sat
+  at a fixed spot. `testWikipediaInstallFitsEveryState` asks every stage,
+  language line and parts line for both properties at the reading cut's
+  40 px line.
+- *ADD A LANGUAGE* with every published language already on the card said
+  "The page adds another.", a promise the host could not keep. The line
+  ("On the card: English, Deutsch. The page lists the languages you can
+  add.") is `wikipedia::installLine`, in Core with its test.
+- *A damaged language on the chooser* showed "SORRY / Could not open this
+  article", naming the wrong thing and offering nothing; with one pack on
+  the card the same failure went to the install screen with the repair
+  line. The chooser now does the same (`test_failed_pack_repairs.py`).
+- *Titles break where their language breaks words.* The device and the
+  component wrap at spaces only and split a word wider than the line
+  anywhere ("Hochleistungsfluessigkeitschrom" over "atographie"). The
+  activity now marks every title it hands the screens with soft hyphens
+  from the pack's own patterns (the Hyphenator the article text uses), and
+  `wikiui::breakTitle` chooses the breaks for the row's width and hands them
+  over as "- " (a word with no break point is split with a hyphen too). The
+  band holds a long one-word title on two lines that way, and whether it
+  holds the title whole is now measured (`articleTitleWhole`): the page keeps
+  its h1 exactly when the band cuts. It used to keep it past 56 bytes, so
+  the 41-byte "Hochleistungs..." title was cut in the band and appeared
+  nowhere whole. A title row also grows to every line its title takes; a
+  three-line cap cut the 100-byte Borat title. The band's width comes from
+  `toybox::bandTitleWidth`, the same props `headerBand()` fits against.
+- *The search keyboard.* A key's own letter is always drawn whole: RoundedRaff's
+  10 px gap left a QWERTZ key 23 px inside its padding and W is 23.2, so the
+  capital W was drawn as "..." (freeink-sdk `fix/keyboard-letters-whole`: a
+  letter wider than the padded room takes the key's full width, one wider
+  than the key steps down to the hint's face). Shift reads one way: the
+  search keyboard passes no "Shift" word, so every letter page in every
+  theme and language draws the arrow and the symbol pages their own "#+="
+  and "123", which name the page you are on.
+- *Not changed: a heading at the foot of a page above a table.* "Kurzinfo"
+  closes page 8 of Österreich and its table starts page 9. The book
+  engine's grid-table row breaks a page without the keep-with-next carry its
+  paragraph and image paths honour (`ChapterHtmlSlimParser::finishTableRow`,
+  upstream CrossPoint's), and English "Quick facts" is the same `<h2>` over a
+  `<table>`, so it does the same. Upstream's file, so not fixed here.

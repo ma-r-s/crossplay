@@ -77,6 +77,58 @@ export function cardFolder(language) {
   return language && language.dir ? ["wikipedia", language.dir] : ["wikipedia"];
 }
 
+// A language's name in English, for the page's own sentences ("This is
+// German Wikipedia"); the language's own name ("Deutsch") is for its button.
+// The browser knows every code's English name; without that, the host's.
+export function languageInEnglish(language) {
+  if (!language) return "";
+  if (language.code === "en") return "English";
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(language.code);
+    if (name && name !== language.code) return name;
+  } catch (e) {
+    // an engine without Intl.DisplayNames
+  }
+  return language.name || language.code;
+}
+
+// The sentence under the heading, once the language's own manifest is in:
+// "This is German Wikipedia from October 2026, 50,000 articles." Empty
+// without one, so a language just picked never shows the last one's figures.
+export function packSentence(language, manifest) {
+  if (!language || !manifest) return "";
+  return (
+    "This is " +
+    languageInEnglish(language) +
+    " Wikipedia from " +
+    formatSnapshot(manifest.snapshot) +
+    ", " +
+    formatCount(manifest.articles) +
+    " articles."
+  );
+}
+
+// The by-hand instruction's first sentence, as runs of words and of folder
+// names: English goes in the card's wikipedia folder, every other language
+// in a folder of its own code inside it.
+export function byHandFolderRuns(language) {
+  const parts = cardFolder(language);
+  if (parts.length === 1) {
+    return [
+      { text: "Make a folder called " },
+      { code: parts[0] },
+      { text: " at the root of the card." },
+    ];
+  }
+  return [
+    { text: "Make a folder called " },
+    { code: parts[1] },
+    { text: " inside a folder called " },
+    { code: parts[0] },
+    { text: " at the root of the card." },
+  ];
+}
+
 // What the reader said is on its card (install.json): the packs by code, from
 // the list a newer reader writes, else from the root fields an older one does.
 export function cardPacks(info) {

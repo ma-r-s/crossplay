@@ -10,6 +10,8 @@
 // a square left for the QR code, and the cable's status). CONTENTS is an
 // overlay list; NOTICE is one sentence and a way out.
 
+#include <string>
+
 #include "../ui/ToyboxScreen.h"
 
 namespace wikiui {
@@ -81,6 +83,17 @@ struct ArticleChromeModel {
 
 // Draws the band; returns the rect the page is rendered into, above the footer.
 fui::Rect buildArticleChrome(toybox::Screen& screen, const ArticleChromeModel& model);
+
+// Whether that band draws the title whole. When it cannot, the page keeps its
+// own h1, so the whole title is always somewhere on the first page.
+bool articleTitleWhole(toybox::Screen& screen, const ArticleChromeModel& model);
+
+// A title as the drawing call should be given it for `width`: soft hyphens
+// (U+00AD, the activity's hyphenation points) taken at the break they make,
+// as "- ", and dropped everywhere else; a word with no break that fits split
+// between letters with a hyphen. Unchanged apart from its soft hyphens when it
+// fits. Every title on these screens is drawn through it.
+std::string breakTitle(const fui::DrawTarget& target, const fui::TextStyle& style, const char* text, int16_t width);
 
 struct ArticleFooterModel {
   const char* left = "";   // "page 12" while building, "12 of 87" once complete

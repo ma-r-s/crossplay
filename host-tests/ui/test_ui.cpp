@@ -14736,12 +14736,11 @@ void testWikipediaInstallSaysTheAddressFirst() {
     CHECK(url->style.maxLines == 1 && path->style.maxLines == 1);
     CHECK(url->rect.height == out.target.lineHeight(toybox::kBodyFont));
   }
-  // Each sentence has two lines of the reader's face, whatever its height.
+  // Each sentence is as tall as its words wrap to, in lines of the face.
   const FakeTarget::TextRun* open = out.target.find("Open this in Chrome or Edge on a computer.");
   CHECK(open != nullptr);
   if (open != nullptr) {
-    CHECK(open->style.maxLines == 2);
-    CHECK(open->rect.height == 2 * out.target.lineHeight(toybox::kBodyFont));
+    CHECK(open->rect.height == open->style.maxLines * out.target.lineHeight(toybox::kBodyFont));
   }
   // No time on the device: it was "About ten minutes" for every language and
   // route, and the page now works one out per language (14 minutes for
@@ -14888,6 +14887,363 @@ void testWikipediaInstallNamesTheLanguage() {
   CHECK(blank.target.drew("Choose the language on the page."));
 }
 
+// --- The Wikipedia keyboard's Shift reads one way everywhere ------------------
+//
+// Card #651's review: German letters drew an arrow, English letters the word
+// "Shift" (filling the key edge to edge in Classic) or the arrow (RoundedRaff),
+// and both symbol pages "Shift", the second one not saying which page it was.
+// The search keyboard passes no Shift word now (test_keyboard_props.py holds
+// it to that), so this pins what the component draws without one: the arrow
+// on every letter page, at both theme gaps and every cell, and on the symbol
+// pages the two different labels the layouts carry.
+void testWikipediaShiftReadsOneWayEverywhere() {
+  using Id = fui::KeyboardLayoutId;
+  const fui::BitmapRef arrow = fui::lucideArrowBigUpIcon24();
+  static const Id kIds[] = {Id::QwertyEn, Id::QwertzDe, Id::AzertyFr, Id::SpanishEs};
+  for (const Id id : kIds) {
+    for (const int16_t gap : {static_cast<int16_t>(0), static_cast<int16_t>(10)}) {
+      for (const int16_t cell : {static_cast<int16_t>(10), static_cast<int16_t>(12), static_cast<int16_t>(14)}) {
+        std::string symbolPage[2];
+        for (int layer = 0; layer < 4; ++layer) {
+          const bool shifted = (layer & 1) != 0;
+          const bool symbols = (layer & 2) != 0;
+          FakeTarget target;
+          target.charW = cell;
+          target.perCodePoint = true;
+          fui::InteractionBuffer<56> table;
+          const fui::DeviceContext ctx = device();
+          const fui::InputSnapshot noInput{};
+          fui::Frame<56> frame(target, ctx, noInput, table);
+          fui::KeyboardProps props;
+          const fui::KeyboardLayout& layout = fui::builtinKeyboardLayout(id, shifted, symbols, true, false);
+          props.layout = &layout;
+          props.keyAction = 1;
+          props.okLabel = "GO";
+          props.modeLabel = symbols ? "abc" : "?123";
+          props.labelText.font = toybox::kBodyFont;
+          props.altText.font = toybox::kSmallFont;
+          props.gap = gap;
+          props.padding = fui::Insets{0, 0, 0, 0};
+          const int16_t height = static_cast<int16_t>(layout.rowCount * 56 + (layout.rowCount - 1) * gap);
+          fui::keyboard(frame, fui::Rect{14, static_cast<int16_t>(792 - height), 451, height}, props);
+          bool drewArrow = false;
+          for (const auto& blit : target.blits) drewArrow |= blit.data == arrow.data;
+          CHECK(!target.drew("Shift"));
+          if (!symbols) {
+            CHECK(drewArrow);
+          } else {
+            CHECK(!drewArrow);
+            symbolPage[shifted ? 1 : 0] = target.drew("#+=") ? "#+=" : (target.drew("123") ? "123" : "");
+          }
+        }
+        // each symbol page names the other, so the key says which page this is
+        CHECK(symbolPage[0] == "#+=" && symbolPage[1] == "123");
+      }
+    }
+  }
+}
+
+// --- Titles break where their language breaks words -------------------------
+//
+// Card #651's review: the home's RECENT row split "Hochleistungsflüssigkeits-
+// chromatographie" between "chrom" and "atographie" with nothing to say so,
+// while the article's own text hyphenates German correctly. The device and the
+// component wrap at spaces only and split a word that is wider than the line
+// anywhere, so the screens break titles themselves (wikiui::breakTitle) at the
+// soft hyphens the activity puts in from the pack's patterns. Here the soft
+// hyphens are written by hand, as the activity's would be.
+
+// The lines a run is drawn in: the component's own wrap (fui::layoutText,
+// which the device's wrap matches at spaces), over the run's rect.
+std::vector<std::string> wrappedLines(const FakeTarget& target, const FakeTarget::TextRun& run) {
+  std::vector<std::string> lines;
+  fui::layoutText(target, run.rect, run.text.c_str(), run.style,
+                  [&](const char* line, const fui::Rect) { lines.push_back(line); });
+  return lines;
+}
+
+bool hasSoftHyphen(const std::string& s) { return s.find("\xC2\xAD") != std::string::npos; }
+
+void testWikipediaTitlesBreakWhereTheirLanguageDoes() {
+  static const char* kHplc =
+      "Hoch\xC2\xAD"
+      "leis\xC2\xAD"
+      "tungs\xC2\xAD"
+      "fl\xC3\xBC"
+      "s\xC2\xAD"
+      "sig\xC2\xAD"
+      "keits\xC2\xAD"
+      "chro\xC2\xAD"
+      "ma\xC2\xAD"
+      "to\xC2\xAD"
+      "gra\xC2\xAD"
+      "phie";
+  static const char* kPlain = "Hochleistungsfl\xC3\xBCssigkeitschromatographie";
+  wikiui::SearchModel home;
+  home.footer = "50,000 ARTICLES, OCTOBER 2026";
+  home.recent[0].title = kHplc;
+  home.recent[1].title = "Hauptbahnhof";
+  home.recent[2].title = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  home.recentCount = 3;
+  Rendered out;
+  out.target.charW = 12;
+  out.target.perCodePoint = true;
+  buildWikiSearch(out, home);
+  const FakeTarget::TextRun* hplc = nullptr;
+  const FakeTarget::TextRun* forced = nullptr;
+  for (const auto& run : out.target.texts) {
+    CHECK(!hasSoftHyphen(run.text));  // a soft hyphen never reaches the panel
+    if (run.text.rfind("Hochleistungs", 0) == 0) hplc = &run;
+    if (run.text.rfind("Aaaa", 0) == 0) forced = &run;
+  }
+  CHECK(out.target.drew("Hauptbahnhof"));  // a title that fits is untouched
+  CHECK(hplc != nullptr && forced != nullptr);
+  if (hplc != nullptr) {
+    const std::vector<std::string> lines = wrappedLines(out.target, *hplc);
+    CHECK(lines.size() == 2 && static_cast<int>(lines.size()) <= hplc->style.maxLines);
+    if (lines.size() == 2) {
+      // broken at a soft hyphen, with the hyphen drawn
+      CHECK(lines[0].back() == '-');
+      CHECK(lines[0].substr(0, lines[0].size() - 1) + lines[1] == kPlain);
+      // and at one of the soft hyphens, not between two other letters
+      bool atPoint = false;
+      const std::string marked(kHplc);
+      std::string prefix;
+      for (size_t at = 0; at < marked.size(); ++at) {
+        if (marked.compare(at, 2, "\xC2\xAD") == 0) {
+          atPoint = atPoint || prefix + "-" == lines[0];
+          ++at;
+          continue;
+        }
+        prefix += marked[at];
+      }
+      check(atPoint, lines[0].c_str(), __LINE__);
+    }
+    for (const auto& line : lines) {
+      CHECK(out.target.measureText(hplc->style.font, line.c_str(), hplc->style).width <= hplc->rect.width);
+    }
+  }
+  if (forced != nullptr) {
+    // no break point at all: split between letters, still with a hyphen
+    const std::vector<std::string> lines = wrappedLines(out.target, *forced);
+    CHECK(lines.size() == 2 && !lines.empty() && lines[0].back() == '-');
+  }
+  // breakTitle itself, at a 10px letter in an 80px line.
+  {
+    FakeTarget t;
+    t.charW = 10;
+    fui::TextStyle style;
+    // fits: unchanged but for its soft hyphens
+    CHECK(wikiui::breakTitle(t, style,
+                             "ab\xC2\xAD"
+                             "cd",
+                             80) == "abcd");
+    // at a soft hyphen, drawn as "-"; where the line holds the piece but not
+    // its "-", at the soft hyphen before it
+    CHECK(wikiui::breakTitle(t, style,
+                             "abc\xC2\xAD"
+                             "defg\xC2\xAD"
+                             "hij",
+                             80) == "abcdefg- hij");
+    CHECK(wikiui::breakTitle(t, style,
+                             "abcd\xC2\xAD"
+                             "efgh\xC2\xAD"
+                             "ij",
+                             80) == "abcd- efghij");
+    // a piece that fits only without its "-": split between letters, and the
+    // rest of it comes before the piece after it
+    CHECK(wikiui::breakTitle(t, style,
+                             "abcdefgh\xC2\xAD"
+                             "ijk",
+                             80) == "abcdefg- hijk");
+    // after a hyphen or a slash already there, nothing added
+    CHECK(wikiui::breakTitle(t, style, "abcdef-/ghij", 80) == "abcdef-/ ghij");
+    // spaces stay spaces
+    CHECK(wikiui::breakTitle(t, style, "abc defg hij", 80) == "abc defg hij");
+  }
+  // A title of more lines than three is drawn whole too: the row grows. The
+  // 100-byte Borat title was cut at "...Kasachstan zu ..." by a three-line cap.
+  wikiui::SearchModel borat;
+  borat.footer = "50,000 ARTICLES, OCTOBER 2026";
+  borat.recent[0].title =
+      "Borat \xE2\x80\x93 Kulturelle Lernung von Amerika, um Benefiz f\xC3\xBCr glorreiche Nation von Kasachstan "
+      "zu machen";
+  borat.recentCount = 1;
+  Rendered tall;
+  tall.target.charW = 16;
+  tall.target.perCodePoint = true;
+  buildWikiSearch(tall, borat);
+  const FakeTarget::TextRun* row = nullptr;
+  for (const auto& run : tall.target.texts) {
+    if (run.text.rfind("Borat", 0) == 0) row = &run;
+  }
+  CHECK(row != nullptr);
+  if (row != nullptr) {
+    const std::vector<std::string> lines = wrappedLines(tall.target, *row);
+    CHECK(lines.size() > 3);
+    std::string joined;
+    for (const auto& line : lines) joined += (joined.empty() ? "" : " ") + line;
+    CHECK(joined == borat.recent[0].title);
+  }
+}
+
+// The article band holds a long one-word title on its two lines when it is
+// broken where German breaks it, and says when it cannot hold one at all: the
+// page keeps its h1 exactly then. It used to keep it only past 56 bytes, so
+// the 41-byte "Hochleistungs..." was cut in the band and appeared nowhere whole.
+void testWikipediaArticleBandSaysWhenItCutsTheTitle() {
+  static const char* kHplc =
+      "Hoch\xC2\xAD"
+      "leis\xC2\xAD"
+      "tungs\xC2\xAD"
+      "fl\xC3\xBC"
+      "s\xC2\xAD"
+      "sig\xC2\xAD"
+      "keits\xC2\xAD"
+      "chro\xC2\xAD"
+      "ma\xC2\xAD"
+      "to\xC2\xAD"
+      "gra\xC2\xAD"
+      "phie";
+  const auto band = [](Rendered& out, const char* title, bool* whole) {
+    out.target.charW = 12;
+    out.target.perCodePoint = true;
+    wikiui::ArticleChromeModel model;
+    model.title = title;
+    wikiui::ArticleFooterModel footer;
+    {
+      const fui::DeviceContext ctx = device();
+      const fui::InputSnapshot noInput{};
+      toybox::Interactions scratch;
+      toybox::Frame frame(out.target, ctx, noInput, scratch);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      *whole = wikiui::articleTitleWhole(screen, model);
+    }
+    buildWikiArticleChrome(out, model, footer);
+    for (const auto& run : out.target.texts) {
+      if (run.rect.y < toybox::kHeaderHeight && run.rect.height > 0 && run.text.rfind("Hoch", 0) == 0) return &run;
+      if (run.rect.y < toybox::kHeaderHeight && run.text.rfind("A ", 0) == 0) return &run;
+    }
+    return static_cast<const FakeTarget::TextRun*>(nullptr);
+  };
+  bool whole = false;
+  Rendered out;
+  const FakeTarget::TextRun* run = band(out, kHplc, &whole);
+  CHECK(whole);
+  CHECK(run != nullptr);
+  if (run != nullptr) {
+    CHECK(!hasSoftHyphen(run->text));
+    CHECK(run->style.maxLines == 2);
+    const std::vector<std::string> lines = wrappedLines(out.target, *run);
+    CHECK(lines.size() == 2 && lines[0].back() == '-');
+    for (const auto& line : lines) CHECK(line.find("...") == std::string::npos);
+  }
+  // Far more than two lines hold: the band cuts it and says so.
+  bool longWhole = true;
+  Rendered longOut;
+  band(longOut,
+       "A title of very many words that two lines of the band could never hold whole however it is broken across them",
+       &longWhole);
+  CHECK(!longWhole);
+  // One line at the reading size: whole, and nothing broken.
+  bool shortWhole = false;
+  Rendered shortOut;
+  band(shortOut, "Wien", &shortWhole);
+  CHECK(shortWhole);
+}
+
+// --- The install screen: every state, nothing cut, nothing on anything ------
+//
+// Card #651's review: in the "could not be shared" state the parts line was
+// drawn under TRY AGAIN (the language line pushed it down; the button sat at a
+// fixed spot), and a two-line box cut "Deutsch on the card is not complete.
+// The page copies wh...". Both came from fixed boxes, so this asks every
+// state for the two properties that make either impossible, at the reading
+// cut's real line height (40px, reading_serif_14) and about its width per
+// letter: every run holds its words, and no run, the button or the code's
+// square lands on another.
+void testWikipediaInstallFitsEveryState() {
+  using Stage = wikiui::InstallModel::Stage;
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.right() && b.x < a.right() && a.y < b.bottom() && b.y < a.bottom();
+  };
+  static const Stage kStages[] = {Stage::Waiting, Stage::Connected, Stage::Failed};
+  static const char* const kLines[] = {
+      nullptr,
+      "Choose the language on the page.",
+      "On the card: Deutsch, October 2026.",
+      "Deutsch on the card is not complete. The page copies what is missing.",
+      // the most the chooser lists, and the sentence after them
+      "On the card: English, Deutsch, Fran\xC3\xA7"
+      "ais, Espa\xC3\xB1ol, Italiano, Nederlands. The page lists "
+      "the languages you can add.",
+  };
+  static const char* const kParts[] = {nullptr, "1 OF 2 PARTS ON THE CARD", "38 OF 41 PARTS ON THE CARD"};
+  int cases = 0;
+  for (const Stage stage : kStages) {
+    for (const char* line : kLines) {
+      for (const char* parts : kParts) {
+        wikiui::InstallModel model;
+        model.stage = stage;
+        model.url = "crossplay.ma-r-s.com/wikipedia";
+        model.languageLine = line;
+        model.partsLine = parts;
+        Rendered out;
+        out.target.lineH = 40;
+        out.target.charW = 11;
+        out.target.perCodePoint = true;
+        const fui::Rect qr = buildWikiInstall(out, model);
+        ++cases;
+        char where[96];
+        std::snprintf(where, sizeof where, "stage %d, line \"%.24s\", parts %s", static_cast<int>(stage),
+                      line ? line : "-", parts ? parts : "-");
+        check(qr.width == qr.height && qr.width >= 132, where, __LINE__);
+        // the button's fill, when there is one
+        fui::Rect button{};
+        const FakeTarget::TextRun* retry = out.target.find("TRY AGAIN");
+        check((retry != nullptr) == (stage == Stage::Failed), where, __LINE__);
+        if (retry != nullptr) {
+          for (const fui::Rect& f : out.target.fills) {
+            if (f.x <= retry->rect.x && f.right() >= retry->rect.right() && f.y <= retry->rect.y + 20 &&
+                f.bottom() >= retry->rect.y + 20) {
+              button = f;
+            }
+          }
+          check(button.width > 0 && button.bottom() <= 800, where, __LINE__);
+        }
+        for (size_t i = 0; i < out.target.texts.size(); ++i) {
+          const FakeTarget::TextRun& run = out.target.texts[i];
+          if (run.rect.y < toybox::kHeaderHeight) continue;  // the band
+          // holds its words: one line wide enough, or as many lines as they wrap to
+          fui::TextStyle all = run.style;
+          all.maxLines = 16;
+          const int16_t need = fui::measureWrappedText(out.target, run.text.c_str(), all, run.rect.width).height;
+          const int lines = need / out.target.lineH;
+          if (run.style.maxLines <= 1) {
+            check(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width, where,
+                  __LINE__);
+          } else {
+            check(lines <= run.style.maxLines && need <= run.rect.height, where, __LINE__);
+          }
+          check(run.rect.bottom() <= 800, where, __LINE__);
+          check(!overlaps(run.rect, qr), where, __LINE__);
+          if (button.width > 0 && &run != retry) check(!overlaps(run.rect, button), where, __LINE__);
+          for (size_t j = i + 1; j < out.target.texts.size(); ++j) {
+            const FakeTarget::TextRun& other = out.target.texts[j];
+            if (other.rect.y < toybox::kHeaderHeight) continue;
+            if (overlaps(run.rect, other.rect)) {
+              std::printf("  %s: \"%s\" lands on \"%s\"\n", where, run.text.c_str(), other.text.c_str());
+              check(false, where, __LINE__);
+            }
+          }
+        }
+        if (button.width > 0) check(!overlaps(qr, button), where, __LINE__);
+      }
+    }
+  }
+  check(cases == 3 * 5 * 3, "every stage, language line and parts line was drawn", __LINE__);
+}
+
 // --- The keyboard draws every key label whole -------------------------------
 //
 // German search drew its Shift key as "Sh..." (card #651). "Shift" is 53.6px in
@@ -14931,6 +15287,10 @@ void testNoKeyboardLabelIsElided() {
             FakeTarget target;
             target.charW = cell;
             target.perCodePoint = true;
+            // A face's W is wider than its average letter: 23.2px in the
+            // panel's body face, which an eleven-key row at RoundedRaff's gap
+            // cut to "..." while every uniform cell here fitted.
+            target.kerns = {{"W", static_cast<int16_t>(cell * 3 / 4)}};
             fui::InteractionBuffer<56> table;
             const fui::DeviceContext ctx = device();
             const fui::InputSnapshot noInput{};
@@ -17647,6 +18007,10 @@ int main() {
   testWikipediaChooserFitsEveryPack();
   testWikipediaHomeBandNamesTheLanguage();
   testWikipediaInstallNamesTheLanguage();
+  testWikipediaInstallFitsEveryState();
+  testWikipediaTitlesBreakWhereTheirLanguageDoes();
+  testWikipediaShiftReadsOneWayEverywhere();
+  testWikipediaArticleBandSaysWhenItCutsTheTitle();
   testNoKeyboardLabelIsElided();
   testTriviaSettingsShowsTheToggleAndItsState();
   testTriviaSettingsRowsCarryTheirIndex();
