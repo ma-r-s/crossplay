@@ -518,9 +518,9 @@ bool Section::startBuild(const ReaderRenderSpec& requested, const std::function<
   if (!captureFootnotes_) ctx->parser->setCaptureFootnotes(false);
   ctx->parser->setTextSpacing(spec.characterSpacing, spec.wordSpacingPercent);
   ctx->parser->setParagraphIndentSpaces(spec.paragraphIndentSpaces);
-  // A standalone document carries no language of its own; English is the only
-  // pack there is today.
-  Hyphenator::setPreferredLanguage(standalone ? std::string("en") : epub->getLanguage());
+  // A standalone document carries no language of its own; its owner says
+  // which (the Wikipedia app, from its pack's manifest).
+  Hyphenator::setPreferredLanguage(standalone ? standaloneLanguage_ : epub->getLanguage());
   build_ = std::move(ctx);
 
   if (!build_->parser->beginParse()) {

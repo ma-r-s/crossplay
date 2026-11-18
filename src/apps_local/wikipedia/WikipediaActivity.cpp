@@ -666,6 +666,7 @@ void WikipediaActivity::ensureSection(const fui::Rect& body) {
     }
   }
   section_ = makeUniqueNoThrow<Section>(cacheDir_ + "/article.html", cacheDir_, 0, renderer, std::move(anchors), false);
+  if (section_) section_->setStandaloneLanguage(wikipedia::packLanguage(pack_.manifest()));
   if (!section_) {
     LOG_ERR(kTag, "OOM: Section");
     buildFailed_ = true;
