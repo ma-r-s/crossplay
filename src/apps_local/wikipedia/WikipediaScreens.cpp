@@ -477,8 +477,9 @@ int buildContents(toybox::Screen& screen, const ContentsModel& model) {
 
 // The first-open screen. The address first, the sentence, then the square
 // the activity fills with the QR code, then what the cable is doing. Every
-// box is sized from the reader's own line height: the panel showed the
-// address and both sentences cut when a 72 px box met a 40 px line.
+// box is sized from the body face's line height: the panel showed the
+// address and both sentences cut when a 72 px box met a 40 px line. The
+// body face here is the built-in reading cut (WikipediaActivity::render).
 fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   chrome(screen, "GET WIKIPEDIA");
   const fui::Rect body = screen.body();
@@ -488,9 +489,10 @@ fui::Rect buildInstall(toybox::Screen& screen, const InstallModel& model) {
   int16_t y = static_cast<int16_t>(body.y + 20);
 
   // The one string that has to be read off the glass and typed: the reading
-  // face, bold. It has no space to wrap at, so one line of it ended in an
-  // ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the host goes
-  // on one line and the path on the next, each whole.
+  // face, bold. The install screen's built-in reading cut has no bold, so there
+  // the flag draws regular. It has no space to wrap at, so one line of it
+  // ended in an ellipsis on the panel ("crossplay.ma-r-s.com/wikipe..."); the
+  // host goes on one line and the path on the next, each whole.
   fui::TextStyle address = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
   address.bold = true;
   address.maxLines = 1;

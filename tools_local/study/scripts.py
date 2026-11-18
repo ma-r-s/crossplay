@@ -292,3 +292,17 @@ def visible_text(encoded):
 def reading_text(encoded):
     """Just the readings, for the glyph set the ruby-size face is built from."""
     return "".join(reading for _base, reading in decode_ruby(encoded))
+
+
+# The glyph lists the converter writes for the font pipeline, one per size the
+# device draws at. They are ".lst" because the reader's Library lists every
+# ".txt" on the card as a book: four per deck, on the shelf.
+def glyph_list_path(deck_dir, name):
+    """Where the converter writes the `name` glyph list."""
+    return deck_dir / f"glyphs-{name}.lst"
+
+
+def read_glyph_list(deck_dir, name):
+    """The `name` glyph list, or None when the deck has none."""
+    path = glyph_list_path(deck_dir, name)
+    return path.read_text(encoding="utf-8") if path.is_file() else None
