@@ -1168,9 +1168,9 @@ void RssActivity::render(RenderLock&&) {
       }
 
       // Only the rows this page shows are built, fitted and handed over.
-      const int first = topIndex_;
-      const int last = std::min(count, topIndex_ + std::max(visibleRows_, 1));
-      const int window = std::max(0, last - first);
+      const rssui::PageWindow page = rssui::pageWindow(count, visibleRows_, topIndex_);
+      const int first = page.first;
+      const int window = page.count;
       labels_.assign(static_cast<size_t>(window), std::string());
       values_.assign(static_cast<size_t>(window), std::string());
       items_.assign(static_cast<size_t>(window), fui::ListItem{});
