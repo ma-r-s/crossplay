@@ -101,10 +101,14 @@ check("the Picco's stock table is recognised", hasVendorRecovery(tableOf(["nvs",
 check("CrossPlay's own table is not", hasVendorRecovery(tableOf(["nvs", "otadata", "app0", "app1", "coredump"])), false);
 check("nor is a blank sector", hasVendorRecovery(new Uint8Array(0x1000).fill(0xff)), false);
 // Read, checked, and only then written: the order is the guard.
-const readAt = src.indexOf("loader.readFlash(OFF_PARTITIONS, PARTITION_TABLE_SIZE)");
-const checkAt = src.indexOf("if (hasVendorRecovery(table))");
+const readAt = src.indexOf(".readFlash(OFF_PARTITIONS, PARTITION_TABLE_SIZE)");
+const checkAt = src.indexOf("if (table && hasVendorRecovery(table))");
 const writeAt = src.indexOf("loader.writeFlash(");
 check("the device's table is read and checked before the one write", readAt > 0 && readAt < checkAt && checkAt < writeAt, true);
+// Best effort, never a new way to fail: a read that throws must leave every
+// X4 Pro and Sticky installing exactly as before the check existed.
+const failOpen = src.slice(readAt, checkAt);
+check("a table that cannot be read installs as before", /\.catch\(function \(\) \{\s*return null;\s*\}\)/.test(failOpen), true);
 
 // Unknown failures keep their own words rather than borrowing advice.
 check("an unknown failure keeps its own text", friendly(new Error("Image verification failed")), "Image verification failed");
