@@ -152,11 +152,14 @@ class StudyActivity final : public Activity {
   // The face's pages, and what a word wider than a line does (StudyText.h).
   // Unpaged (height 0) whenever the face fits its body.
   mutable study::TextFlow textFlow_;
-  // The page on screen, counted from 0, and how many the face has. The count
-  // is the one the last paint drew; a reveal or a new card resets both until
-  // the next paint measures again.
+  // The page on screen, counted from 0 (or study::kAnswerStartPage), and how
+  // many the face has. The count is the one the last paint drew; a reveal or
+  // a new card resets it until the next paint measures again.
   int cardPage_ = 0;
   int cardPages_ = 1;
+  // The page the answer's own text begins on, below the repeated question;
+  // where a reveal opens (study::kAnswerStartPage). Written by the paint.
+  int cardStartPage_ = 0;
 
   // The card body: between the header and the footer. One place, so the
   // pager the paint draws and the pager a tap is tested against are the same.

@@ -210,8 +210,11 @@ export.
 - The side keys work too: either one reveals a question that fits the screen.
 - **A long card pages.** A card is drawn as large as it fits, stepping down to
   12pt; one still longer than the screen gets a `< 1 / 3 >` pager above the
-  buttons. The Down key turns the page (Up turns back), and on the last page
-  of the question the next press shows the answer, from its first page. A
+  buttons. The side keys are the reader's page keys, so Settings > Controls >
+  Layout swaps or disables them here as it does in a book: page forward turns
+  the page, page back turns back, and on the last page of the question the
+  next press shows the answer. A long answer opens on the page where the
+  answer itself begins; the question it repeats above it is a page back. A
   swipe up or down, or the pager's arrows, also turn pages, but only within
   the side you are on. Grading is only ever a tap on the four buttons: no
   page turn, at the end of the answer or anywhere, grades a card. A line is

@@ -591,6 +591,11 @@ struct TextFlow {
   TextPages pages;
   bool breakLong = false;  // break such a word at the width instead of letting it overhang
   bool overlong = false;   // set when one was met, broken or not
+  // `markPage` is the page of the first line placed while `marking` is set,
+  // or -1. The answer face repeats the question above the answer; the card
+  // marks where its own text begins so a long answer opens there.
+  bool marking = false;
+  int markPage = -1;
   // Where the last line placed ends. A layout's own returned y also carries
   // the gaps it leaves after fields that turned out empty; whether a face
   // needs pages is a question about its lines, not about its gaps.
@@ -651,6 +656,7 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
     // second does not should not be double-spaced throughout.
     const int above = (rubyFontId != 0 && hasRuby(laid.text)) ? rubyHeight : 0;
     if (pages != nullptr) y = pages->placeLine(y, above + lineHeight);
+    if (flow != nullptr && flow->marking && flow->markPage < 0) flow->markPage = flow->pages.pageOf(y);
     const int drawY = pages != nullptr ? pages->screenY(y) : y;
     const bool shown = pages == nullptr || pages->visible(y);
     if (pages != nullptr && pages->rule >= 0) {

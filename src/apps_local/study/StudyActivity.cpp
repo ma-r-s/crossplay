@@ -704,6 +704,7 @@ bool StudyActivity::loadCurrent() {
   face_ = Face::Question;
   cardPage_ = 0;
   cardPages_ = 1;
+  cardStartPage_ = 0;
 
   // The face changes per card. This is the feature: Mario learned to read in
   // one typeface and found the others hard afterwards, so the deck stops
@@ -929,8 +930,9 @@ void StudyActivity::undo() {
     // and making them reveal the card again would be a step they did not ask
     // for.
     face_ = Face::Answer;
-    cardPage_ = 0;
+    cardPage_ = study::kAnswerStartPage;
     cardPages_ = 1;
+    cardStartPage_ = 0;
   } else {
     // The card came back off the deck a moment ago, so this means the card has
     // gone away underneath us. Fall back to the deck screen rather than leave a
@@ -992,14 +994,16 @@ void StudyActivity::loop() {
   if (view_ == View::Card) {
     // The side keys page a card longer than the screen, and show the answer
     // from the question's last page; a vertical swipe pages too, the way the
-    // rest of the fork pages (docs/buttons.md). Back, a left-edge swipe, has
-    // already returned above, so nothing here can swallow it.
+    // rest of the fork pages (docs/buttons.md). The keys are the reader's
+    // page keys, read exactly as Hacker News reads them, so the side-button
+    // layout in Settings swaps or disables them here too. Back, a left-edge
+    // swipe, has already returned above, so nothing here can swallow it.
     const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
-    if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
       applyCardInput(study::CardInput::KeyNext);
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
       applyCardInput(study::CardInput::KeyPrevious);
       return;
     }
@@ -1129,13 +1133,13 @@ void StudyActivity::loop() {
 void StudyActivity::applyCardInput(const study::CardInput input, const int footerSlot) {
   study::CardView view;
   view.answer = face_ == Face::Answer;
-  view.page = cardPage_;
+  view.page = study::resolveCardPage(cardPage_, cardStartPage_, cardPages_);
   view.pages = cardPages_;
   view.canUndo = undo_.valid;
   view.hasPhoto = cardHasImage();
   const study::CardOutcome out = study::routeCardInput(view, input, footerSlot);
   LOG_DBG("STUDY", "Card input %d on %s page %d/%d: action %d, page %d", static_cast<int>(input),
-          view.answer ? "answer" : "question", cardPage_ + 1, cardPages_, static_cast<int>(out.action), out.page + 1);
+          view.answer ? "answer" : "question", view.page + 1, cardPages_, static_cast<int>(out.action), out.page + 1);
   switch (out.action) {
     case study::CardAction::None:
       return;
@@ -1145,10 +1149,12 @@ void StudyActivity::applyCardInput(const study::CardInput input, const int foote
       return;
     case study::CardAction::Reveal:
       face_ = Face::Answer;
-      cardPage_ = 0;
-      // Until the answer's own paint counts its pages, it has one: a second
-      // press that lands first must not page through the question's count.
+      // Opened where the answer's own text begins, which the answer's paint
+      // finds. Until then it has one page: a second press that lands first
+      // must not page through the question's count.
+      cardPage_ = study::kAnswerStartPage;
       cardPages_ = 1;
+      cardStartPage_ = 0;
       requestUpdate();
       return;
     case study::CardAction::Undo:
@@ -1249,6 +1255,8 @@ void StudyActivity::drawCard(const Rect& body) {
   // vocabulary face reads those two fields. Dispatched here rather than inside
   // each block so there is one place that says which kind of card this is.
   const auto layout = [&](const Rect& area, const bool measureOnly) {
+    textFlow_.marking = false;
+    textFlow_.markPage = -1;
     return note_.isCloze() ? layoutClozeCard(area, measureOnly) : layoutVocabCard(area, measureOnly);
   };
   const int bottom = body.y + body.height - toybox::kMargin;
@@ -1296,14 +1304,18 @@ void StudyActivity::drawCard(const Rect& body) {
       pages = 1;
     }
   }
+  // Where the answer's own text begins: the page a reveal opens on. A
+  // question, a cloze answer and a face that fits all start on page 1.
+  const int start = pages > 1 && textFlow_.markPage > 0 ? textFlow_.markPage : 0;
   // Stored once, never as a passing 1: the loop task routes keys and taps
-  // by this count while this paint runs.
+  // by these while this paint runs.
   cardPages_ = pages;
+  cardStartPage_ = start;
   textFlow_.pages.total = pages;
   // Read, never written back: the loop task owns cardPage_, and a page turn
-  // that lands while this paint runs must survive it. routeCardInput clamps
-  // the same way, so a stale page cannot route anywhere either.
-  const int page = std::clamp(cardPage_, 0, pages - 1);
+  // that lands while this paint runs must survive it. The loop resolves the
+  // held page the same way, so the page drawn is the page routed from.
+  const int page = study::resolveCardPage(cardPage_, start, pages);
   textFlow_.pages.selected = page;
   textFlow_.pages.last = -1;
   textFlow_.pages.rule = -1;
@@ -1388,6 +1400,10 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   int y = body.y + kCardInset;
 
   y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
+  // The answer's own text starts below the word: the first line of it marks
+  // the page a reveal opens on (drawCard). A field the question face also
+  // showed is drawn unmarked, so the mark cannot land on it.
+  textFlow_.marking = answer;
   if (answer) {
     y += 6;
     y = drawWrapped(sized(kReadingFontId), y, maxWidth, note_.field(study::Field::Reading), measureOnly);
@@ -1410,8 +1426,10 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
     // is over the very word being asked for, and drawing it there points at
     // the answer.
     if (answer) {
+      textFlow_.marking = !deck_.meta().sentenceOnQuestion;
       y = drawWrappedUnderlined(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence),
                                 note_.emphasisOffset(), note_.emphasisLength(), measureOnly);
+      textFlow_.marking = true;
     } else {
       y = drawWrapped(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
     }

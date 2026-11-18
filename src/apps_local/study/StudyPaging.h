@@ -7,9 +7,11 @@
 // a tap into a CardInput and applies the CardOutcome, and everything in
 // between is here, where host-tests/study can walk every state. The rules:
 //
-//   - The side keys turn the page. On the last page of the question the next
-//     press shows the answer, from its first page; a one-page question shows
-//     it on either key. On the answer they only ever turn pages.
+//   - The side page keys turn the page. On the last page of the question the
+//     next press shows the answer, opened on the page where the answer's own
+//     text begins (the face repeats the question above it, and paging back
+//     reaches that); a one-page question shows it on either key. On the
+//     answer they only ever turn pages.
 //   - A swipe and the pager's arrows only ever turn pages, on either face.
 //   - Grading is a tap on the rating cells and nothing else: no page turn, at
 //     the end of the answer or anywhere, ever grades a card.
@@ -24,8 +26,8 @@
 namespace study {
 
 enum class CardInput : uint8_t {
-  KeyNext,        // the Down side key
-  KeyPrevious,    // the Up side key
+  KeyNext,        // the page-forward side key (Button::PageForward)
+  KeyPrevious,    // the page-back side key (Button::PageBack)
   SwipeNext,      // a swipe up: the page moves the way the finger does
   SwipePrevious,  // a swipe down
   PagerNext,      // the pager's right arrow
@@ -45,11 +47,24 @@ struct CardView {
 
 enum class CardAction : uint8_t { None, Turn, Reveal, Undo, Grade, Photo };
 
+// The page a reveal asks for: wherever the answer's own text begins, which
+// only the paint that lays the answer out can know (StudyText.h TextFlow).
+inline constexpr int kAnswerStartPage = -1;
+
 struct CardOutcome {
   CardAction action = CardAction::None;
-  int page = 0;    // the page to show afterwards
+  int page = 0;    // the page to show afterwards, or kAnswerStartPage
   int rating = 0;  // 1..4 (Again..Easy) when the action is Grade
 };
+
+// The page actually shown for a held page: kAnswerStartPage resolves to where
+// the answer begins, and anything else is capped to the pages the face has.
+// The paint draws by it and the loop routes by it, so the two cannot differ.
+inline int resolveCardPage(const int held, const int answerStart, const int pages) {
+  const int last = pages > 1 ? pages - 1 : 0;
+  const int page = held == kAnswerStartPage ? answerStart : held;
+  return page < 0 ? 0 : (page > last ? last : page);
+}
 
 inline CardOutcome routeCardInput(const CardView& state, const CardInput input, const int footerSlot = 0) {
   const int last = state.pages > 1 ? state.pages - 1 : 0;
@@ -63,7 +78,7 @@ inline CardOutcome routeCardInput(const CardView& state, const CardInput input, 
   };
   const auto reveal = [&]() {
     out.action = CardAction::Reveal;
-    out.page = 0;
+    out.page = kAnswerStartPage;
   };
 
   switch (input) {

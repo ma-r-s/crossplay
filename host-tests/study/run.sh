@@ -67,6 +67,9 @@ fi
 # broken makes every card unreadable whatever the deck says.
 "$BUILD_DIR/test_text"
 "$BUILD_DIR/test_paging"
+# The card's side keys against the Hacker News reader's: StudyActivity cannot
+# be compiled here, so this one reads the source.
+python3 test_page_keys.py
 "$BUILD_DIR/test_bridge_file"
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_verdict"

@@ -326,7 +326,7 @@ void testPagesPastAnyCap() {
   }
   CHECK(drawn == 300, "every line is drawn on exactly one of the 150 pages");
   // The whole of the paging state: a few ints, never a copy of the text.
-  CHECK(sizeof(study::TextFlow) <= 32, "paging keeps a handful of ints, not text");
+  CHECK(sizeof(study::TextFlow) <= 40, "paging keeps a handful of ints, not text");
 }
 
 void testStressLongAnswerAndLongWord() {
@@ -448,7 +448,7 @@ void testButtonsPageThenReveal() {
   state.page = out.page;
   out = study::routeCardInput(state, CardInput::KeyNext);
   CHECK(out.action == CardAction::Reveal, "the press past the last question page reveals");
-  CHECK(out.page == 0, "and the answer opens on its first page");
+  CHECK(out.page == study::kAnswerStartPage, "and the answer opens where its own text begins");
 
   // Up walks back, and on the first page of a long question does nothing.
   out = study::routeCardInput(view(false, 2, 3), CardInput::KeyPrevious);
@@ -482,6 +482,63 @@ void testButtonsPageThenReveal() {
         "a swipe on a one-page question does nothing");
 }
 
+void testAnswerOpensWhereItBegins() {
+  // The answer face repeats the question above the answer. The card marks
+  // the first line of the answer's own text, and a reveal opens on its page.
+  //
+  // 50px pages, two lines each. The repeated question is three lines: page 1
+  // holds two, page 2 the third (150-170). A 6px gap, then the answer: "xxx"
+  // at 176 fits page 2 (ends 196 of 200), "yyy" moves to page 3.
+  const auto drawAnswer = [](const int page, Recorder& target) {
+    study::TextFlow flow = pagedFlow(100, 50, page);
+    int y = field(target, flow, 100, 30, "aaa bbb ccc");
+    y += 6;
+    flow.marking = true;
+    field(target, flow, y, 30, "xxx yyy");
+    return flow;
+  };
+  Recorder measure;
+  const study::TextFlow flow = drawAnswer(0, measure);
+  CHECK(flow.pages.count() == 3, "the repeated question and the answer run to three pages");
+  CHECK(flow.markPage == 1, "the answer's own text begins on page 2, where its first line lands");
+  Recorder second;
+  drawAnswer(1, second);
+  CHECK(lines(second) == (std::vector<std::string>{"ccc", "xxx"}), "and page 2 is where that line is drawn");
+
+  // Nothing marked, nothing recorded: a question, a cloze answer.
+  study::TextFlow plain = pagedFlow(100, 50, 0);
+  Recorder unmarked;
+  field(unmarked, plain, 100, 30, "aaa bbb ccc");
+  CHECK(plain.markPage == -1, "a face with no mark records none");
+  // The first marked line wins; a later one does not move it.
+  study::TextFlow twice = pagedFlow(100, 50, 0);
+  twice.marking = true;
+  Recorder early;
+  int y = field(early, twice, 100, 30, "aaa");
+  field(early, twice, y, 30, "bbb ccc ddd eee");
+  CHECK(twice.markPage == 0, "the mark is the first marked line's page");
+
+  // A reveal asks for that page, and the page shown resolves to it.
+  const study::CardOutcome reveal = study::routeCardInput(view(false, 1, 2), CardInput::KeyNext);
+  CHECK(reveal.action == CardAction::Reveal && reveal.page == study::kAnswerStartPage,
+        "the press past the question's last page asks for the answer's start");
+  const int shown = study::resolveCardPage(reveal.page, flow.markPage, flow.pages.count());
+  CHECK(shown == 1, "which is page 2 of 3 here");
+  // From there Up pages back through the repeated question, Down on through
+  // the answer.
+  study::CardOutcome out = study::routeCardInput(view(true, shown, 3), CardInput::KeyPrevious);
+  CHECK(out.action == CardAction::Turn && out.page == 0, "Up from the answer's start pages back into the question");
+  out = study::routeCardInput(view(true, shown, 3), CardInput::KeyNext);
+  CHECK(out.action == CardAction::Turn && out.page == 2, "Down pages on through the answer");
+
+  // A one-page answer is unchanged: it opens on its only page. A start past
+  // the count is capped, and a page already turned to ignores the start.
+  CHECK(study::resolveCardPage(study::kAnswerStartPage, 0, 1) == 0, "a one-page answer opens on page 1");
+  CHECK(study::resolveCardPage(study::kAnswerStartPage, 5, 3) == 2, "a start past the count is capped");
+  CHECK(study::resolveCardPage(0, 2, 3) == 0, "a page turned to is kept, not sent back to the start");
+  CHECK(study::resolveCardPage(9, 2, 3) == 2, "and capped like any held page");
+}
+
 void testStalePageIsCapped() {
   // The page the loop holds is capped to the count the last paint measured,
   // never trusted: a turn that landed while a shorter face was being painted
@@ -489,7 +546,8 @@ void testStalePageIsCapped() {
   study::CardOutcome out = study::routeCardInput(view(false, 7, 3), CardInput::KeyPrevious);
   CHECK(out.action == CardAction::Turn && out.page == 1, "a page past the end routes from the last page");
   out = study::routeCardInput(view(false, 7, 3), CardInput::KeyNext);
-  CHECK(out.action == CardAction::Reveal && out.page == 0, "and the next press from there reveals, at page 1");
+  CHECK(out.action == CardAction::Reveal && out.page == study::kAnswerStartPage,
+        "and the next press from there reveals, where the answer begins");
   out = study::routeCardInput(view(true, 5, 2), CardInput::KeyNext);
   CHECK(out.action == CardAction::None && out.page == 1, "on the answer it rests on the last page");
   out = study::routeCardInput(view(false, -4, 3), CardInput::KeyNext);
@@ -585,6 +643,7 @@ int main() {
   testStressLongAnswerAndLongWord();
   testButtonsPageThenReveal();
   testStalePageIsCapped();
+  testAnswerOpensWhereItBegins();
   testNoPageTurnEverGrades();
   testTapsKeepTheirMeaning();
   std::printf("%s %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);
