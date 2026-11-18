@@ -434,23 +434,25 @@ RangeLine rangeLine(toybox::Screen& screen, const MainModel& model, const fui::F
 
 void drawRangeLine(toybox::Screen& screen, const RangeLine& line, int16_t x, const int16_t inkTop,
                    const fui::FontId font) {
-  const auto word = [&screen, &x, inkTop, font](const char* text) {
+  // Not `word`: Arduino defines word(...) as a macro, and a device build
+  // expands it.
+  const auto label = [&screen, &x, inkTop, font](const char* text) {
     const int16_t width = widthOf(screen, font, text);
     textAt(screen, x, inkTop, static_cast<int16_t>(width + 1), font, text);
     x = static_cast<int16_t>(x + width);
   };
-  word("H");
+  label("H");
   x = static_cast<int16_t>(x + line.space);
   tempAt(screen, x, inkTop, font, line.high);
   x = static_cast<int16_t>(x + tempWidth(screen, font, line.high) + line.pair);
-  word("L");
+  label("L");
   x = static_cast<int16_t>(x + line.space);
   tempAt(screen, x, inkTop, font, line.low);
   x = static_cast<int16_t>(x + tempWidth(screen, font, line.low) + line.pair);
   if (line.chance.empty()) return;
-  word(line.chance.c_str());
+  label(line.chance.c_str());
   x = static_cast<int16_t>(x + line.space);
-  word(line.pct.c_str());
+  label(line.pct.c_str());
 }
 
 std::string nowText(const MainModel& model) { return model.hasNow ? number(model.now) : std::string("--"); }
