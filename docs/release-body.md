@@ -1,14 +1,14 @@
 [Install it](https://crossplay.ma-r-s.com/#get) · [which file, and by hand](https://github.com/ma-r-s/crossplay/blob/xteink/docs/install.md) · [earlier releases](https://github.com/ma-r-s/crossplay/blob/xteink/docs/release-notes.md)
 
-### What is new in 1.15.1
+### What is new in 1.16.0
 
-- RSS: the last page of a list shows its posts again
-- Study: the card count no longer covers the back arrow in the Classic theme
-- Study: a short question and a long answer share a page instead of leaving one nearly empty
-- Wikipedia, RSS and Study keep the page margins
-- Study: a wrong clock now says WRONG DATE instead of "nothing to review", and Sync sets it
-- Wordle and Connections open today's puzzle even when the clock is months behind
-- Notes: the menu says EDIT ON YOUR PHONE
-- BOOX Picco support (experimental, untested by us): firmware-picco.bin goes into its app slot only
-- The Install button no longer writes over a BOOX Picco's recovery partition
+- Weather: a new app in Apps. Today and the next six days for your city, read only when you open it
+- Wikipedia in German: 50,000 articles, installed from the same page as English
+- Wikipedia: with two languages on the card it opens on a chooser, and German search has ä, ö, ü and ß keys
+- Reading Stats: a new app in Apps. Minutes read each day for two weeks, this week's total, your streak and the books you finished this year
+- Study: a long answer under a nearly full question opens on its own page
+- Study: the chart on the deck screen no longer crowds the line above it
+- Wikipedia: article titles wrap to two lines instead of being shortened
+- Lists: the scroll bar ends with the last row
+- Keyboard: a key label that does not fit is no longer drawn cut short
 
