@@ -21,6 +21,10 @@ Everything above the marker is written by hand.
 
 <!-- releases, newest first -->
 
+### 1.16.1
+
+- Go between two devices: a small fix to the game the two devices share. Nothing changes in play
+
 ### 1.16.0
 
 - Weather: a new app in Apps. Today and the next six days for your city, read only when you open it
