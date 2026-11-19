@@ -38,7 +38,8 @@ static void vector(const std::string& msg, const char* sha1, const char* sha256)
   unsigned char out1[20];
   unsigned char out256[32];
   const auto* d = reinterpret_cast<const unsigned char*>(msg.data());
-  expect(hex(SHA1(d, msg.size(), out1), 20) == sha1, ("SHA1 of a " + std::to_string(msg.size()) + "-byte vector").c_str());
+  expect(hex(SHA1(d, msg.size(), out1), 20) == sha1,
+         ("SHA1 of a " + std::to_string(msg.size()) + "-byte vector").c_str());
   expect(hex(SHA256(d, msg.size(), out256), 32) == sha256,
          ("SHA256 of a " + std::to_string(msg.size()) + "-byte vector").c_str());
 }
