@@ -303,7 +303,7 @@ def main(env):
         src / "HalClock.h",
         "  bool syncFromNTP();",
         "  void setTimezone(const char *posixTz) {\n"
-        "    ::setenv(\"TZ\", posixTz && posixTz[0] != '\\0' ? posixTz : \"UTC0\", 1);\n"
+        '    ::setenv("TZ", posixTz && posixTz[0] != \'\\0\' ? posixTz : "UTC0", 1);\n'
         "    ::tzset();\n"
         "  }\n"
         "  bool syncFromNTP();",
@@ -330,7 +330,7 @@ def main(env):
         src / "Arduino.h",
         "  void restart() {}",
         "  void restart() {}\n"
-        "  const char *getChipModel() { return \"ESP32-S3\"; }\n"
+        '  const char *getChipModel() { return "ESP32-S3"; }\n'
         "  uint8_t getChipRevision() { return 0; }\n"
         "  uint32_t getFlashChipSize() { return 16u * 1024u * 1024u; }",
         "ESPMock chip/flash accessors",
@@ -697,7 +697,7 @@ def main(env):
     patch(
         src / "HalDisplay.cpp",
         "SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);",
-        "(std::getenv(\"CROSSPOINT_SIM_HIDDEN\") ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |\n"
+        '(std::getenv("CROSSPOINT_SIM_HIDDEN") ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |\n'
         "                                SDL_WINDOW_ALLOW_HIGHDPI);",
         "HalDisplay: CROSSPOINT_SIM_HIDDEN opens the window hidden",
         marker="CROSSPOINT_SIM_HIDDEN",
@@ -964,6 +964,34 @@ def main(env):
         print(
             f"[sim-catchup] HalStorage parity: {len(_mine)} methods, both sides agree"
         )
+
+    # AnimatedGIF paces playFrame(bSync=true) with Arduino's millis()/delay(),
+    # guarded only by __MACH__ and __LINUX__ (a macro no compiler defines). So
+    # the macOS simulator skips the pacing and builds, while a Linux or browser
+    # simulator build calls functions nothing declares there and stops. The
+    # simulator gets the macOS behaviour everywhere; the device is untouched
+    # (SIMULATOR is a simulator-only define).
+    gif = (
+        pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR"))
+        / env.subst("$PIOENV")
+        / "AnimatedGIF"
+        / "src"
+        / "AnimatedGIF.cpp"
+    )
+    patch(
+        gif,
+        "#if !defined( __MACH__ ) && !defined( __LINUX__ )\nlong lTime = millis();",
+        "#if !defined( __MACH__ ) && !defined( __LINUX__ ) && !defined( SIMULATOR )\nlong lTime = millis();",
+        "AnimatedGIF: no millis() in the simulator (start of a frame)",
+        marker="!defined( SIMULATOR )\nlong lTime",
+    )
+    patch(
+        gif,
+        "#if !defined( __MACH__ ) && !defined( __LINUX__ ) \n        lTime = millis() - lTime;",
+        "#if !defined( __MACH__ ) && !defined( __LINUX__ ) && !defined( SIMULATOR )\n        lTime = millis() - lTime;",
+        "AnimatedGIF: no millis()/delay() in the simulator (end of a frame)",
+        marker="!defined( SIMULATOR )\n        lTime = millis() - lTime",
+    )
     require_all_applied()
 
 

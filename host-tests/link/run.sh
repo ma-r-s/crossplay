@@ -57,7 +57,7 @@ SRC=../../src/apps_local/link
 "$BUILD_DIR/test_seasaltlink"
 "$BUILD_DIR/test_battleshiplink"
 
-"${CXX:-c++}" $CXXFLAGS $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp \
   ../../src/apps_local/toybattle/ToyBattleCore.cpp ../../src/apps_local/toybattle/ToyBattleBrain.cpp \
   test_toybattlelink.cpp -o "$BUILD_DIR/test_toybattlelink"
 "$BUILD_DIR/test_toybattlelink"

@@ -214,6 +214,9 @@ class Play final : public PlayBase {
                 "A shared game state is copied as bytes between two devices, so it must be trivially copyable: no "
                 "pointers, no std::string, no virtuals.");
   static_assert(sizeof(State) <= kMaxPayloadBytes, "A shared game state must fit one packet (192 bytes).");
+  static_assert(std::has_unique_object_representations_v<State>,
+                "A shared game state must have no padding bytes: they are copied to the other device as whatever "
+                "the stack held, and two equal states then differ byte for byte. Name the bytes (see go::Game).");
 
  public:
   using PlayBase::PlayBase;

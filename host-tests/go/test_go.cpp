@@ -19,6 +19,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #include "GoCore.h"
 #include "GoEngine.h"
@@ -2165,7 +2166,25 @@ void testACountIsAnAgreementNotAComputation() {
 
 }  // namespace
 
+// reset() decides every byte of a Game, whatever the memory held before. Two
+// games filled with different junk and reset alike must be byte-identical: the
+// save round-trip and the wire both compare and copy the whole struct, and the
+// two bytes the struct used to end in as padding were left as stack junk, which
+// failed the save test on Linux and never on the Mac.
+void testResetDecidesEveryByte() {
+  for (const int size : {go::kSmallSize, 13, go::kLargeSize}) {
+    Game a;
+    Game b;
+    std::memset(&a, 0xA5, sizeof(Game));
+    std::memset(&b, 0x5A, sizeof(Game));
+    go::reset(a, size, 2);
+    go::reset(b, size, 2);
+    CHECK(std::memcmp(&a, &b, sizeof(Game)) == 0);
+  }
+}
+
 int main() {
+  testResetDecidesEveryByte();
   testNeighboursNeverWrapRoundTheEdge();
   testALibertyIsAPointAndIsCountedOnce();
   testAStoneWithNoLibertyIsLifted();

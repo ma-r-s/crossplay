@@ -40,6 +40,7 @@
 // the ceiling, which is the only part that matters.
 
 #include <cstdint>
+#include <type_traits>
 
 namespace go {
 
@@ -162,8 +163,10 @@ int neighbours(int size, int point, Point out[4]);
 // What a game is. This is the wire format and the save payload.
 //
 // Field order is by width, so the struct has no interior padding on either the
-// device or the host. The link layer copies it raw between two identical
-// builds, so its layout is a protocol and `GameId::Go` carries its version.
+// device or the host, and `reserved` names the two bytes it would otherwise end
+// in: every byte of a Game is a value. The link layer copies it raw between two
+// identical builds, so its layout is a protocol and `GameId::Go` carries its
+// version.
 struct Game {
   // Truncated position keys, most recent last. Only `recentCount` of them are
   // real; the ring never wraps within one game because it is shifted down.
@@ -210,6 +213,12 @@ struct Game {
   // the button it pressed said WAITING.
   uint8_t accepted;
 
+  // The tail the struct would otherwise pad to a four-byte multiple with. Left
+  // unnamed, those two bytes were whatever the stack held: they crossed the
+  // wire as noise and made two equal games compare unequal by memcmp (on
+  // Linux, never on the Mac). reset() zeroes them; nothing reads them.
+  uint8_t reserved[2];
+
   // How many points this board has. Every loop over the position bounds itself
   // with this rather than with kMaxPoints: a nine by nine game leaves the tail
   // of every array untouched, and a loop that reads it sees stones that are not
@@ -234,6 +243,9 @@ struct Game {
   int point(const int r, const int c) const { return pointAt(size, r, c); }
   bool on(const int r, const int c) const { return onBoard(size, r, c); }
 };
+
+static_assert(std::has_unique_object_representations_v<Game>,
+              "go::Game must have no padding: every byte is copied, saved and compared");
 
 // Where a game is in its life. Not the same thing as whose turn it is, which
 // is GoFlow.h's Phase: this one is Playing / Scoring / Over and changes three
