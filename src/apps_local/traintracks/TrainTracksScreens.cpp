@@ -86,7 +86,9 @@ void tie(toybox::Screen& screen, const Pt at, const int dir, const int16_t lengt
   }
 }
 
-// The rail through a square, from its connection mask.
+// The rail through a square, from its connection mask. Every track square
+// the board draws has exactly two connections (inferShapes); the other forms
+// below are a fallback, so a malformed mask still draws something honest.
 //
 //   two opposite connections   a straight, with two sleepers
 //   two adjacent connections   a quarter-circle curve, with two sleepers
@@ -247,6 +249,7 @@ void drawHintMark(toybox::Screen& screen, const fui::Rect& box) {
 struct Marks {
   const uint8_t* wrong = nullptr;
   int hintCell = -1;
+  int holdCell = -1;
   bool clues = true;
   // Solved: the track set is the puzzle's one answer, so every square draws
   // the answer's own shape. Inference alone leaves a tightly wound route as
@@ -301,6 +304,15 @@ void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p,
       }
       if (marks.wrong != nullptr && marks.wrong[i]) drawWrong(screen, box);
       if (marks.hintCell == i) drawHintMark(screen, box);
+      if (marks.holdCell == i) {
+        // A held square: a frame just inside it, heavier than the hint's
+        // corners, while the hold is still deciding.
+        const int16_t inset = 3;
+        screen.target().stroke(
+            fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
+                          static_cast<int16_t>(box.width - 2 * inset), static_cast<int16_t>(box.height - 2 * inset)),
+            black(), toybox::kRule);
+      }
     }
   }
 
@@ -597,6 +609,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   if (!model.solved) {
     marks.wrong = model.wrong;
     marks.hintCell = model.hintCell;
+    marks.holdCell = model.holdCell;
   }
   drawSurface(screen, g, *model.puzzle, *model.board, marks);
   drawStatus(screen, g, model);
@@ -662,7 +675,7 @@ const Lesson kLessons[] = {
      "TTT."
      "..TT"
      "...."},
-    {"MARKING", "TAP FOR TRACK, AGAIN FOR A CROSS.", "GREY SQUARES ARE GIVEN AND LOCKED.",
+    {"MARKING", "TAP TO LAY TRACK, AGAIN TO TURN IT.", "HOLD TO CROSS OR CLEAR. GREY IS GIVEN.",
      ".T.x"
      "TG.."
      "..x."

@@ -71,6 +71,9 @@ struct BoardModel {
   const uint8_t* wrong = nullptr;
   // The square HINT just filled, or -1.
   int hintCell = -1;
+  // A square a finger is holding long enough to mean a cross, or -1. Drawn
+  // so a hold is visibly registering before it fires.
+  int holdCell = -1;
 };
 
 // Where everything on the board screen sits, from the panel's size and the

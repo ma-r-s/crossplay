@@ -77,8 +77,15 @@ class TrainTracksActivity final : public Activity {
   uint16_t nextAttempt = 0;
   unsigned long generateStartMs = 0;
 
+  // The finger on the board: which square it rests on, since when, and
+  // whether that hold has already crossed it. Not a mode; there is no mode.
+  int heldCell = -1;
+  unsigned long holdSinceMs = 0;
+  bool holdFired = false;
+  bool holdShown = false;
+
   // What CHECK and HINT leave on the board until the next move.
-  uint8_t wrong[traintracks::kMaxCells] = {};
+  traintracks::CheckFlags flags{};
   bool showWrong = false;
   int hintCell = -1;
   const char* notice = nullptr;

@@ -320,10 +320,22 @@ sets the cell, capped at 64px so a small grid still reads as a board:
 9x9 for Hard (44px) was rendered too. 10x10 kept the two-square step and the
 room for long routes, and Picross already ships a 10x10 at about 37px.
 
-**Drawing a square.** Track draws its shape from `inferShapes`: two
-connections are a straight or a quarter-arc curve, each with two sleepers,
-one is a stub ending in a dot, none is a small solid block, and three or more (a
-junction the marks do not settle yet) is a larger open block. Crosses are an
+**Drawing a square.** Every track square draws one real piece, a straight or
+a quarter-arc curve, each with two sleepers. A given's piece is its own, and
+so is one the player chose; the rest are automatic (`inferShapes`): the gate
+and any fixed piece pointing at a square pull it in, then neighbours join
+where a square has no other way to reach two connections and by the most
+constrained square first, never closing a loop; a square still short of two
+points its open ends at empty squares, preferring to run straight on. A guess
+never fakes a join. Only a square whose joins and free sides cannot make a
+whole piece (marks that cannot all be right) draws less: its one join as a
+stub, a stub toward its one free side, or, boxed in, a small block.
+
+The first version joined every pair of neighbouring track squares and pruned
+afterwards. On the Picco that drew curves turning back on themselves in any
+2x2 of track, which is never legal, and open blocks where a square had three
+track neighbours. Marks say which squares are track, not how they join, so the
+fix is both a better guess and a way to override it. Crosses are an
 X. Givens sit on a dithered grey ground and show their real shape. Gates
 break the frame, with an arrow in the band outside it: in at the start, out at
 the end. A clue is boxed when its line is met and inverted when it is over.
@@ -339,7 +351,21 @@ A solved board draws every square from the answer's own shapes instead. Marks
 say which squares are track, not how they join, so a tightly wound route left
 to inference shows open blocks even when it is complete and correct.
 
-**Input.** A tap on a square cycles empty, track, cross. The grid is
+**Input.** A tap lays track: an empty or crossed square becomes track with an
+automatic piece, which keeps following its neighbours until touched again. A
+further tap steps it through the pieces that fit there, most likely first
+(`piecesFor`: pieces that can connect on both ends, ranked by how many ends
+meet track that would join them), and after the last back to empty. Each
+chosen piece is pinned (`Board::pin`) and the neighbours fit around it. A hold
+of 400ms, as Sudoku's pencil and Minesweeper's flag, takes a square back a
+step: track or a cross to empty, an empty square to a cross. A cross therefore
+only goes on an empty square, and clearing track is one hold. (The first
+version had a hold cross out track; on the Picco the player found themselves
+crossing squares only to clear them.) a frame is drawn inside the square from 250ms so
+the hold is visibly registering (taps took 140 to 250ms on the Picco, so a
+sooner frame would repaint for most taps). Winning reads only which squares are
+track, so a chosen piece never blocks a solve; CHECK and HINT also judge
+shapes (below). The grid is
 hit-tested from the same `Geometry` that draws it (`cellRect` and `cellAt`,
 tested as exact inverses at every level's size), so its 144 squares spend
 none of the interaction table's slots. The side keys are undo and redo on the
@@ -347,19 +373,33 @@ board and turn pages in how to play.
 
 ### CHECK and HINT
 
-Both mark the square, never the piece (`docs/design-language.md`), and both
-clear on the next move.
+Both mark the square, never the piece (`docs/design-language.md`). HINT's
+bracket clears on the next move. CHECK's notches stay until their own square
+changes, its state or the piece it draws (`CheckFlags`, `keepFlags`), so one
+CHECK serves for as many moves as it takes to put its flags right; clearing
+them all on the next move made the player CHECK again, and pay for it, to see
+the flags they had not reached.
 
-- **CHECK** puts a solid notch in the top-right corner of every marked square
-  that contradicts the answer (track where there is none, or a cross on
-  track), and says "2 WRONG" or "NOTHING WRONG SO FAR". An empty square is
-  never wrong.
+- **CHECK** puts a solid notch in the top-right corner of every square that
+  contradicts the answer, and says "2 WRONG" or "NOTHING WRONG SO FAR". That
+  is a marked square in the wrong state (track where there is none, or a cross
+  on track), and, since the route is unique and so is each of its squares'
+  piece, a route square drawn in the wrong shape: a piece the player chose
+  that is not the answer's, or a join to neighbouring track the answer does
+  not make, chosen or guessed. An empty square is never wrong, and neither is
+  a guessed piece's open end pointing at one: that is a placeholder while the
+  route is laid, not a claim. (The first version judged squares only, and on
+  the Picco a wrongly turned piece passed CHECK.)
 - **HINT** places one correct square, as an ordinary move that undo takes
-  back, and brackets it. A wrong mark comes first ("HINT: PUT ONE RIGHT"),
-  because any deduction made past it would rest on something false. Otherwise
-  the solver reasons forward from the player's own marks (`Solver::applyMarks`)
-  and stops at the lowest tier that decides an empty square, preferring track
-  ("HINT: TRACK HERE") to a cross ("HINT: NO TRACK HERE").
+  back, brackets it, and says how many hints so far ("1ST HINT", "2ND HINT").
+  A wrong mark comes first, then a wrong shape, set to the answer's piece,
+  because any deduction made past either would rest on something false.
+  Otherwise the solver reasons forward from the player's own marks
+  (`Solver::applyMarks`) and stops at the lowest tier that decides an empty
+  square, preferring track to a cross. A hint that would finish the puzzle is
+  refused ("LAST MOVE IS YOURS") and not counted: the last move is the
+  player's. It is tried on the board and taken back, history and redo
+  included (`hintSolves`).
 
 The game counts both. The solved board shows the time and the tally:
 "UNAIDED", "1 HINT", "3 CHECKS" or "2 HINTS, 1 CHECK", stepping down to the

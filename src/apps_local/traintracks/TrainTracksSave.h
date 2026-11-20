@@ -7,8 +7,9 @@
 //
 //   version menuLevel hasGame onBoard level seed attempt hash solved hints
 //   checks elapsedMs first count cursor
-//   <size*size digits, 0 empty 1 track 2 cross, row by row>
-//   <64 moves, four hex digits each: cell (2), from (1), to (1)>
+//   <size*size squares, row by row, two characters each: the state digit
+//    (0 empty, 1 track, 2 cross) and the chosen piece in hex (0: automatic)>
+//   <64 moves, six hex digits each: cell (2), from, to, fromPin, toPin>
 //
 // The puzzle itself is not saved. It is regenerated from (level, seed,
 // attempt), and the stored hash has to match what that produces, so a save
@@ -24,8 +25,8 @@ namespace traintracks {
 
 // Bumped when the format changes, and whenever the generator or the rater
 // changes what a (seed, attempt) builds (see testPinnedPuzzles).
-constexpr int kSaveVersion = 1;
-constexpr int kSaveBytes = 768;
+constexpr int kSaveVersion = 2;
+constexpr int kSaveBytes = 1024;
 
 struct SaveState {
   // The difficulty last picked on the new-puzzle screen, which opens on it.
@@ -58,11 +59,13 @@ inline int writeSave(const SaveState& s, char* out, const int size) {
                     static_cast<unsigned>(g.checks), static_cast<unsigned>(g.elapsedMs), static_cast<unsigned>(h.first),
                     static_cast<unsigned>(h.count), static_cast<unsigned>(h.cursor));
   const int n = g.puzzle.size;
-  if (used <= 0 || used + n * n + 1 + 4 * kHistoryDepth + 2 >= size) return 0;
+  if (used <= 0 || used + 2 * n * n + 1 + 6 * kHistoryDepth + 2 >= size) return 0;
   for (int r = 0; r < n; ++r) {
     for (int c = 0; c < n; ++c) {
-      const uint8_t state = g.board.cell[cellIndex(r, c)];
+      const int i = cellIndex(r, c);
+      const uint8_t state = g.board.cell[i];
       out[used++] = static_cast<char>('0' + (state <= kCross ? state : 0));
+      out[used++] = hexDigit(g.board.pin[i]);
     }
   }
   out[used++] = '\n';
@@ -72,6 +75,8 @@ inline int writeSave(const SaveState& s, char* out, const int size) {
     out[used++] = hexDigit(m.cell);
     out[used++] = hexDigit(m.from);
     out[used++] = hexDigit(m.to);
+    out[used++] = hexDigit(m.fromPin);
+    out[used++] = hexDigit(m.toPin);
   }
   out[used++] = '\n';
   out[used] = '\0';
@@ -139,23 +144,29 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
     for (int c = 0; c < n; ++c) {
       const char ch = *cursor++;
       if (ch < '0' || ch > '2') return false;
+      const int pin = hexValue(*cursor++);
+      if (pin < 0) return false;
       const int i = cellIndex(r, c);
-      // A given is track whatever the file says.
-      if (!g.puzzle.given[i]) g.board.cell[i] = static_cast<uint8_t>(ch - '0');
+      // A given is track whatever the file says, and only track has a piece.
+      if (!g.puzzle.given[i]) {
+        g.board.cell[i] = static_cast<uint8_t>(ch - '0');
+        g.board.pin[i] = g.board.cell[i] == kTrack ? static_cast<uint8_t>(pin) : 0;
+      }
     }
   }
 
   while (*cursor == ' ' || *cursor == '\r' || *cursor == '\n') ++cursor;
   History& h = g.board.history;
   for (int k = 0; k < kHistoryDepth; ++k) {
-    int digits[4];
-    for (int d = 0; d < 4; ++d) {
+    int digits[6];
+    for (int d = 0; d < 6; ++d) {
       digits[d] = hexValue(*cursor++);
       if (digits[d] < 0) return false;
     }
     const int cell = digits[0] * 16 + digits[1];
     if (cell >= kMaxCells || digits[2] > kCross || digits[3] > kCross) return false;
-    h.moves[k] = Move{static_cast<uint8_t>(cell), static_cast<uint8_t>(digits[2]), static_cast<uint8_t>(digits[3])};
+    h.moves[k] = Move{static_cast<uint8_t>(cell), static_cast<uint8_t>(digits[2]), static_cast<uint8_t>(digits[3]),
+                      static_cast<uint8_t>(digits[4]), static_cast<uint8_t>(digits[5])};
   }
   h.first = static_cast<uint8_t>(v[12]);
   h.count = static_cast<uint8_t>(v[13]);

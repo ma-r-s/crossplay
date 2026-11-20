@@ -9552,11 +9552,15 @@ void theStatusIsQuietWhileSolving() {
   Rendered told;
   build(told, model);
   CHECK(drewLabelWhole(told, "2 WRONG"));
-  CHECK(drewLabelWhole(told, "HINT: NO TRACK HERE") == false);
-  model.notice = "HINT: NO TRACK HERE";
+  CHECK(drewLabelWhole(told, "2ND HINT") == false);
+  model.notice = "2ND HINT";
   Rendered hinted;
   build(hinted, model);
-  CHECK(drewLabelWhole(hinted, "HINT: NO TRACK HERE"));
+  CHECK(drewLabelWhole(hinted, "2ND HINT"));
+  model.notice = "LAST MOVE IS YOURS";
+  Rendered last;
+  build(last, model);
+  CHECK(drewLabelWhole(last, "LAST MOVE IS YOURS"));
   model.notice = "NOTHING WRONG SO FAR";
   Rendered fine;
   build(fine, model);
@@ -9692,6 +9696,26 @@ void theSolvedBoardIsTheResult() {
   Rendered worst;
   build(worst, model);
   CHECK(drewLabelWhole(worst, "1:01:02   65535 HINTS, 65535 CHECKS"));
+}
+
+// A finger resting on a square long enough to mean a cross is drawn as a
+// frame inside it, so the hold is visibly registering before it fires.
+void aHoldIsDrawnBeforeItFires() {
+  Game game = aGame(tt::Level::Easy);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  Rendered plain;
+  build(plain, model);
+  model.holdCell = tt::cellIndex(2, 2);
+  Rendered held;
+  build(held, model);
+  CHECK(held.target.strokes.size() == plain.target.strokes.size() + 1);
+  model.solved = true;
+  Rendered done;
+  build(done, model);
+  model.holdCell = -1;
+  Rendered doneBare;
+  build(doneBare, model);
+  CHECK(done.target.strokes.size() == doneBare.target.strokes.size());
 }
 
 // --- the front door ---
@@ -18779,6 +18803,7 @@ int main() {
   traintrackstest::theNewPuzzleScreenShowsWhatItDeals();
   traintrackstest::everyHowToPageFitsAndMovesOn();
   traintrackstest::theBottomRowReachesTheEdge();
+  traintrackstest::aHoldIsDrawnBeforeItFires();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
   testTheSudokuDoorAgreesWithItsCaption();

@@ -214,6 +214,7 @@ void testBuildFromPath() {
   CHECK(!buildFromPath(p, 4, gap, 2, kNorth, kNorth));
 }
 
+// A tap lays track and turns it; a hold crosses. Givens refuse both.
 void testTapCycleAndGivens() {
   const uint8_t path[] = {static_cast<uint8_t>(cellIndex(0, 0)), static_cast<uint8_t>(cellIndex(0, 1)),
                           static_cast<uint8_t>(cellIndex(0, 2))};
@@ -226,13 +227,41 @@ void testTapCycleAndGivens() {
   CHECK(b.cell[cellIndex(0, 1)] == kTrack);
   CHECK(b.cell[cellIndex(1, 1)] == kEmpty);
 
-  CHECK(tapCell(b, p, 1, 1) && b.cell[cellIndex(1, 1)] == kTrack);
-  CHECK(tapCell(b, p, 1, 1) && b.cell[cellIndex(1, 1)] == kCross);
-  CHECK(tapCell(b, p, 1, 1) && b.cell[cellIndex(1, 1)] == kEmpty);
+  // First tap: track, still automatic.
+  const int i = cellIndex(1, 1);
+  CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == 0);
+  // Each further tap is a different piece that fits, then empty again.
+  uint8_t seen[8] = {};
+  int pieces = 0;
+  uint8_t shapes[kMaxCells];
+  inferShapes(b, p, shapes);
+  seen[pieces++] = shapes[i];
+  int taps = 0;
+  while (b.cell[i] == kTrack && taps < 10) {
+    CHECK(tapCell(b, p, 1, 1));
+    ++taps;
+    if (b.cell[i] != kTrack) break;
+    CHECK(b.pin[i] != 0 && popcount4(b.pin[i]) == 2);
+    for (int k = 0; k < pieces; ++k) CHECK(seen[k] != b.pin[i]);
+    seen[pieces++] = b.pin[i];
+  }
+  CHECK(b.cell[i] == kEmpty && b.pin[i] == 0);
+  CHECK(taps >= 2 && taps <= 6);
+
+  // A hold crosses an empty square, and clears a cross or track.
+  CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kCross);
+  CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty);
+  CHECK(tapCell(b, p, 1, 1) && tapCell(b, p, 1, 1) && b.pin[i] != 0);
+  CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty && b.pin[i] == 0);
+  // A tap on a cross lays track over it.
+  CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kCross);
+  CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == 0);
+
   CHECK(!tapCell(b, p, 0, 1) && b.cell[cellIndex(0, 1)] == kTrack);  // given: locked
-  CHECK(!tapCell(b, p, 3, 0));                                       // outside a 3x3
+  CHECK(!holdCell(b, p, 0, 1) && b.cell[cellIndex(0, 1)] == kTrack);
+  CHECK(!tapCell(b, p, 3, 0));  // outside a 3x3
   CHECK(!tapCell(b, p, -1, 0));
-  CHECK(b.history.count == 3);
+  CHECK(!holdCell(b, p, 3, 0));
 }
 
 void testUndoRedo() {
@@ -243,21 +272,21 @@ void testUndoRedo() {
   resetBoard(b, p);
   CHECK(!canUndo(b) && !canRedo(b) && undo(b) < 0 && redo(b) < 0);
 
-  tapCell(b, p, 2, 3);
-  tapCell(b, p, 2, 3);
+  holdCell(b, p, 2, 3);  // a cross
+  tapCell(b, p, 2, 3);   // track laid over it
   tapCell(b, p, 5, 5);
-  CHECK(b.cell[cellIndex(2, 3)] == kCross && b.cell[cellIndex(5, 5)] == kTrack);
+  CHECK(b.cell[cellIndex(2, 3)] == kTrack && b.cell[cellIndex(5, 5)] == kTrack);
   CHECK(undo(b) == cellIndex(5, 5) && b.cell[cellIndex(5, 5)] == kEmpty);
-  CHECK(undo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kTrack);
+  CHECK(undo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kCross);
   CHECK(canRedo(b));
-  CHECK(redo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kCross);
+  CHECK(redo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kTrack);
   // A new move drops the redo branch.
   CHECK(tapCell(b, p, 0, 7));
   CHECK(!canRedo(b) && redo(b) < 0);
   CHECK(b.cell[cellIndex(5, 5)] == kEmpty);
   // ...and the dropped move is gone from the history, not hidden in it.
   CHECK(undo(b) == cellIndex(0, 7));
-  CHECK(undo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kTrack);
+  CHECK(undo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kCross);
   CHECK(undo(b) == cellIndex(2, 3) && b.cell[cellIndex(2, 3)] == kEmpty);
   CHECK(undo(b) < 0);
 
@@ -279,6 +308,7 @@ void testUndoRedo() {
   while (undo(b) >= 0) ++undone;
   CHECK(undone == kHistoryDepth);
   CHECK(std::memcmp(b.cell, snapshot.cell, sizeof(b.cell)) == 0);
+  CHECK(std::memcmp(b.pin, snapshot.pin, sizeof(b.pin)) == 0);
   int redone = 0;
   while (redo(b) >= 0) ++redone;
   CHECK(redone == kHistoryDepth);
@@ -299,8 +329,83 @@ void testClueStates() {
   }
 }
 
+// The board's promises about drawn shapes, on any marks at all.
+void checkShapes(const Board& b, const Puzzle& p, const bool noPins) {
+  uint8_t mask[kMaxCells];
+  inferShapes(b, p, mask);
+  uint8_t parent[kMaxCells];
+  for (int i = 0; i < kMaxCells; ++i) parent[i] = static_cast<uint8_t>(i);
+  auto find = [&](int i) {
+    while (parent[i] != i) i = parent[i];
+    return i;
+  };
+  bool loop = false;
+  for (int r = 0; r < p.size; ++r) {
+    for (int c = 0; c < p.size; ++c) {
+      const int i = cellIndex(r, c);
+      if (b.cell[i] != kTrack) {
+        CHECK(mask[i] == 0);
+        continue;
+      }
+      const bool automatic = !p.given[i] && b.pin[i] == 0;
+      // How many ends a whole piece could use here: its real joins (to track
+      // that points back, or its gate) plus its free sides (empty squares).
+      int usable = 0;
+      for (int e = 0; e < 4; ++e) {
+        const int r3 = r + kDRow[e];
+        const int c3 = c + kDCol[e];
+        if (!inside(p, r3, c3)) {
+          usable += gateSide(p, r, c) == e;
+          continue;
+        }
+        const int k = cellIndex(r3, c3);
+        if (b.cell[k] == kEmpty) {
+          ++usable;
+        } else if (b.cell[k] == kTrack && (mask[i] & dirBit(e)) && (mask[k] & dirBit(opposite(e)))) {
+          ++usable;
+        }
+      }
+      // A whole piece wherever one can be made; otherwise less, never more.
+      if (popcount4(mask[i]) != 2) CHECK(automatic && popcount4(mask[i]) < 2 && usable < 2);
+      for (int d = 0; d < 4; ++d) {
+        if (!(mask[i] & dirBit(d))) continue;
+        const int r2 = r + kDRow[d];
+        const int c2 = c + kDCol[d];
+        if (!inside(p, r2, c2)) {
+          // Off the board only through a gate, unless every piece would leave
+          // it (a fixed piece, or a square hemmed in on all sides).
+          if (automatic && gateSide(p, r, c) != d) {
+            bool anyInside = false;
+            for (int e = 0; e < 4; ++e) {
+              if (inside(p, r + kDRow[e], c + kDCol[e]) && b.cell[cellIndex(r + kDRow[e], c + kDCol[e])] != kCross) {
+                anyInside = true;
+              }
+            }
+            CHECK(!anyInside);
+          }
+          continue;
+        }
+        const int j = cellIndex(r2, c2);
+        if (!automatic) continue;
+        if (b.cell[j] == kTrack) {
+          // A guessed join is always mutual: a guess never fakes one.
+          CHECK(mask[j] & dirBit(opposite(d)));
+          if (d == kEast || d == kSouth) {
+            const int ri = find(i);
+            const int rj = find(j);
+            if (ri == rj) loop = true;
+            parent[ri] = static_cast<uint8_t>(rj);
+          }
+        }
+      }
+    }
+  }
+  if (noPins) CHECK(!loop);
+}
+
 void testInferShapes() {
-  // A straight run, a corner, and the gate stubs.
+  uint8_t mask[kMaxCells];
+  // A straight run, a corner, and the gates: drawn exactly as the solution.
   //   S # +
   //   . . #
   //   . . E
@@ -311,14 +416,12 @@ void testInferShapes() {
   CHECK(buildFromPath(p, 3, path, 5, kWest, kSouth));
   Board b;
   boardFromSolution(b, p);
-  uint8_t mask[kMaxCells];
   inferShapes(b, p, mask);
   for (int i = 0; i < kMaxCells; ++i) CHECK(mask[i] == p.solution[i]);
 
-  // A U through a 2x2 block, gates on top. Every square touches two others,
-  // and the two top squares also have a gate, so they start with three
-  // candidates. Saturation resolves them: each has its gate plus the settled
-  // square below, so the sideways candidate between them is dropped.
+  // A U through a 2x2 block, gates on top. All four squares touch two others;
+  // the two that cannot avoid it join first, and the join that would close
+  // the block into a loop is never made.
   Puzzle q;
   const uint8_t u[] = {static_cast<uint8_t>(cellIndex(0, 0)), static_cast<uint8_t>(cellIndex(1, 0)),
                        static_cast<uint8_t>(cellIndex(1, 1)), static_cast<uint8_t>(cellIndex(0, 1))};
@@ -328,42 +431,124 @@ void testInferShapes() {
   inferShapes(block, q, mask);
   for (int i = 0; i < kMaxCells; ++i) CHECK(mask[i] == q.solution[i]);
 
-  // A plus and a T: the centre has more than two settled neighbours, so it
-  // stays ambiguous and draws as a block.
-  Board plus;
-  resetBoard(plus, q);
-  for (const int i : {cellIndex(2, 2), cellIndex(1, 2), cellIndex(3, 2), cellIndex(2, 1), cellIndex(2, 3)}) {
-    plus.cell[i] = kTrack;
-  }
-  inferShapes(plus, q, mask);
-  CHECK(popcount4(mask[cellIndex(2, 2)]) == 4);
-  plus.cell[cellIndex(2, 3)] = kEmpty;
-  inferShapes(plus, q, mask);
-  CHECK(popcount4(mask[cellIndex(2, 2)]) == 3);
-  CHECK(mask[cellIndex(2, 1)] == dirBit(kEast));  // an arm draws its one stub
+  // Four marks in a 2x2 with no gate near: three joins, never the fourth.
+  Puzzle big;
+  const uint8_t far[] = {static_cast<uint8_t>(cellIndex(0, 0)), static_cast<uint8_t>(cellIndex(0, 1))};
+  CHECK(buildFromPath(big, 8, far, 2, kWest, kNorth));
+  Board square;
+  resetBoard(square, big);
+  for (const int i : {cellIndex(4, 4), cellIndex(4, 5), cellIndex(5, 4), cellIndex(5, 5)}) square.cell[i] = kTrack;
+  checkShapes(square, big, true);
 
-  // A given's shape cuts a neighbour's candidate toward it.
+  // A lone mark is a piece: a horizontal straight in open board, a vertical
+  // one against the left edge, never a stub.
+  Board lone;
+  resetBoard(lone, big);
+  lone.cell[cellIndex(4, 4)] = kTrack;
+  lone.cell[cellIndex(6, 0)] = kTrack;
+  inferShapes(lone, big, mask);
+  CHECK(mask[cellIndex(4, 4)] == (dirBit(kEast) | dirBit(kWest)));
+  CHECK(mask[cellIndex(6, 0)] == (dirBit(kNorth) | dirBit(kSouth)));
+
+  // A mark with one track neighbour joins it and runs straight on.
+  lone.cell[cellIndex(4, 5)] = kTrack;
+  inferShapes(lone, big, mask);
+  CHECK(mask[cellIndex(4, 4)] == (dirBit(kEast) | dirBit(kWest)));
+  CHECK(mask[cellIndex(4, 5)] == (dirBit(kEast) | dirBit(kWest)));
+  // ...and bends when the straight on is crossed out.
+  lone.cell[cellIndex(4, 6)] = kCross;
+  inferShapes(lone, big, mask);
+  CHECK(mask[cellIndex(4, 5)] & dirBit(kWest));
+  CHECK(!(mask[cellIndex(4, 5)] & dirBit(kEast)));
+
+  // A given's shape: a mark beside it that it does not point at never joins
+  // it; one it does point at always does.
   //   . . . .
-  //   . . . .
-  //   . # G .     G is a given vertical straight; # beside it must not join it
+  //   . # G .     G is a given vertical straight
   //   . . # .
-  Puzzle r = q;
+  Puzzle r = big;
   r.given[cellIndex(2, 2)] = dirBit(kNorth) | dirBit(kSouth);
   Board beside;
   resetBoard(beside, r);
   beside.cell[cellIndex(2, 1)] = kTrack;
   beside.cell[cellIndex(3, 2)] = kTrack;
   inferShapes(beside, r, mask);
-  CHECK(mask[cellIndex(2, 1)] == 0);
-  CHECK(mask[cellIndex(3, 2)] == dirBit(kNorth));
+  CHECK(!(mask[cellIndex(2, 1)] & dirBit(kEast)));
+  CHECK(mask[cellIndex(3, 2)] & dirBit(kNorth));
 
-  // Stubs: a lone mark with no neighbours draws nothing; a mark beside the
-  // start gate square draws one connection toward it.
-  Board lone;
-  resetBoard(lone, p);
-  lone.cell[cellIndex(2, 0)] = kTrack;
-  inferShapes(lone, p, mask);
-  CHECK(mask[cellIndex(2, 0)] == 0);
+  // A chosen piece holds, and pulls in the neighbour it points at.
+  Board chosen;
+  resetBoard(chosen, big);
+  chosen.cell[cellIndex(3, 3)] = kTrack;
+  chosen.pin[cellIndex(3, 3)] = dirBit(kNorth) | dirBit(kEast);
+  chosen.cell[cellIndex(3, 4)] = kTrack;
+  chosen.cell[cellIndex(4, 3)] = kTrack;
+  inferShapes(chosen, big, mask);
+  CHECK(mask[cellIndex(3, 3)] == (dirBit(kNorth) | dirBit(kEast)));
+  CHECK(mask[cellIndex(3, 4)] & dirBit(kWest));
+  CHECK(!(mask[cellIndex(4, 3)] & dirBit(kNorth)));  // it does not point there
+
+  // Every promise, on thousands of boards of random marks.
+  Rng rng{4242};
+  for (int t = 0; t < 3000; ++t) {
+    Puzzle rp;
+    const int size = 4 + static_cast<int>(rng.below(7));
+    CHECK(randomPuzzle(rp, size, rng, size));
+    Board rb;
+    resetBoard(rb, rp);
+    const bool pins = t % 2 == 1;
+    for (int k = 0; k < size * size; ++k) {
+      const int i = cellIndex(k / size, k % size);
+      if (rp.given[i]) continue;
+      const uint32_t roll = rng.below(10);
+      rb.cell[i] = roll < 5 ? kTrack : roll < 7 ? kCross : kEmpty;
+    }
+    if (pins) {
+      for (int k = 0; k < size * size; ++k) {
+        const int i = cellIndex(k / size, k % size);
+        if (rb.cell[i] != kTrack || rp.given[i] || rng.below(3) != 0) continue;
+        uint8_t options[6];
+        const int count = piecesFor(rb, rp, i, options);
+        if (count > 0) rb.pin[i] = options[rng.below(count)];
+      }
+    }
+    checkShapes(rb, rp, !pins);
+  }
+}
+
+// Tapping a track square visits each piece that fits once, then empties it,
+// whatever surrounds it.
+void testTapVisitsEveryPiece() {
+  Rng rng{77};
+  for (int t = 0; t < 400; ++t) {
+    Puzzle p;
+    const int size = 4 + static_cast<int>(rng.below(5));
+    CHECK(randomPuzzle(p, size, rng, size));
+    Board b;
+    resetBoard(b, p);
+    for (int k = 0; k < size * size; ++k) {
+      const int i = cellIndex(k / size, k % size);
+      if (p.given[i]) continue;
+      const uint32_t roll = rng.below(10);
+      b.cell[i] = roll < 4 ? kTrack : roll < 6 ? kCross : kEmpty;
+    }
+    const int target = static_cast<int>(rng.below(size * size));
+    const int r = target / size;
+    const int c = target % size;
+    const int i = cellIndex(r, c);
+    if (p.given[i]) continue;
+    b.cell[i] = kEmpty;
+    CHECK(tapCell(b, p, r, c));
+    uint8_t options[6];
+    const int count = piecesFor(b, p, i, options);
+    int taps = 0;
+    while (b.cell[i] == kTrack && taps <= 8) {
+      tapCell(b, p, r, c);
+      ++taps;
+    }
+    CHECK(b.cell[i] == kEmpty);
+    CHECK(taps <= count + 1);
+  }
 }
 
 void testWinOnSolutionsAndNearMisses() {
@@ -607,6 +792,7 @@ int main() {
   testUndoRedo();
   testClueStates();
   testInferShapes();
+  testTapVisitsEveryPiece();
   testWinOnSolutionsAndNearMisses();
   testGivenShapeIsARule();
   testWinAgainstEverySubset();

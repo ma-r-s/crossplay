@@ -28,6 +28,13 @@ constexpr int kAttemptsPerPass = 1;
 // Past either limit, a bundled puzzle instead: New Game never fails.
 constexpr uint16_t kMaxAttempts = 400;
 constexpr unsigned long kBudgetMs = 10000;
+// A hold that crosses a square. 400ms, as Sudoku's pencil and Minesweeper's
+// flag: the device's one two-gesture idiom must time the same everywhere.
+constexpr unsigned long kHoldMs = 400;
+// When a resting finger is first drawn as a hold. Taps on the Picco took 140
+// to 250ms from touch to lift, so a frame drawn sooner would repaint on most
+// taps for nothing and delay the tap's own frame behind it.
+constexpr unsigned long kHoldShowMs = 250;
 }  // namespace
 
 std::unique_ptr<Activity> TrainTracksActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -193,7 +200,9 @@ void TrainTracksActivity::tickClock() {
 // Every change to the board clears what CHECK and HINT left on it, then asks
 // whether that change finished the puzzle.
 void TrainTracksActivity::afterMove() {
-  showWrong = false;
+  // CHECK's flags stay until their own square changes; the hint's mark and
+  // the status line answer only the move they were about.
+  if (showWrong) showWrong = tt::keepFlags(game.puzzle, game.board, flags) > 0;
   hintCell = -1;
   notice = nullptr;
   if (tt::isWin(game.puzzle, game.board, work->solver)) {
@@ -207,7 +216,7 @@ void TrainTracksActivity::afterMove() {
 void TrainTracksActivity::check() {
   if (game.checks < 0xFFFF) ++game.checks;
   hintCell = -1;
-  const int count = tt::checkBoard(game.puzzle, game.board, wrong);
+  const int count = tt::checkAndStamp(game.puzzle, game.board, flags);
   showWrong = count > 0;
   if (count == 0) {
     std::snprintf(noticeText, sizeof(noticeText), "NOTHING WRONG SO FAR");
@@ -220,25 +229,23 @@ void TrainTracksActivity::check() {
 
 void TrainTracksActivity::hint() {
   const tt::Hint found = tt::findHint(game.puzzle, game.board, work->solver);
+  if (tt::hintSolves(game, found, work->solver)) {
+    // The last move is the player's. Not counted: no help was given.
+    showWrong = false;
+    hintCell = -1;
+    notice = "LAST MOVE IS YOURS";
+    requestUpdate();
+    return;
+  }
   if (!tt::applyHint(game, found)) return;
   if (game.hints < 0xFFFF) ++game.hints;
   afterMove();
   if (game.solved) return;
   hintCell = found.cell;
-  switch (found.kind) {
-    case tt::HintKind::Fixed:
-      notice = "HINT: PUT ONE RIGHT";
-      break;
-    case tt::HintKind::Track:
-      notice = "HINT: TRACK HERE";
-      break;
-    case tt::HintKind::Cross:
-      notice = "HINT: NO TRACK HERE";
-      break;
-    case tt::HintKind::None:
-      notice = nullptr;
-      break;
-  }
+  // The square is marked on the board; the line says how much help so far.
+  std::snprintf(noticeText, sizeof(noticeText), "%u%s HINT", static_cast<unsigned>(game.hints),
+                tt::ordinalSuffix(game.hints));
+  notice = noticeText;
 }
 
 void TrainTracksActivity::loadState() {
@@ -349,6 +356,55 @@ void TrainTracksActivity::loop() {
       }
     }
     return;
+  }
+
+  // Hold to cross, tap to lay track. The board is not in the interaction
+  // table, so a hold is read here against the geometry that drew it.
+  // swallowCurrentTouch() is what makes it usable: the hold fires while the
+  // finger is still down, and the lift must not then arrive as a tap too.
+  if (screen == tt::Screen::Board && hasGame && !game.solved) {
+    const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device, game.puzzle.size);
+    int holdX = 0;
+    int holdY = 0;
+    int row = 0;
+    int col = 0;
+    if (mappedInput.isScreenTouchHeld(holdX, holdY) && traintracksui::cellAt(g, holdX, holdY, row, col)) {
+      if (!surfaceRevealed()) {
+        heldCell = -1;
+        holdFired = false;
+        return;
+      }
+      const int cell = tt::cellIndex(row, col);
+      const unsigned long now = millis();
+      if (cell != heldCell) {
+        // Moved to another square: the hold restarts there, so dragging across
+        // the board never crosses a square the finger did not rest on.
+        if (holdShown) requestUpdate();
+        heldCell = cell;
+        holdSinceMs = now;
+        holdFired = false;
+        holdShown = false;
+      } else if (!holdFired && now - holdSinceMs >= kHoldMs) {
+        holdFired = true;
+        holdShown = false;
+        if (tt::holdCell(game.board, game.puzzle, row, col)) {
+          afterMove();
+        } else {
+          requestUpdate();
+        }
+        mappedInput.swallowCurrentTouch();
+      } else if (!holdFired && !holdShown && now - holdSinceMs >= kHoldShowMs) {
+        holdShown = true;
+        requestUpdate();
+      }
+      return;
+    }
+    if (heldCell >= 0) {
+      if (holdShown) requestUpdate();
+      heldCell = -1;
+      holdShown = false;
+    }
   }
 
   fui::InputSnapshot input;
@@ -480,8 +536,9 @@ void TrainTracksActivity::render(RenderLock&&) {
       model.hints = game.hints;
       model.checks = game.checks;
       model.notice = notice;
-      model.wrong = showWrong ? wrong : nullptr;
+      model.wrong = showWrong ? flags.wrong : nullptr;
       model.hintCell = hintCell;
+      model.holdCell = holdShown ? heldCell : -1;
       traintracksui::buildBoard(surface, model);
       break;
     }
