@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../ui/ToyboxFormat.h"
+
 namespace traintracksui {
 
 namespace {
@@ -87,7 +89,7 @@ void tie(toybox::Screen& screen, const Pt at, const int dir, const int16_t lengt
 // The rail through a square, from its connection mask.
 //
 //   two opposite connections   a straight, with two sleepers
-//   two adjacent connections   a quarter-circle curve
+//   two adjacent connections   a quarter-circle curve, with two sleepers
 //   one                        a stub toward it, ending in a dot
 //   none                       a small solid block: track, not yet joined
 //   three or four              a larger open block: ambiguous until more
@@ -148,9 +150,15 @@ void drawRail(toybox::Screen& screen, const fui::Rect& box, const uint8_t mask) 
     return Pt{static_cast<int16_t>(corner.x - tt::kDCol[dirs[1]] * along1 - tt::kDCol[dirs[0]] * along0),
               static_cast<int16_t>(corner.y - tt::kDRow[dirs[1]] * along1 - tt::kDRow[dirs[0]] * along0)};
   };
-  // No sleeper on a curve: a short bar across a diagonal reads as the cross
-  // that marks a square empty.
   for (int step = 0; step < 6; ++step) line(screen, arcPoint(step, half), arcPoint(step + 1, half), toybox::kRule);
+  // Two sleepers, a third and two thirds of the way round, along the radius so
+  // they stay square to the rail. Without them a winding route stops reading
+  // as track. One at the midpoint was rendered too; two won, to be confirmed
+  // on the panel for busyness at Hard's 40px.
+  const int16_t inner = static_cast<int16_t>(half - tieLen / 2);
+  const int16_t outer = static_cast<int16_t>(half + tieLen / 2);
+  line(screen, arcPoint(2, inner), arcPoint(2, outer), toybox::kRule);
+  line(screen, arcPoint(4, inner), arcPoint(4, outer), toybox::kRule);
 }
 
 void drawCross(toybox::Screen& screen, const fui::Rect& box) {
@@ -216,20 +224,68 @@ void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate, c
   screen.target().triangle(fui::Point{tip.x, tip.y}, fui::Point{a.x, a.y}, fui::Point{b.x, b.y}, black());
 }
 
-void drawBoard(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
-  const tt::Puzzle& p = *model.puzzle;
-  const tt::Board& b = *model.board;
-  const int16_t side = gridSide(g);
+// CHECK's mark: a solid notch in the top-right corner, clear of the rail,
+// which only ever runs through the square's centre lines.
+void drawWrong(toybox::Screen& screen, const fui::Rect& box) {
+  const int16_t k = static_cast<int16_t>(box.width / 3);
+  const int16_t right = static_cast<int16_t>(box.x + box.width - 1);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(right - k), static_cast<int16_t>(box.y + 1)},
+                           fui::Point{right, static_cast<int16_t>(box.y + 1)},
+                           fui::Point{right, static_cast<int16_t>(box.y + 1 + k)}, black());
+}
 
+// HINT's mark: corner brackets just inside the square, around what it placed.
+void drawHintMark(toybox::Screen& screen, const fui::Rect& box) {
+  const int16_t inset = 4;
+  toybox::bracket(
+      screen,
+      fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
+                    static_cast<int16_t>(box.width - 2 * inset), static_cast<int16_t>(box.height - 2 * inset)),
+      static_cast<int16_t>(box.width / 4), toybox::kRule);
+}
+
+struct Marks {
+  const uint8_t* wrong = nullptr;
+  int hintCell = -1;
+  bool clues = true;
+  // Solved: the track set is the puzzle's one answer, so every square draws
+  // the answer's own shape. Inference alone leaves a tightly wound route as
+  // open blocks, because marks say which squares are track, not how they join.
+  bool solved = false;
+};
+
+// The frame and the hairlines alone: a board with nothing on it yet.
+void drawFrame(toybox::Screen& screen, const Geometry& g) {
+  const int16_t side = gridSide(g);
   // Frame knocked out: fill solid and paint the playing surface back over it.
   screen.target().fill(
       fui::makeRect(static_cast<int16_t>(g.gridX - kFrameW), static_cast<int16_t>(g.gridY - kFrameW),
                     static_cast<int16_t>(side + 2 * kFrameW), static_cast<int16_t>(side + 2 * kFrameW)),
       black());
   screen.target().fill(fui::makeRect(g.gridX, g.gridY, side, side), white());
+}
+
+void drawHairlines(toybox::Screen& screen, const Geometry& g) {
+  const int16_t side = gridSide(g);
+  for (int k = 1; k < g.n; ++k) {
+    const int16_t offset = static_cast<int16_t>(k * g.cell);
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(g.gridX + offset), g.gridY, toybox::kHairline, side),
+                         black());
+    screen.target().fill(fui::makeRect(g.gridX, static_cast<int16_t>(g.gridY + offset), side, toybox::kHairline),
+                         black());
+  }
+}
+
+void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p, const tt::Board& b,
+                 const Marks& marks) {
+  drawFrame(screen, g);
 
   uint8_t shapes[tt::kMaxCells];
-  tt::inferShapes(b, p, shapes);
+  if (marks.solved) {
+    for (int i = 0; i < tt::kMaxCells; ++i) shapes[i] = p.solution[i];
+  } else {
+    tt::inferShapes(b, p, shapes);
+  }
 
   for (int r = 0; r < g.n; ++r) {
     for (int c = 0; c < g.n; ++c) {
@@ -243,21 +299,18 @@ void drawBoard(toybox::Screen& screen, const Geometry& g, const BoardModel& mode
       } else if (b.cell[i] == tt::kCross) {
         drawCross(screen, box);
       }
+      if (marks.wrong != nullptr && marks.wrong[i]) drawWrong(screen, box);
+      if (marks.hintCell == i) drawHintMark(screen, box);
     }
   }
 
   // Hairlines after the squares, so no square can overdraw a line.
-  for (int k = 1; k < g.n; ++k) {
-    const int16_t offset = static_cast<int16_t>(k * g.cell);
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(g.gridX + offset), g.gridY, toybox::kHairline, side),
-                         black());
-    screen.target().fill(fui::makeRect(g.gridX, static_cast<int16_t>(g.gridY + offset), side, toybox::kHairline),
-                         black());
-  }
+  drawHairlines(screen, g);
 
   drawGate(screen, g, p.start, true);
   drawGate(screen, g, p.end, false);
 
+  if (!marks.clues) return;
   for (int k = 0; k < g.n; ++k) {
     const fui::Rect rowBox = fui::makeRect(g.rowClueX, static_cast<int16_t>(g.gridY + k * g.cell), kClueW, g.cell);
     drawClue(screen, rowBox, p.rowClue[k], tt::clueState(tt::rowCount(b, p, k), p.rowClue[k]));
@@ -266,59 +319,198 @@ void drawBoard(toybox::Screen& screen, const Geometry& g, const BoardModel& mode
   }
 }
 
-void drawStatus(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
-  char text[40];
-  if (model.generating) {
-    std::snprintf(text, sizeof(text), "LAYING TRACK");
-  } else if (model.solved) {
-    std::snprintf(text, sizeof(text), "SOLVED");
+// A board of `n` squares centred in `room`, with or without its clue gutters.
+// The play screen uses boardGeometry; this is for the pictures elsewhere.
+Geometry fitGeometry(const fui::Rect& room, const int n, const bool clues) {
+  Geometry g{};
+  g.n = n;
+  const int16_t left = clues ? kClueW : 0;
+  const int16_t top = clues ? kClueH : 0;
+  const int16_t pad = static_cast<int16_t>(kTab + kFrameW);
+  const int16_t across = static_cast<int16_t>(room.width - left - 2 * pad);
+  const int16_t down = static_cast<int16_t>(room.height - top - 2 * pad);
+  g.cell = static_cast<int16_t>((across < down ? across : down) / n);
+  if (g.cell > kMaxCell) g.cell = kMaxCell;
+  const int16_t side = static_cast<int16_t>(n * g.cell);
+  g.rowClueX = static_cast<int16_t>(room.x + (room.width - (left + 2 * pad + side)) / 2);
+  g.gridX = static_cast<int16_t>(g.rowClueX + left + pad);
+  g.colClueY = static_cast<int16_t>(room.y + (room.height - (top + 2 * pad + side)) / 2);
+  g.gridY = static_cast<int16_t>(g.colClueY + top + pad);
+  return g;
+}
+
+// "UNAIDED", "2 HINTS", "1 CHECK", "2 HINTS, 1 CHECK".
+void helpText(const uint16_t hints, const uint16_t checks, char* out, const int size) {
+  const unsigned h = hints;
+  const unsigned c = checks;
+  if (h == 0 && c == 0) {
+    std::snprintf(out, static_cast<size_t>(size), "UNAIDED");
+  } else if (c == 0) {
+    std::snprintf(out, static_cast<size_t>(size), "%u HINT%s", h, h == 1 ? "" : "S");
+  } else if (h == 0) {
+    std::snprintf(out, static_cast<size_t>(size), "%u CHECK%s", c, c == 1 ? "" : "S");
   } else {
-    int laid = 0;
-    for (int i = 0; i < tt::kMaxCells; ++i) laid += model.board->cell[i] == tt::kTrack;
-    std::snprintf(text, sizeof(text), "%d OF %d LAID", laid, tt::totalTrack(*model.puzzle));
+    std::snprintf(out, static_cast<size_t>(size), "%u HINT%s, %u CHECK%s", h, h == 1 ? "" : "S", c, c == 1 ? "" : "S");
   }
+}
+
+void drawStatus(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
+  char text[64] = "";
+  if (model.solved) {
+    char clock[16];
+    formatClock(model.elapsedMs, clock, sizeof(clock));
+    char help[32];
+    helpText(model.hints, model.checks, help, sizeof(help));
+    std::snprintf(text, sizeof(text), "%s   %s", clock, help);
+  } else if (model.notice != nullptr) {
+    std::snprintf(text, sizeof(text), "%s", model.notice);
+  }
+  // Blank while solving: the clues already say how each line stands.
+  if (text[0] == '\0') return;
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   const fui::Rect band =
       fui::makeRect(kSide, g.statusY, static_cast<int16_t>(screen.device().width - 2 * kSide), kStatusH);
+  // Never cut: a long tally steps down to the small cut rather than lose words.
+  if (screen.target().measureText(body.font, text, body).width > band.width) {
+    body.font = toybox::kTileFont;
+    screen.target().text(toybox::inkCentred(band, toybox::kTileCut), text, body);
+    return;
+  }
   screen.target().text(toybox::inkCentred(band, toybox::kUiCut), text, body);
 }
 
 void button(toybox::Screen& screen, const char* label, const fui::ActionId action, const bool enabled,
-            const fui::Rect& rect) {
+            const fui::Rect& rect, const int16_t value = 0) {
   fui::ButtonProps props;
   props.label = label;
   props.styles = enabled ? toybox::rowStyles() : toybox::disabledStepperStyles();
-  if (enabled) props.action = action;
+  if (enabled) {
+    props.action = action;
+    props.value = value;
+  }
   screen.button(props, rect);
 }
 
 void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
-  const bool live = !model.generating && model.board != nullptr;
-  const bool undo = live && tt::canUndo(*model.board);
-  const bool redo = live && tt::canRedo(*model.board);
-  const bool play = live && !model.solved;
   const int16_t width = static_cast<int16_t>(screen.device().width - 2 * kSide);
   const int16_t gap = 8;
+  const int16_t top = g.controlsY;
+  const int16_t thumbs = static_cast<int16_t>(top + toybox::kPillHeight + gap);
+
+  if (model.solved) {
+    // Where the thumb rests on the rail, so the finished board does not move.
+    // The one way on; Back reaches the same screen.
+    fui::ButtonProps next;
+    next.label = "NEW PUZZLE";
+    next.action = ActionNewGame;
+    screen.button(next, fui::makeRect(kSide, thumbs, width, kThumbRow));
+    return;
+  }
+
+  const bool live = model.board != nullptr;
+  const bool undo = live && tt::canUndo(*model.board);
+  const bool redo = live && tt::canRedo(*model.board);
 
   // The thumb rail: CHECK / HINT / MENU, then UNDO and REDO tall on the bottom
   // margin, where the thumb rests and where the moves come from most often.
   const int16_t small = static_cast<int16_t>((width - 2 * gap) / 3);
-  const int16_t top = g.controlsY;
-  button(screen, "CHECK", ActionCheck, play, fui::makeRect(kSide, top, small, toybox::kPillHeight));
-  button(screen, "HINT", ActionHint, play,
+  button(screen, "CHECK", ActionCheck, live, fui::makeRect(kSide, top, small, toybox::kPillHeight));
+  button(screen, "HINT", ActionHint, live,
          fui::makeRect(static_cast<int16_t>(kSide + small + gap), top, small, toybox::kPillHeight));
   button(screen, "MENU", ActionMenu, true,
          fui::makeRect(static_cast<int16_t>(kSide + 2 * (small + gap)), top, small, toybox::kPillHeight));
   const int16_t big = static_cast<int16_t>((width - gap) / 2);
-  const int16_t thumbs = static_cast<int16_t>(top + toybox::kPillHeight + gap);
   button(screen, "UNDO", ActionUndo, undo, fui::makeRect(kSide, thumbs, big, kThumbRow));
   button(screen, "REDO", ActionRedo, redo,
          fui::makeRect(static_cast<int16_t>(kSide + big + gap), thumbs, big, kThumbRow));
 }
 
+// ---------------------------------------------------------------------------
+// The front door.
+
+// A game at a glance, bracketed as the chess board is: the app's own material
+// carrying the player's own data. `game` is null only before the first puzzle
+// has ever been dealt, and then it is the empty board an Easy deal starts on.
+void drawOrnament(toybox::Screen& screen, const fui::Rect& room, const tt::Game* game, const int emptySize,
+                  const bool brackets = true) {
+  const int n = game != nullptr ? game->puzzle.size : emptySize;
+  const int16_t reach = brackets ? 14 : 0;
+  const fui::Rect inner =
+      fui::makeRect(static_cast<int16_t>(room.x + reach), static_cast<int16_t>(room.y + reach),
+                    static_cast<int16_t>(room.width - 2 * reach), static_cast<int16_t>(room.height - 2 * reach));
+  const Geometry g = fitGeometry(inner, n, false);
+  const int16_t side = gridSide(g);
+  const int16_t pad = static_cast<int16_t>(kTab + kFrameW);
+  if (brackets) {
+    toybox::bracket(
+        screen,
+        fui::makeRect(static_cast<int16_t>(g.gridX - pad - reach), static_cast<int16_t>(g.gridY - pad - reach),
+                      static_cast<int16_t>(side + 2 * (pad + reach)), static_cast<int16_t>(side + 2 * (pad + reach))),
+        20, toybox::kRule);
+  }
+  if (game != nullptr) {
+    Marks marks;
+    marks.clues = false;
+    marks.solved = game->solved;
+    drawSurface(screen, g, game->puzzle, game->board, marks);
+    return;
+  }
+  drawFrame(screen, g);
+  drawHairlines(screen, g);
+}
+
+// EASY / MEDIUM / HARD, the selected one inverted, as one row of `band`.
+void levelRow(toybox::Screen& screen, const fui::Rect& band, const tt::Level selected) {
+  const int16_t gap = 8;
+  const int16_t each = static_cast<int16_t>((band.width - 2 * gap) / 3);
+  for (int k = 0; k < tt::kLevelCount; ++k) {
+    const tt::Level level = static_cast<tt::Level>(k);
+    fui::ButtonProps props;
+    props.label = levelName(level);
+    props.action = ActionLevel;
+    props.value = static_cast<int16_t>(k);
+    props.styles = level == selected ? toybox::invertedStyles() : toybox::rowStyles();
+    screen.button(props, fui::makeRect(static_cast<int16_t>(band.x + k * (each + gap)), band.y, each, band.height));
+  }
+}
+
+void textLine(toybox::Screen& screen, const fui::Rect& band, const char* text) {
+  fui::TextStyle body;
+  body.font = toybox::kBodyFont;
+  body.align = fui::TextAlign::Left;
+  screen.target().text(toybox::inkCentred(band, toybox::kUiCut), text, body);
+}
+
+// A state line, a rule, and the record line under it, reserved: per-level
+// records come with stats, and the space is held now so they arrive without
+// moving anything.
+void stateAndRecord(toybox::Screen& screen, const char* state) {
+  textLine(screen, screen.takeTop(34), state);
+  const fui::Rect rule = screen.takeTop(toybox::kRule + 12);
+  screen.target().fill(fui::makeRect(rule.x, static_cast<int16_t>(rule.y + 6), rule.width, toybox::kRule), black());
+  screen.takeTop(26);
+}
+
+// PLAY PUZZLE. While the puzzle it would deal is still being laid it says so,
+// dimmed, rather than the screen looking frozen.
+void playButton(toybox::Screen& screen, const fui::Rect& rect, const bool ready) {
+  fui::ButtonProps play;
+  if (ready) {
+    play.label = "PLAY PUZZLE";
+    play.action = ActionPlayPreview;
+  } else {
+    play.label = "LAYING TRACK";
+    play.styles = toybox::disabledStepperStyles();
+  }
+  screen.button(play, rect);
+}
+
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Public.
 
 const char* levelName(const tt::Level level) {
   switch (level) {
@@ -330,6 +522,18 @@ const char* levelName(const tt::Level level) {
       return "HARD";
   }
   return "";
+}
+
+void formatClock(const uint32_t ms, char* out, const int size) {
+  const uint32_t seconds = ms / 1000;
+  const uint32_t hours = seconds / 3600;
+  if (hours > 0) {
+    std::snprintf(out, static_cast<size_t>(size), "%u:%02u:%02u", static_cast<unsigned>(hours),
+                  static_cast<unsigned>((seconds / 60) % 60), static_cast<unsigned>(seconds % 60));
+    return;
+  }
+  std::snprintf(out, static_cast<size_t>(size), "%u:%02u", static_cast<unsigned>(seconds / 60),
+                static_cast<unsigned>(seconds % 60));
 }
 
 Geometry boardGeometry(const fui::DeviceContext& device, const int n) {
@@ -370,15 +574,162 @@ bool cellAt(const Geometry& g, const int x, const int y, int& row, int& col) {
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
-  toyboxChrome(screen, "TRAIN TRACKS", levelName(model.level));
+  toyboxChrome(screen, model.solved ? "SOLVED" : "TRAIN TRACKS", levelName(model.level));
   if (model.puzzle == nullptr || model.board == nullptr) return;
-  // While generating, the puzzle is not there yet; the level says how big it
-  // will be, so the controls are already where they will stay.
-  const int n = model.generating ? tt::spec(model.level).size : model.puzzle->size;
-  const Geometry g = boardGeometry(screen.device(), n);
-  if (!model.generating) drawBoard(screen, g, model);
+  const Geometry g = boardGeometry(screen.device(), model.puzzle->size);
+  Marks marks;
+  marks.solved = model.solved;
+  // A finished board wears no marks: it is the picture of what you did.
+  if (!model.solved) {
+    marks.wrong = model.wrong;
+    marks.hintCell = model.hintCell;
+  }
+  drawSurface(screen, g, *model.puzzle, *model.board, marks);
   drawStatus(screen, g, model);
   drawControls(screen, g, model);
+}
+
+// The front door while a game is unfinished: the game, and the two things to
+// do about it. With nothing unfinished the new-puzzle screen is the front door
+// instead.
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  const tt::Game* game = model.game;
+  toyboxChrome(screen, "TRAIN TRACKS", game != nullptr ? levelName(game->level) : nullptr);
+  char state[40] = "IN PROGRESS";
+  if (game != nullptr) {
+    char clock[16];
+    formatClock(game->elapsedMs, clock, sizeof(clock));
+    std::snprintf(state, sizeof(state), "IN PROGRESS, %s", clock);
+  }
+  stateAndRecord(screen, state);
+
+  button(screen, "NEW PUZZLE", ActionNewGame, true, screen.takeBottom(toybox::kPillHeight, 8));
+  fui::ButtonProps play;
+  play.label = "CONTINUE";
+  play.action = ActionPlay;
+  screen.button(play, screen.takeBottom(kThumbRow, toybox::kGutter));
+  const fui::Rect room = screen.body();
+  drawOrnament(screen, room, game, tt::spec(tt::Level::Easy).size);
+  if (game != nullptr) screen.frame().hit(room, ActionPlay, 0);
+}
+
+// Pick a difficulty, see the puzzle it dealt, play it. The preview fills the
+// page; the choice and the go sit on the bottom margin, where the thumb is.
+void buildNewGame(toybox::Screen& screen, const NewGameModel& model) {
+  toyboxChrome(screen, "NEW PUZZLE", nullptr);
+  const bool ready = model.preview != nullptr;
+  button(screen, "HOW TO PLAY", ActionHowTo, true, screen.takeBottom(toybox::kPillHeight, 8));
+  playButton(screen, screen.takeBottom(kThumbRow, 8), ready);
+  levelRow(screen, screen.takeBottom(toybox::kPillHeight, toybox::kGutter), model.selected);
+  const fui::Rect room = screen.body();
+  // No brackets: this is the puzzle itself, not an ornament standing for it.
+  drawOrnament(screen, room, model.preview, tt::spec(model.selected).size, false);
+  if (ready) screen.frame().hit(room, ActionPlayPreview, 0);
+}
+
+// ---------------------------------------------------------------------------
+// How to play.
+
+namespace {
+
+// A lesson is a title, a sentence, a smaller second sentence, and a 4x4 board
+// drawn by the same code as the real one. Faces are 16 characters, row by row:
+// '.' empty, 'T' track, 'x' cross, 'G' a given.
+struct Lesson {
+  const char* title;
+  const char* body;
+  const char* detail;
+  const char* face;
+};
+
+const Lesson kLessons[] = {
+    {"THE RULE", "JOIN THE TWO ARROWS WITH ONE TRACK.", "NUMBERS COUNT THE TRACK IN EACH LINE.",
+     ".TT."
+     "TTT."
+     "..TT"
+     "...."},
+    {"MARKING", "TAP FOR TRACK, AGAIN FOR A CROSS.", "GREY SQUARES ARE GIVEN AND LOCKED.",
+     ".T.x"
+     "TG.."
+     "..x."
+     "x..."},
+    {"CLUES", "A BOX MEANS MET. BLACK IS TOO MANY.", "CHECK AND HINT MARK THE RUN ASSISTED.",
+     ".TT."
+     "TTT."
+     "...."
+     ".T.."},
+};
+constexpr int kLessonCount = static_cast<int>(sizeof(kLessons) / sizeof(kLessons[0]));
+
+// The example: in from the west at row 1, out to the east at row 2.
+void lessonPuzzle(tt::Puzzle& p, tt::Board& b, const char* face) {
+  const uint8_t path[] = {
+      static_cast<uint8_t>(tt::cellIndex(1, 0)), static_cast<uint8_t>(tt::cellIndex(1, 1)),
+      static_cast<uint8_t>(tt::cellIndex(0, 1)), static_cast<uint8_t>(tt::cellIndex(0, 2)),
+      static_cast<uint8_t>(tt::cellIndex(1, 2)), static_cast<uint8_t>(tt::cellIndex(2, 2)),
+      static_cast<uint8_t>(tt::cellIndex(2, 3)),
+  };
+  tt::buildFromPath(p, 4, path, static_cast<int>(sizeof(path)), tt::kWest, tt::kEast);
+  b = tt::Board{};
+  for (int k = 0; k < 16; ++k) {
+    const int i = tt::cellIndex(k / 4, k % 4);
+    switch (face[k]) {
+      case 'G':
+        p.given[i] = p.solution[i];
+        b.cell[i] = tt::kTrack;
+        break;
+      case 'T':
+        b.cell[i] = tt::kTrack;
+        break;
+      case 'x':
+        b.cell[i] = tt::kCross;
+        break;
+      default:
+        break;
+    }
+  }
+}
+
+}  // namespace
+
+int howToPages() { return kLessonCount; }
+
+void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
+  const int page = model.page < 0 ? 0 : (model.page >= kLessonCount ? kLessonCount - 1 : model.page);
+  const Lesson& lesson = kLessons[page];
+  char progress[toybox::kOfCounterChars];
+  std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, kLessonCount);
+  toyboxChrome(screen, "HOW TO PLAY", progress);
+
+  // Taken before the page's own drawing, so no branch can skip the way forward.
+  fui::ButtonProps next;
+  next.label = page + 1 < kLessonCount ? "NEXT" : "GOT IT";
+  next.action = ActionHowToNext;
+  screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+
+  fui::TextStyle title;
+  title.font = toybox::kDisplayFont;
+  title.align = fui::TextAlign::Center;
+  screen.target().text(toybox::inkCentred(screen.takeTop(44), toybox::kDisplayCut), lesson.title, title);
+
+  fui::TextStyle body;
+  body.font = toybox::kBodyFont;
+  body.align = fui::TextAlign::Center;
+  body.maxLines = 2;
+  screen.target().text(screen.takeTop(static_cast<int16_t>(2 * toybox::kUiCut.lineHeight)), lesson.body, body);
+
+  fui::TextStyle detail;
+  detail.font = toybox::kTileFont;
+  detail.align = fui::TextAlign::Center;
+  const fui::Rect detailBand = screen.takeBottom(toybox::kTileCut.lineHeight, toybox::kGutter);
+  screen.target().text(toybox::inkCentred(detailBand, toybox::kTileCut), lesson.detail, detail);
+
+  tt::Puzzle puzzle;
+  tt::Board board;
+  lessonPuzzle(puzzle, board, lesson.face);
+  screen.takeTop(toybox::kGutter);
+  const Geometry g = fitGeometry(screen.body(), 4, true);
+  drawSurface(screen, g, puzzle, board, Marks{});
 }
 
 }  // namespace traintracksui

@@ -97,6 +97,20 @@ class Solver {
     return true;
   }
 
+  // Fixes only the squares the player has decided: track is track, a cross is
+  // not, and an empty square stays open. For hints, which reason forward from
+  // what the player already knows rather than from a finished board.
+  bool applyMarks(const Board& board) {
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const int i = cellIndex(r, c);
+        if (board.cell[i] == kEmpty) continue;
+        if (!set(i, board.cell[i] == kTrack ? kYes : kNo)) return false;
+      }
+    }
+    return true;
+  }
+
   // Deduces as far as tiers up to maxTier allow, always reaching for the
   // lowest tier that makes progress. Leaves the deductions in place.
   Rating deduce(const int maxTier) {

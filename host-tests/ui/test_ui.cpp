@@ -9535,39 +9535,292 @@ void aSolvedBoardStopsOfferingHelp() {
   const std::vector<int> actions = reachable(out);
   CHECK(!contains(actions, traintracksui::ActionCheck));
   CHECK(!contains(actions, traintracksui::ActionHint));
-  CHECK(contains(actions, traintracksui::ActionMenu));
+  CHECK(contains(actions, traintracksui::ActionNewGame));
   CHECK(drewText(out, "SOLVED"));
 }
 
-// While a puzzle is being laid the grid is not there yet, the status says why,
-// and only MENU answers.
-void generatingSaysSo() {
-  tt::Puzzle empty{};
-  tt::Board board{};
-  traintracksui::BoardModel model;
-  model.puzzle = &empty;
-  model.board = &board;
-  model.level = tt::Level::Hard;
-  model.generating = true;
-  Rendered out;
-  build(out, model);
-  CHECK(drewText(out, "LAYING TRACK"));
-  const std::vector<int> actions = reachable(out);
-  CHECK(actions.size() == 1);
-  CHECK(contains(actions, traintracksui::ActionMenu));
+// While solving the status line is blank: the clues already say how each line
+// stands. It speaks only for CHECK and HINT, and says nothing about counts.
+void theStatusIsQuietWhileSolving() {
+  Game game = aGame(tt::Level::Medium);
+  Rendered quiet;
+  build(quiet, modelOf(game, tt::Level::Medium));
+  for (const auto& run : quiet.target.texts) CHECK(run.text.find("LAID") == std::string::npos);
+
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Medium);
+  model.notice = "2 WRONG";
+  Rendered told;
+  build(told, model);
+  CHECK(drewLabelWhole(told, "2 WRONG"));
+  CHECK(drewLabelWhole(told, "HINT: NO TRACK HERE") == false);
+  model.notice = "HINT: NO TRACK HERE";
+  Rendered hinted;
+  build(hinted, model);
+  CHECK(drewLabelWhole(hinted, "HINT: NO TRACK HERE"));
+  model.notice = "NOTHING WRONG SO FAR";
+  Rendered fine;
+  build(fine, model);
+  CHECK(drewLabelWhole(fine, "NOTHING WRONG SO FAR"));
 }
 
-// The status line counts what the player has laid against what the clues add
-// up to.
-void theStatusCountsLaidTrack() {
-  Game game = aGame(tt::Level::Medium);
-  Rendered out;
-  build(out, modelOf(game, tt::Level::Medium));
-  int laid = 0;
-  for (int i = 0; i < tt::kMaxCells; ++i) laid += game.board.cell[i] == tt::kTrack;
-  char text[32];
-  std::snprintf(text, sizeof(text), "%d OF %d LAID", laid, tt::totalTrack(game.puzzle));
-  CHECK(drewText(out, text));
+// CHECK marks each wrong square with a notch in its corner and nothing else,
+// and HINT brackets the square it filled: marks on the cell, never over the
+// rail. A solved board wears neither.
+void checkAndHintMarkTheSquareNotThePiece() {
+  Game game = aGame(tt::Level::Easy);
+  uint8_t wrong[tt::kMaxCells] = {};
+  int target = -1;
+  for (int i = 0; i < tt::kMaxCells && target < 0; ++i) {
+    if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) && !game.puzzle.solution[i]) target = i;
+  }
+  CHECK(target >= 0);
+  game.board.cell[target] = tt::kTrack;
+  CHECK(tt::checkBoard(game.puzzle, game.board, wrong) == 1);
+
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  Rendered plain;
+  build(plain, model);
+  model.wrong = wrong;
+  Rendered checked;
+  build(checked, model);
+  CHECK(checked.target.triangles.size() == plain.target.triangles.size() + 1);
+
+  model.wrong = nullptr;
+  model.hintCell = target;
+  Rendered hinted;
+  build(hinted, model);
+  CHECK(hinted.target.fills.size() == plain.target.fills.size() + 8);  // four corner brackets, two bars each
+
+  model.solved = true;
+  model.wrong = wrong;
+  Rendered done;
+  build(done, model);
+  model.wrong = nullptr;
+  model.hintCell = -1;
+  Rendered doneBare;
+  build(doneBare, model);
+  CHECK(done.target.triangles.size() == doneBare.target.triangles.size());
+  CHECK(done.target.fills.size() == doneBare.target.fills.size());
+}
+
+// The finished board keeps its place and trades the rail for two doors in the
+// same footprint, says SOLVED in the band, and gives the time and whether help
+// was used.
+void theSolvedBoardIsTheResult() {
+  Game game = aGame(tt::Level::Hard);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Hard);
+  model.solved = true;
+  model.elapsedMs = (4 * 60 + 12) * 1000;
+  Rendered unaided;
+  build(unaided, model);
+  CHECK(drewText(unaided, "SOLVED"));
+  CHECK(drewLabelWhole(unaided, "4:12   UNAIDED"));
+  CHECK(drewLabelWhole(unaided, "NEW PUZZLE"));
+  const std::vector<int> actions = reachable(unaided);
+  CHECK(actions.size() == 1);
+  CHECK(contains(actions, traintracksui::ActionNewGame));
+
+  // Every square of a finished route is drawn as rail, never as the open
+  // block that means "not resolved yet", however tightly the route winds.
+  {
+    Game full = aGame(tt::Level::Hard);
+    for (int i = 0; i < tt::kMaxCells; ++i) {
+      if (tt::inside(full.puzzle, tt::rowOf(i), tt::colOf(i)))
+        full.board.cell[i] = full.puzzle.solution[i] ? tt::kTrack : tt::kCross;
+    }
+    traintracksui::BoardModel finished = modelOf(full, tt::Level::Hard);
+    finished.solved = true;
+    Rendered out;
+    build(out, finished);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), full.puzzle.size);
+    int openBlocks = 0;
+    for (const auto& stroke : out.target.strokes) {
+      if (stroke.width == toybox::kRule && stroke.rect.width == g.cell - 2 * (g.cell / 4)) ++openBlocks;
+    }
+    CHECK(openBlocks == 0);
+  }
+
+  // Every curve is six chords of arc and two sleepers across it, a straight's
+  // rail is one line (its sleepers are fills), and every cross two strokes;
+  // nothing else on the board is drawn as a line. So a
+  // finished board's line count is exact, and a curve that lost its sleepers
+  // shows up here.
+  {
+    Game full = aGame(tt::Level::Hard);
+    int curves = 0;
+    int straights = 0;
+    int crosses = 0;
+    for (int i = 0; i < tt::kMaxCells; ++i) {
+      if (!tt::inside(full.puzzle, tt::rowOf(i), tt::colOf(i))) continue;
+      const uint8_t mask = full.puzzle.solution[i];
+      full.board.cell[i] = mask ? tt::kTrack : tt::kCross;
+      if (!mask) {
+        ++crosses;
+      } else if ((mask & 0x5) == 0x5 || (mask & 0xA) == 0xA) {
+        ++straights;
+      } else {
+        ++curves;
+      }
+    }
+    CHECK(curves > 0);
+    traintracksui::BoardModel finished = modelOf(full, tt::Level::Hard);
+    finished.solved = true;
+    Rendered out;
+    build(out, finished);
+    CHECK(static_cast<int>(out.target.lines.size()) == 8 * curves + straights + 2 * crosses);
+  }
+
+  // The help it took, counted, and never cut however long the tally runs.
+  model.hints = 2;
+  model.checks = 1;
+  Rendered helped;
+  build(helped, model);
+  CHECK(drewLabelWhole(helped, "4:12   2 HINTS, 1 CHECK"));
+  model.hints = 1;
+  model.checks = 0;
+  Rendered oneHint;
+  build(oneHint, model);
+  CHECK(drewLabelWhole(oneHint, "4:12   1 HINT"));
+  model.hints = 0;
+  model.checks = 3;
+  Rendered checks;
+  build(checks, model);
+  CHECK(drewLabelWhole(checks, "4:12   3 CHECKS"));
+  model.elapsedMs = (61 * 60 + 2) * 1000;
+  model.hints = 65535;
+  model.checks = 65535;
+  Rendered worst;
+  build(worst, model);
+  CHECK(drewLabelWhole(worst, "1:01:02   65535 HINTS, 65535 CHECKS"));
+}
+
+// --- the front door ---
+
+void buildMenu(Rendered& out, const traintracksui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildMenu(screen, model);
+}
+
+void buildNewGame(Rendered& out, const traintracksui::NewGameModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildNewGame(screen, model);
+}
+
+tt::Game asGame(const Game& from, const tt::Level level) {
+  tt::Game game;
+  game.level = level;
+  game.puzzle = from.puzzle;
+  game.board = from.board;
+  game.elapsedMs = 95 * 1000;
+  return game;
+}
+
+// The front door while a game is unfinished: the game, CONTINUE, and NEW
+// PUZZLE, and nothing else. No difficulty: that is chosen where its puzzle can
+// be seen.
+void theFrontDoorIsContinueOrNew() {
+  tt::Game game = asGame(aGame(tt::Level::Medium), tt::Level::Medium);
+  traintracksui::MenuModel saved;
+  saved.game = &game;
+  Rendered resume;
+  buildMenu(resume, saved);
+  CHECK(!resume.interactions.overflowed());
+  CHECK(drewLabelWhole(resume, "CONTINUE"));
+  CHECK(drewLabelWhole(resume, "NEW PUZZLE"));
+  CHECK(drewText(resume, "IN PROGRESS, 1:35"));
+  CHECK(drewText(resume, "MEDIUM"));
+  CHECK(!drewText(resume, "HOW TO PLAY"));
+  CHECK(!resume.has(traintracksui::ActionLevel));
+  const std::vector<int> actions = reachable(resume);
+  CHECK(actions.size() == 2);
+  CHECK(contains(actions, traintracksui::ActionPlay));
+  CHECK(contains(actions, traintracksui::ActionNewGame));
+}
+
+// The new-puzzle screen, which is also the front door with nothing unfinished:
+// every difficulty a tap away with the chosen one inverted, the deal it made
+// on show, PLAY PUZZLE once there is one, and HOW TO PLAY. It is the same
+// screen whatever is saved.
+void theNewPuzzleScreenShowsWhatItDeals() {
+  for (const tt::Level level : kAllLevels) {
+    Game made = aGame(level);
+    tt::Game preview = asGame(made, level);
+
+    traintracksui::NewGameModel laying;
+    laying.selected = level;
+    Rendered wait;
+    buildNewGame(wait, laying);
+    CHECK(!wait.interactions.overflowed());
+    CHECK(drewLabelWhole(wait, "LAYING TRACK"));
+    CHECK(!wait.has(traintracksui::ActionPlayPreview));
+
+    traintracksui::NewGameModel ready = laying;
+    ready.preview = &preview;
+    Rendered dealt;
+    buildNewGame(dealt, ready);
+    CHECK(!dealt.interactions.overflowed());
+    CHECK(drewLabelWhole(dealt, "PLAY PUZZLE"));
+    CHECK(drewLabelWhole(dealt, "HOW TO PLAY"));
+    CHECK(!drewText(dealt, "LAYING TRACK"));
+    for (const char* name : {"EASY", "MEDIUM", "HARD"}) CHECK(drewLabelWhole(dealt, name));
+    const std::vector<int> actions = reachable(dealt);
+    CHECK(contains(actions, traintracksui::ActionPlayPreview));
+    CHECK(contains(actions, traintracksui::ActionHowTo));
+    CHECK(contains(actions, traintracksui::ActionLevel));
+    CHECK(actions.size() == 3);
+    int levels = 0;
+    for (size_t i = 0; i < dealt.interactions.count(); ++i) {
+      if (dealt.interactions.data()[i].action == traintracksui::ActionLevel) ++levels;
+    }
+    CHECK(levels == tt::kLevelCount);
+    bool chosenInverted = false;
+    for (const auto& run : dealt.target.texts) {
+      if (run.text == traintracksui::levelName(level) && run.color == fui::Color::White) chosenInverted = true;
+    }
+    CHECK(chosenInverted);
+    // The preview is the deal itself: its gates are drawn. No size line; the
+    // difficulty already says it.
+    CHECK(dealt.target.triangles.size() >= 2);
+    for (const auto& run : dealt.target.texts) CHECK(run.text.find(" BY ") == std::string::npos);
+  }
+}
+
+// --- how to play ---
+
+void everyHowToPageFitsAndMovesOn() {
+  const int pages = traintracksui::howToPages();
+  CHECK(pages >= 2 && pages <= 3);
+  for (int page = 0; page < pages; ++page) {
+    traintracksui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, model);
+    }
+    CHECK(!out.interactions.overflowed());
+    CHECK(drewLabelWhole(out, page + 1 < pages ? "NEXT" : "GOT IT"));
+    const std::vector<int> actions = reachable(out);
+    CHECK(actions.size() == 1);
+    CHECK(contains(actions, traintracksui::ActionHowToNext));
+    // A real board, drawn by the play screen's own code: its clues are there.
+    CHECK(drewText(out, "3"));
+    // Every sentence whole: none may be cut on the panel.
+    for (const auto& run : out.target.texts) {
+      if (run.style.maxLines == 1 && run.text.size() > 1) {
+        CHECK(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width);
+      }
+    }
+  }
 }
 
 }  // namespace traintrackstest
@@ -18462,8 +18715,12 @@ int main() {
   traintrackstest::everyClueIsWhole();
   traintrackstest::aFreshBoardOffersNoHistory();
   traintrackstest::aSolvedBoardStopsOfferingHelp();
-  traintrackstest::generatingSaysSo();
-  traintrackstest::theStatusCountsLaidTrack();
+  traintrackstest::theStatusIsQuietWhileSolving();
+  traintrackstest::checkAndHintMarkTheSquareNotThePiece();
+  traintrackstest::theSolvedBoardIsTheResult();
+  traintrackstest::theFrontDoorIsContinueOrNew();
+  traintrackstest::theNewPuzzleScreenShowsWhatItDeals();
+  traintrackstest::everyHowToPageFitsAndMovesOn();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
   testTheSudokuDoorAgreesWithItsCaption();

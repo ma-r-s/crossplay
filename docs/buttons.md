@@ -142,7 +142,7 @@ Eighteen of the forty directories use Back and nothing else.
 > had built, and that the only apps touching them were the reader-shaped ones.
 > Eighteen apps read Up/Down today and nine of them are games: Checkers,
 > Connect Four, Forehead, Picross, Sea Salt, Toy Battle, Train Tracks (undo and
-> redo), Wavelength and Yahtzee,
+> redo, and paging its how-to), Wavelength and Yahtzee,
 > alongside Hacker News, Instapaper, Notes, Reading Stats, RSS, Wallpapers,
 > Weather (its pages of places), Wikipedia and xkcd.
 > Study reads the reader's PageForward/PageBack instead, which honour the

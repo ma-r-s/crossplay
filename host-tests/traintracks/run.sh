@@ -7,6 +7,7 @@
 # test_traintracks   rules, win check, undo, shape inference, solver tiers,
 #                    all held to a brute force on small grids (~2s)
 # test_generator     1000 puzzles per level, determinism, the fallback bank
+# test_game          CHECK, HINT, the front door's offer, the save file
 set -e
 cd "$(dirname "$0")"
 BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-traintracks-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
@@ -16,5 +17,7 @@ SRC=../../src/apps_local/traintracks
 # source's name to prove nothing in the directory goes unrun.
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -I"$SRC" test_traintracks.cpp -o "$BUILD_DIR/test_traintracks"
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -I"$SRC" test_generator.cpp -o "$BUILD_DIR/test_generator"
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror -I"$SRC" test_game.cpp -o "$BUILD_DIR/test_game"
 "$BUILD_DIR/test_traintracks"
 "$BUILD_DIR/test_generator"
+"$BUILD_DIR/test_game"

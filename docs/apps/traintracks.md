@@ -1,10 +1,10 @@
 # Train Tracks
 
-**Status: in progress.** The rules, solver and generator are built and
-host-tested (Milestones 1 and 2), and the play screen is on the shelf
-(Milestone 3). It opens straight onto a Medium puzzle: the front door,
-difficulty picker, CHECK, HINT, saving and wake resume come in Milestone 4.
-Sections marked _(to come)_ are placeholders for that work.
+**Status: in progress.** The whole loop is built and host-tested: rules,
+solver and generator (Milestones 1 and 2), the play screen (3), and the front
+door, new-puzzle screen, CHECK, HINT, how to play, saving and wake resume (4).
+What is left is the hardware pass on the Picco (Milestone 5), recorded under
+"On-device findings" once it is done.
 
 Lay one unbroken track from the start gate to the end gate. The number beside
 each row and above each column says how many squares of that line hold track.
@@ -94,8 +94,9 @@ move, which shows neither change altered what the rules conclude.
 ## How it is tested
 
 `host-tests/traintracks/run.sh`, freestanding, about 25 seconds in all.
-`test_traintracks` covers the rules and the solver (about 2 s), and
-`test_generator` covers generation.
+`test_traintracks` covers the rules and the solver (about 2 s),
+`test_generator` covers generation, and `test_game` covers CHECK, HINT, the
+navigation between screens and the save file (about 2 s).
 
 - **An independent brute force.** On 4x4 and 5x5 grids every simple path
   between the gates is enumerated directly. `countSolutions` must match the
@@ -257,15 +258,54 @@ together.
 ## Screens, input and refresh
 
 `TrainTracksScreens.cpp` builds the screens from plain models, and
-`host-tests/ui` builds them against a fake draw target.
+`host-tests/ui` builds them against a fake draw target. Navigation is
+`TrainTracksFlow.h`; the game in progress, CHECK and HINT are
+`TrainTracksGame.h`.
 
-**The play screen**, portrait, top to bottom: the header band (title, and the
-level on the right), the column clues, the grid with the row clues on its
-left, a status line ("12 OF 31 LAID", "LAYING TRACK", "SOLVED"), and a thumb
-rail: CHECK, HINT and MENU at pill height, then UNDO and REDO 72px tall on the
-bottom margin. Three layouts were rendered side by side; the thumb rail won
-because it matches where the other games keep their controls and puts the two
-most-used ones nearest the thumb.
+### The front door
+
+There is one saved game at a time, and the front door depends on it:
+
+- **A game in progress:** the game itself, bracketed, with its difficulty in
+  the header and "IN PROGRESS, 4:12" above it, then CONTINUE (tall, where the
+  thumb rests) and NEW PUZZLE. Tapping the picture also continues.
+- **Nothing in progress** (first visit, or the last game was solved): the
+  new-puzzle screen is the front door.
+
+Back from the front door leaves the app; Back from anywhere else walks toward
+it (`tt::back`, `tt::leavesApp`).
+
+### The new-puzzle screen
+
+The puzzle it will deal fills the page as a preview, showing its givens and
+gates and unbracketed (it is the puzzle, not an ornament standing for it), with EASY / MEDIUM / HARD, a tall PLAY PUZZLE and HOW TO PLAY on the
+bottom margin. The preview is generated while the screen is up, a few attempts
+per loop pass; until it lands the big button reads LAYING TRACK, dimmed.
+Changing the difficulty deals again. The screen opens on the difficulty used
+last, which the save remembers.
+
+PLAY PUZZLE is the only thing that replaces the saved game, so backing out of
+this screen never loses one. It says nothing about the game it replaces: the
+front door offered CONTINUE first, and one screen for both cases is simpler
+than a warning.
+
+Three layouts were rendered for this screen and for the front door. The
+original front door carried the difficulty row itself, which read as the
+status of the game in progress; moving the choice to its own screen, next to
+the puzzle it deals, is what made it read as a choice.
+
+### The play screen
+
+Portrait, top to bottom: the header band (title, and the level on the right),
+the column clues, the grid with the row clues on its left, a status line, and
+a thumb rail: CHECK, HINT and MENU at pill height, then UNDO and REDO 72px tall
+on the bottom margin. The thumb rail won from three rendered layouts because it
+matches where the other games keep their controls and puts the two most-used
+ones nearest the thumb.
+
+The status line is blank while solving: the clues already say how each line
+stands, and a running count of laid track only repeated the clue total. It
+speaks only for CHECK and HINT.
 
 **Sizes.** Each level is two squares bigger than the last. The panel's width
 sets the cell, capped at 64px so a small grid still reads as a board:
@@ -280,25 +320,106 @@ sets the cell, capped at 64px so a small grid still reads as a board:
 room for long routes, and Picross already ships a 10x10 at about 37px.
 
 **Drawing a square.** Track draws its shape from `inferShapes`: two
-connections are a straight with two sleepers or a quarter-arc curve, one is a
-stub ending in a dot, none is a small solid block, and three or more (a
+connections are a straight or a quarter-arc curve, each with two sleepers,
+one is a stub ending in a dot, none is a small solid block, and three or more (a
 junction the marks do not settle yet) is a larger open block. Crosses are an
 X. Givens sit on a dithered grey ground and show their real shape. Gates
 break the frame, with an arrow in the band outside it: in at the start, out at
 the end. A clue is boxed when its line is met and inverted when it is over.
 
+Curves carry sleepers too, along the radius a third and two thirds of the way
+round. A first version left them bare, because a lone bar across a diagonal
+looked like the cross mark; on a real winding board the bare curves were what
+looked wrong, since a route full of bends stopped reading as track. None, one
+and two were rendered side by side; two was chosen, with its busyness at
+Hard's 40px cell to be judged on the panel.
+
+A solved board draws every square from the answer's own shapes instead. Marks
+say which squares are track, not how they join, so a tightly wound route left
+to inference shows open blocks even when it is complete and correct.
+
 **Input.** A tap on a square cycles empty, track, cross. The grid is
 hit-tested from the same `Geometry` that draws it (`cellRect` and `cellAt`,
 tested as exact inverses at every level's size), so its 144 squares spend
-none of the interaction table's slots. The side keys are undo and redo.
+none of the interaction table's slots. The side keys are undo and redo on the
+board and turn pages in how to play.
 
-**Refresh.** Every move rebuilds the frame and shows it with one fast partial
-refresh of the whole panel, as Sudoku does. No game here refreshes a single
-square's region. Picross also forces a full refresh after a run of board
-changes to clear ghosting; whether Train Tracks needs the same is one of the
-on-device checks below.
+### CHECK and HINT
+
+Both mark the square, never the piece (`docs/design-language.md`), and both
+clear on the next move.
+
+- **CHECK** puts a solid notch in the top-right corner of every marked square
+  that contradicts the answer (track where there is none, or a cross on
+  track), and says "2 WRONG" or "NOTHING WRONG SO FAR". An empty square is
+  never wrong.
+- **HINT** places one correct square, as an ordinary move that undo takes
+  back, and brackets it. A wrong mark comes first ("HINT: PUT ONE RIGHT"),
+  because any deduction made past it would rest on something false. Otherwise
+  the solver reasons forward from the player's own marks (`Solver::applyMarks`)
+  and stops at the lowest tier that decides an empty square, preferring track
+  ("HINT: TRACK HERE") to a cross ("HINT: NO TRACK HERE").
+
+The game counts both. The solved board shows the time and the tally:
+"UNAIDED", "1 HINT", "3 CHECKS" or "2 HINTS, 1 CHECK", stepping down to the
+small cut rather than cutting a word if the tally is ever too long.
+`Game::assisted()` is either count being non-zero, for a future record.
+
+### Solved
+
+Solving changes the header to SOLVED and the rail to one tall NEW PUZZLE, in
+the same footprint so the finished board does not move. It is a full refresh,
+as is a new puzzle arriving; every other change is a fast partial refresh.
+NEW PUZZLE and Back both go to the new-puzzle screen, starting on the same
+difficulty.
+
+### How to play
+
+Three pages, each a title, a sentence, a smaller second sentence and a 4x4
+board drawn by the play screen's own code: THE RULE (a solved example),
+MARKING (track, crosses and a given), CLUES (met, under and over). NEXT, GOT
+IT and the side keys page through them.
+
+### Saving and resume
+
+`/.crosspoint/traintracks.sav`, written on leaving, on sleep, when a puzzle is
+dealt and when one is solved. `TrainTracksSave.h` is freestanding and
+host-tested: one line of small integers (format version, remembered
+difficulty, whether a game is saved and whether the board was on screen,
+level, seed, attempt, puzzle hash, solved, hints, checks, elapsed time and the
+history ring's cursors), then the squares, then the 64 undo moves.
+
+The puzzle is not stored. It is regenerated from `(level, seed, attempt)` and
+must hash to the stored value, so a save from a generator that has since
+changed is discarded rather than laid over a different puzzle. Anything that
+does not hold together opens the front door without a word, keeping the
+remembered difficulty if it can. A given is track whatever the file says, and
+a history that names a given is dropped rather than allowed to unlock it.
+
+Wake from deep sleep is a chip reset. The shelf reopens the app
+(`shelf::resumeFromWake`), and if the board was on screen when the device
+slept, or when the player went Home, it opens straight onto the board.
+
+### Refresh
+
+Every move rebuilds the frame and shows it with one fast partial refresh of
+the whole panel, as Sudoku does. No game here refreshes a single square's
+region. Picross also forces a full refresh after a run of board changes to
+clear ghosting; whether Train Tracks needs the same is one of the on-device
+checks below.
 
 ## On-device findings _(to come)_
 
 The only device on hand is a BOOX Picco, so generation time, free heap,
 ghosting and touch feel will be measured there, not on the X4 Pro.
+
+To check there:
+
+- Generation time per level, from the `Puzzle ready ... in N ms` log line, and
+  that the new-puzzle screen stays responsive while a Hard preview is laid.
+- Free heap with the app open (the generator scratch is about 8.5KB).
+- Ghosting after a long run of fast partial refreshes, and whether a periodic
+  full refresh is needed, as Picross has.
+- Touch accuracy on Hard's 40px squares.
+- Whether two sleepers per curve is too busy at 40px; one at the midpoint is
+  the fallback.

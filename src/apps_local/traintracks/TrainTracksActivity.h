@@ -1,17 +1,13 @@
 #pragma once
 
 // Train Tracks on the device. The thin layer: renderer, storage, input, shelf.
-//
-// Milestone 3 scope: the play screen only. It opens straight onto a fresh
-// Medium puzzle; the front door, difficulty picker, CHECK, HINT, save and wake
-// resume arrive in Milestone 4 (see docs/apps/traintracks.md).
 
 #include <memory>
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
-#include "TrainTracksCore.h"
-#include "TrainTracksGenerator.h"
+#include "TrainTracksFlow.h"
+#include "TrainTracksGame.h"
 #include "TrainTracksScreens.h"
 
 class TrainTracksActivity final : public Activity {
@@ -27,28 +23,60 @@ class TrainTracksActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
 
+  // The Home gesture leaves without passing through Back, and the swap is
+  // deferred, so loop() runs once more after it; the preview stops there.
+  bool handleHomeGesture() override;
+
  private:
-  void beginGame(traintracks::Level level);
+  void goTo(traintracks::Screen next);
+  bool unfinished() const { return hasGame && !game.solved; }
+  void goToFrontDoor();
+  void enterNewGame(traintracks::Level level);
+  void startPreview(traintracks::Level level);
+  void cancelGeneration();
   void stepGeneration();
+  void playPreview();
+  void afterMove();
+  void check();
+  void hint();
+  void tickClock();
+  void loadState();
+  void saveState();
   uint32_t surfaceMeaning() const override;
 
   // ~8.5KB of generator and solver scratch, allocated once in onEnter so
-  // generation and the win check never touch the heap or the stack.
+  // generation, the win check and hints never touch the heap or the stack.
   std::unique_ptr<traintracks::GenWork> work;
 
-  traintracks::Level level = traintracks::Level::Medium;
-  traintracks::Puzzle puzzle{};
-  traintracks::Board board{};
-  bool solved = false;
+  traintracks::Screen screen = traintracks::Screen::Menu;
+  traintracks::Game game{};
+  bool hasGame = false;
+  // The difficulty last picked on the new-puzzle screen, which opens on it.
+  traintracks::Level menuLevel = traintracks::Level::Easy;
+  int howToPage = 0;
 
-  // Generation runs one loop pass after the frame that announces it, then a
-  // few attempts per pass, so LAYING TRACK is on the panel and the loop never
-  // disappears for long. Past the wall-clock budget it takes a bundled puzzle.
+  // The new-puzzle screen's deal. It is laid one loop pass after the frame
+  // that announces it, a few attempts per pass, so LAYING TRACK is on the
+  // panel and the loop never disappears for long. It replaces the saved game
+  // only when the player presses PLAY PUZZLE.
+  traintracks::Game preview{};
+  bool previewReady = false;
   bool generating = false;
   bool generateDeferred = false;
   uint32_t seed = 0;
   uint16_t nextAttempt = 0;
   unsigned long generateStartMs = 0;
+
+  // What CHECK and HINT leave on the board until the next move.
+  uint8_t wrong[traintracks::kMaxCells] = {};
+  bool showWrong = false;
+  int hintCell = -1;
+  const char* notice = nullptr;
+  char noticeText[24] = {};
+
+  unsigned long lastTickMs = 0;
+  // A new puzzle and a solve are the two beats that earn a full refresh.
+  bool flashOnNextPaint = false;
 
   toybox::Interactions interactions;
   bool interactionsReady = false;
