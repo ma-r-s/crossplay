@@ -381,6 +381,19 @@ void drawStatus(toybox::Screen& screen, const Geometry& g, const BoardModel& mod
   screen.target().text(toybox::inkCentred(band, toybox::kUiCut), text, body);
 }
 
+// Registers a button, and if it sits on the bottom margin, lets its tap area
+// run on down to the panel's edge. A control against an edge should own the
+// edge, since a finger aimed at it cannot overshoot; and on the Picco, taps
+// aimed at the bottom row read 781 to 794 against a drawn 732 to 784, so
+// without this its bottom row needed several tries. Only the hit area grows.
+void placeButton(toybox::Screen& screen, fui::ButtonProps props, const fui::Rect& rect) {
+  const int16_t edge = screen.device().height;
+  if (rect.bottom() >= edge - toybox::kMargin - 1 && rect.bottom() < edge) {
+    props.hitPadding.bottom = static_cast<int16_t>(edge - rect.bottom());
+  }
+  screen.button(props, rect);
+}
+
 void button(toybox::Screen& screen, const char* label, const fui::ActionId action, const bool enabled,
             const fui::Rect& rect, const int16_t value = 0) {
   fui::ButtonProps props;
@@ -390,7 +403,7 @@ void button(toybox::Screen& screen, const char* label, const fui::ActionId actio
     props.action = action;
     props.value = value;
   }
-  screen.button(props, rect);
+  placeButton(screen, props, rect);
 }
 
 void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
@@ -405,7 +418,7 @@ void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& m
     fui::ButtonProps next;
     next.label = "NEW PUZZLE";
     next.action = ActionNewGame;
-    screen.button(next, fui::makeRect(kSide, thumbs, width, kThumbRow));
+    placeButton(screen, next, fui::makeRect(kSide, thumbs, width, kThumbRow));
     return;
   }
 
@@ -472,7 +485,8 @@ void levelRow(toybox::Screen& screen, const fui::Rect& band, const tt::Level sel
     props.action = ActionLevel;
     props.value = static_cast<int16_t>(k);
     props.styles = level == selected ? toybox::invertedStyles() : toybox::rowStyles();
-    screen.button(props, fui::makeRect(static_cast<int16_t>(band.x + k * (each + gap)), band.y, each, band.height));
+    placeButton(screen, props,
+                fui::makeRect(static_cast<int16_t>(band.x + k * (each + gap)), band.y, each, band.height));
   }
 }
 
@@ -504,7 +518,7 @@ void playButton(toybox::Screen& screen, const fui::Rect& rect, const bool ready)
     play.label = "LAYING TRACK";
     play.styles = toybox::disabledStepperStyles();
   }
-  screen.button(play, rect);
+  placeButton(screen, play, rect);
 }
 
 }  // namespace
@@ -607,7 +621,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::ButtonProps play;
   play.label = "CONTINUE";
   play.action = ActionPlay;
-  screen.button(play, screen.takeBottom(kThumbRow, toybox::kGutter));
+  placeButton(screen, play, screen.takeBottom(kThumbRow, toybox::kGutter));
   const fui::Rect room = screen.body();
   drawOrnament(screen, room, game, tt::spec(tt::Level::Easy).size);
   if (game != nullptr) screen.frame().hit(room, ActionPlay, 0);
@@ -705,7 +719,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   fui::ButtonProps next;
   next.label = page + 1 < kLessonCount ? "NEXT" : "GOT IT";
   next.action = ActionHowToNext;
-  screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+  placeButton(screen, next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   fui::TextStyle title;
   title.font = toybox::kDisplayFont;

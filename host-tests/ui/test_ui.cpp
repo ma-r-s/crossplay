@@ -9791,6 +9791,63 @@ void theNewPuzzleScreenShowsWhatItDeals() {
   }
 }
 
+// The bottom row owns the bottom edge. On the Picco, taps aimed at it read 781
+// to 794 against a drawn 732 to 784, so each control there must answer right
+// down to the panel's last row, and nothing above it may lose its own taps.
+void theBottomRowReachesTheEdge() {
+  const int edgeY = 798;
+  Game game = aGame(tt::Level::Medium);
+  // Two moves and one undone, so UNDO and REDO are both live.
+  int moves = 0;
+  for (int i = 0; i < tt::kMaxCells && moves < 2; ++i) {
+    if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) &&
+        tt::tapCell(game.board, game.puzzle, tt::rowOf(i), tt::colOf(i))) {
+      ++moves;
+    }
+  }
+  tt::undo(game.board);
+  Rendered board;
+  build(board, modelOf(game, tt::Level::Medium));
+  CHECK(board.tap(120, edgeY).action == traintracksui::ActionUndo);
+  CHECK(board.tap(360, edgeY).action == traintracksui::ActionRedo);
+
+  traintracksui::BoardModel solvedModel = modelOf(game, tt::Level::Medium);
+  solvedModel.solved = true;
+  Rendered solved;
+  build(solved, solvedModel);
+  CHECK(solved.tap(240, edgeY).action == traintracksui::ActionNewGame);
+
+  tt::Game saved = asGame(game, tt::Level::Medium);
+  traintracksui::MenuModel menu;
+  menu.game = &saved;
+  Rendered door;
+  buildMenu(door, menu);
+  CHECK(door.tap(240, edgeY).action == traintracksui::ActionNewGame);
+
+  traintracksui::NewGameModel deal;
+  deal.selected = tt::Level::Medium;
+  deal.preview = &saved;
+  Rendered dealt;
+  buildNewGame(dealt, deal);
+  CHECK(dealt.tap(240, edgeY).action == traintracksui::ActionHowTo);
+  // PLAY PUZZLE, just above, keeps its own taps.
+  CHECK(dealt.tap(240, 700).action == traintracksui::ActionPlayPreview);
+
+  for (int page = 0; page < traintracksui::howToPages(); ++page) {
+    traintracksui::HowToModel how;
+    how.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, how);
+    }
+    CHECK(out.tap(240, edgeY).action == traintracksui::ActionHowToNext);
+  }
+}
+
 // --- how to play ---
 
 void everyHowToPageFitsAndMovesOn() {
@@ -18721,6 +18778,7 @@ int main() {
   traintrackstest::theFrontDoorIsContinueOrNew();
   traintrackstest::theNewPuzzleScreenShowsWhatItDeals();
   traintrackstest::everyHowToPageFitsAndMovesOn();
+  traintrackstest::theBottomRowReachesTheEdge();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
   testTheSudokuDoorAgreesWithItsCaption();

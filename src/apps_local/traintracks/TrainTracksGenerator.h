@@ -16,7 +16,8 @@
 //      removal kept only if the solver still solves the puzzle using tiers up
 //      to the level's. Stop once the givens are down to the level's target and
 //      the puzzle rates exactly at the level's tier.
-//   5. Confirm the track set is unique with the exhaustive search.
+//   5. A complete deduction implies one track set; the host tests confirm it
+//      with the exhaustive search on every puzzle they generate.
 //
 // Attempts are capped by count, never by time, so the result for a seed does
 // not depend on how fast the device is. The caller adds its own wall-clock
@@ -71,7 +72,7 @@ struct GenStats {
 };
 
 // Everything one attempt needs besides its output: the solver and the path
-// builder's arrays. About 8.5KB, held by the caller (the activity allocates it
+// builder's arrays. About 9.6KB, held by the caller (the activity allocates it
 // once), so generation puts almost nothing on the stack.
 struct GenWork {
   Solver solver;
@@ -244,7 +245,7 @@ inline int layPath(const int size, const Gate& start, const Gate& end, const int
 }  // namespace detail
 
 // One attempt. True when it produced a puzzle that meets the level; `out` is
-// then complete. `solver` is scratch (~8KB), owned by the caller.
+// then complete. `work` is scratch (~9.6KB), owned by the caller.
 inline bool generateAttempt(const Level level, const uint32_t seed, const uint16_t attempt, Generated& out,
                             GenWork& work, GenStats* stats = nullptr) {
   Solver& solver = work.solver;
@@ -339,15 +340,18 @@ inline bool generateAttempt(const Level level, const uint32_t seed, const uint16
     if (stats) ++stats->pruneFailures;
     return false;
   }
-  // The rating is the hardest tier a full deduction needs.
-  rating = rate(3);
+  // The rating is the hardest tier a full deduction needs. At tier 3 that is
+  // the rating the last solve above already made of this exact puzzle (a
+  // rejected strip restores what it removed), so it is not solved again.
+  if (s.tier != 3) rating = rate(3);
   if (!rating.solved || rating.tier != s.tier) {
     if (stats) ++stats->rateFailures;
     return false;
   }
-  // Deduction solving it already implies one track set; the exhaustive search
-  // says so independently.
-  if (!solver.load(p) || solver.countSolutions(2) != 1) return false;
+  // A complete deduction implies one track set: every tier is sound, so the
+  // squares it fixed are the only ones possible. The exhaustive search that
+  // used to confirm it here cost a further full solve on the device; the host
+  // tests run it on every generated puzzle instead (test_generator).
 
   out.seed = seed;
   out.attempt = attempt;

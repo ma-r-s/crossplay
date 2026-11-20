@@ -281,8 +281,9 @@ The puzzle it will deal fills the page as a preview, showing its givens and
 gates and unbracketed (it is the puzzle, not an ornament standing for it), with EASY / MEDIUM / HARD, a tall PLAY PUZZLE and HOW TO PLAY on the
 bottom margin. The preview is generated while the screen is up, a few attempts
 per loop pass; until it lands the big button reads LAYING TRACK, dimmed.
-Changing the difficulty deals again. The screen opens on the difficulty used
-last, which the save remembers.
+Tapping any difficulty deals again, the one already chosen included, which is
+how to ask for a different puzzle at the same level. The screen opens on the
+difficulty used last, which the save remembers.
 
 PLAY PUZZLE is the only thing that replaces the saved game, so backing out of
 this screen never loses one. It says nothing about the game it replaces: the
@@ -402,24 +403,89 @@ slept, or when the player went Home, it opens straight onto the board.
 
 ### Refresh
 
-Every move rebuilds the frame and shows it with one fast partial refresh of
-the whole panel, as Sudoku does. No game here refreshes a single square's
-region. Picross also forces a full refresh after a run of board changes to
+A move on the board rebuilds the frame and shows it with one fast partial
+refresh of the whole panel, as Sudoku does. Everything that replaces the
+panel's content wholesale gets a full refresh instead: every screen change,
+every how-to page, every new preview on the new-puzzle screen, a new puzzle
+and a solve. On the Picco a fast refresh over a page turn left the previous
+page's track as a faint ghost in the next page's grid, which on a puzzle reads
+as track that is not there.
+
+For moves: no game here refreshes a single square's region. Picross also forces a full refresh after a run of board changes to
 clear ghosting; whether Train Tracks needs the same is one of the on-device
 checks below.
 
-## On-device findings _(to come)_
+## On-device findings
 
-The only device on hand is a BOOX Picco, so generation time, free heap,
-ghosting and touch feel will be measured there, not on the X4 Pro.
+First run on a BOOX Picco, 2026-11-21, from the debug `picco` build.
 
-To check there:
+**Fine as built:**
 
-- Generation time per level, from the `Puzzle ready ... in N ms` log line, and
-  that the new-puzzle screen stays responsive while a Hard preview is laid.
-- Free heap with the app open (the generator scratch is about 8.5KB).
-- Ghosting after a long run of fast partial refreshes, and whether a periodic
-  full refresh is needed, as Picross has.
-- Touch accuracy on Hard's 40px squares.
-- Whether two sleepers per curve is too busy at 40px; one at the midpoint is
-  the fallback.
+- **Touch:** Hard's 40px squares are comfortable to hit, on what is a small
+  panel physically.
+- **Curves:** two sleepers per curve read crisply; not too busy at 40px.
+- **Memory:** about 83KB of internal heap free and flat across several games
+  (low-water 80.8KB); PSRAM barely touched. The app's task stack keeps 7.8KB
+  of its 16KB free. (The simulator's "2048 bytes free" was the simulator.)
+- **Refresh:** a move is one fast refresh of about 148ms, of which drawing is
+  about 15ms; a new puzzle or a solve is a full refresh of 350 to 430ms.
+- **Easy and Medium deals:** about 50ms and 100 to 126ms, most of the Easy
+  figure being the frame drawn before generation starts.
+
+**Fixed after it: Hard froze the loop.** Hard deals took 446, 1,809 and
+4,962ms, at roughly 1.2s per failed attempt. Three attempts ran per loop pass,
+so one pass held the loop for 4.1s, deaf to taps and close to the 5s
+watchdog. Two causes and three fixes:
+
+1. The loop's idle timer dropped the CPU to its low-power clock mid-deal, as
+   nothing told it generation was work. `skipLoopDelay()` now returns true
+   while a deal is being laid.
+2. One attempt per loop pass instead of three, so the longest the loop can be
+   held is one attempt.
+3. A Hard attempt was made cheaper without changing any puzzle (the pinned
+   hashes and rating distribution are unchanged, so every seed deals exactly
+   what it did). Sampling put about 85% of the time in edge lookups, most of
+   them inside the tier-2 scan that every lookahead probe repeats. Now:
+   - the solver tabulates where each square's edges live when it loads, with
+     two constant slots for off-board edges, so a lookup is one array read;
+   - the tier-2 scan counts each square's edges once per pass rather than at
+     every use (exact: the pass only ever sets things to "no", so the counts
+     it reads cannot change within it);
+   - the generator no longer re-solves a Hard puzzle to rate it, or runs the
+     exhaustive search after a complete deduction (implied by soundness;
+     `test_generator` still runs it on every puzzle it makes).
+
+| Hard, host (600 deals) | Before | After |
+| ---------------------- | ------ | ----- |
+| Median deal            | 8.5ms  | 3.2ms |
+| Slowest deal           | 90ms   | 25ms  |
+| Slowest single attempt | 35ms   | 7.9ms |
+
+The device runs this roughly a hundred times slower than the host, so the
+slowest attempt should now hold the loop well under a second.
+On the Picco after the fix: Hard deals took 594 and 719ms, the longest loop
+pass was 700ms (one attempt), Medium 53 to 128ms and Easy 30 to 34ms.
+
+A race showed up in the same log: the full refresh asked for when a preview
+landed was spent on the LAYING TRACK frame still being drawn, so the preview
+itself arrived on a fast refresh. The loop and the render task share no lock
+by default; the preview is now published under the render lock, and a frame
+reads the full-refresh flag before it draws rather than after.
+
+The first version of that fix BLOCKED on the lock, and the render task holds
+it through the panel refresh, 730ms for a full one. A deal landing mid-refresh
+held the loop that long, and taps made during it were never read: HOW TO PLAY
+seemed dead until tapped again. The publish now only tries the lock and, if a
+frame is drawing, keeps the finished deal for a later pass. The simulator never
+showed it, because its panel is instant and the lock is never held for long.
+
+**The bottom row needed several tries.** Taps aimed at NEW PUZZLE on the
+front door and HOW TO PLAY on the new-puzzle screen (drawn at y 732 to 784)
+were reported at y 781 to 794: most fell below the button, into the margin.
+Mid-panel touch is accurate. Every control on the bottom margin now extends
+its tap area down to the panel's edge (`placeButton` in the screens; tested
+by `theBottomRowReachesTheEdge`), which is right for an edge control on any
+panel. The Picco's bottom inset is recorded as unmeasured in docs/picco.md.
+
+**Still to check:** ghosting over a long game, and whether a periodic full
+refresh is needed, as Picross has.

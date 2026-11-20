@@ -58,6 +58,17 @@ class Solver {
     trailLen = 0;
     lookCursor = 0;
     for (int i = 0; i < kVars; ++i) v[i] = kNo;
+    v[kFixedNo] = kNo;
+    v[kFixedYes] = kYes;
+    for (int i = 0; i < kMaxCells; ++i) {
+      const int r = rowOf(i);
+      const int c = colOf(i);
+      const int gate = r < n && c < n ? gateSide(puzzle, r, c) : -1;
+      for (int d = 0; d < 4; ++d) {
+        const int e = r < n && c < n ? computeEdgeVar(r, c, d) : -1;
+        edgeAt[i][d] = static_cast<int16_t>(e >= 0 ? e : (gate == d ? kFixedYes : kFixedNo));
+      }
+    }
     for (int r = 0; r < n; ++r) {
       for (int c = 0; c < n; ++c) {
         v[cellIndex(r, c)] = kUnknown;
@@ -159,11 +170,7 @@ class Solver {
 
   // Square and edge state after load / deduce, for tests and hints.
   uint8_t square(const int row, const int col) const { return v[cellIndex(row, col)]; }
-  uint8_t edge(const int row, const int col, const int dir) const {
-    const int e = edgeVar(row, col, dir);
-    if (e >= 0) return v[e];
-    return gateSide(*p, row, col) == dir ? kYes : kNo;
-  }
+  uint8_t edge(const int row, const int col, const int dir) const { return v[edgeAt[cellIndex(row, col)][dir]]; }
   int mark() const { return trailLen; }
   void unwind(const int to) {
     while (trailLen > to) {
@@ -189,7 +196,18 @@ class Solver {
   int total = 0;
   bool progress = false;
   int lookCursor = 0;
-  uint8_t v[kVars] = {};
+  // Two constant slots past the variables: every edge off the board reads one,
+  // "yes" for the two gates and "no" for the rest, so an edge lookup is one
+  // array read with no boundary or gate test. Never assigned, never trailed.
+  static constexpr int kFixedNo = kVars;
+  static constexpr int kFixedYes = kVars + 1;
+  uint8_t v[kVars + 2] = {};
+  // Where each square's four edges live in v, filled by load(). Profiling a
+  // Hard deal put 85% of its time in edge lookups; this makes each one a read.
+  int16_t edgeAt[kMaxCells][4] = {};
+  // tier2Pass's per-square counts of yes edges, and of yes-or-unknown.
+  uint8_t passYes[kMaxCells] = {};
+  uint8_t passOpen[kMaxCells] = {};
   Entry trail[kVars] = {};
   int trailLen = 0;
   Decision cellStack[kVars] = {};
@@ -222,6 +240,12 @@ class Solver {
 
   // The variable for the edge leaving (row, col) in dir, or -1 on the boundary.
   int edgeVar(const int row, const int col, const int dir) const {
+    const int e = edgeAt[cellIndex(row, col)][dir];
+    return e >= kVars ? -1 : e;
+  }
+
+  // The same, computed; load() tabulates it into edgeAt.
+  int computeEdgeVar(const int row, const int col, const int dir) const {
     const int r2 = row + kDRow[dir];
     const int c2 = col + kDCol[dir];
     if (r2 < 0 || c2 < 0 || r2 >= n || c2 >= n) return -1;
@@ -411,12 +435,24 @@ class Solver {
   }
 
   bool tier2Pass() {
+    // Each square's edges, counted once. This pass only ever sets things to
+    // "no": squares in the first loop, edges in the second. So no square's
+    // count of yes edges changes during the pass, nor (the first loop sets no
+    // edges) its unknown edges while the first loop reads them, and these
+    // counts are exactly what recounting at each use would find.
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const Tally t = edgeTally(r, c);
+        const int i = cellIndex(r, c);
+        passYes[i] = static_cast<uint8_t>(t.yes);
+        passOpen[i] = static_cast<uint8_t>(t.yes + t.unknown);
+      }
+    }
     for (int r = 0; r < n; ++r) {
       for (int c = 0; c < n; ++c) {
         const int i = cellIndex(r, c);
         if (v[i] != kUnknown) continue;
-        const Tally t = edgeTally(r, c);
-        if (t.yes + t.unknown < 2 && !set(i, kNo)) return false;
+        if (passOpen[i] < 2 && !set(i, kNo)) return false;
       }
     }
     // Chain ends facing each other across an open edge.
@@ -428,7 +464,7 @@ class Solver {
           const int a = cellIndex(r, c);
           const int b = cellIndex(r + kDRow[dir], c + kDCol[dir]);
           if (v[a] == kNo || v[b] == kNo) continue;
-          if (edgeTally(r, c).yes != 1 || edgeTally(rowOf(b), colOf(b)).yes != 1) continue;
+          if (passYes[a] != 1 || passYes[b] != 1) continue;
           const ChainEnd fromA = walk(a, -1, -1);
           if (fromA.branch) continue;
           if (fromA.cell == b) {
@@ -560,7 +596,7 @@ class Solver {
 
 // The rule-based win: every clue met, and some single path from the start gate
 // to the end gate runs through exactly the marked squares, keeping every
-// given's shape. `scratch` is the caller's so the solver's ~8KB is not on the
+// given's shape. `scratch` is the caller's so the solver's ~9KB is not on the
 // stack.
 inline bool isWin(const Puzzle& puzzle, const Board& board, Solver& scratch) {
   if (!allCluesMet(board, puzzle)) return false;

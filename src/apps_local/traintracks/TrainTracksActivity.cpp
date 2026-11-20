@@ -21,9 +21,10 @@ namespace {
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
 constexpr char kStatePath[] = "/.crosspoint/traintracks.sav";
 #endif
-// Attempts per loop pass. A Hard attempt is tens of milliseconds on the
-// ESP32-S3 by estimate, so a few per pass keeps the loop responsive.
-constexpr int kAttemptsPerPass = 3;
+// Attempts per loop pass. One: a Hard attempt measured 0.4 to 1.5s on the
+// Picco, and three in a pass held the loop for 4.1s, close to the watchdog and
+// deaf to taps throughout.
+constexpr int kAttemptsPerPass = 1;
 // Past either limit, a bundled puzzle instead: New Game never fails.
 constexpr uint16_t kMaxAttempts = 400;
 constexpr unsigned long kBudgetMs = 10000;
@@ -66,9 +67,15 @@ bool TrainTracksActivity::handleHomeGesture() {
   return false;
 }
 
+// A different screen replaces everything on the panel, and a fast refresh over
+// that much change leaves the last screen's lines as ghosts, which on a puzzle
+// read as track that is not there. So every screen change, every how-to page
+// and every new preview earns a full refresh; a move on the board, which
+// changes a square or two, stays fast.
 void TrainTracksActivity::goTo(const tt::Screen next) {
   screen = next;
   notice = nullptr;
+  flashOnNextPaint = true;
   requestUpdate();
 }
 
@@ -87,8 +94,10 @@ void TrainTracksActivity::enterNewGame(const tt::Level level) {
 }
 
 void TrainTracksActivity::startPreview(const tt::Level level) {
+  LOG_DBG("TRACKS", "Dealing level %d", static_cast<int>(level));
   menuLevel = level;
   previewReady = false;
+  dealLanded = false;
   generating = true;
   generateDeferred = true;
   nextAttempt = 0;
@@ -124,16 +133,37 @@ void TrainTracksActivity::stepGeneration() {
     }
     LOG_INF("TRACKS", "Puzzle ready: level %d seed %u attempt %u in %lu ms", static_cast<int>(menuLevel), made.seed,
             made.attempt, millis() - generateStartMs);
-    preview = tt::Game{};
-    preview.level = menuLevel;
-    preview.seed = made.seed;
-    preview.attempt = made.attempt;
-    preview.puzzle = made.puzzle;
-    tt::resetBoard(preview.board, preview.puzzle);
-    previewReady = true;
-    requestUpdate();
+    landed = made;
+    dealLanded = true;
+    publishDeal();
     return;
   }
+}
+
+// Publishes a finished deal under the render lock, so a frame already being
+// drawn shows the old preview whole and the next one the new preview whole,
+// and the full refresh it asks for cannot be spent on the frame before it.
+//
+// Only TRIES the lock. The render task holds it through the panel refresh,
+// 730ms for a full one on the Picco, and a loop blocked that long reads no
+// taps: blocking here is what made HOW TO PLAY seem dead after a deal. A deal
+// that cannot be published yet waits in `landed` for a later pass.
+bool TrainTracksActivity::publishDeal() {
+  if (!dealLanded) return true;
+  RenderLock lock(RenderLock::Mode::Try);
+  if (!lock.ownsLock()) return false;
+  preview = tt::Game{};
+  preview.level = menuLevel;
+  preview.seed = landed.seed;
+  preview.attempt = landed.attempt;
+  preview.puzzle = landed.puzzle;
+  tt::resetBoard(preview.board, preview.puzzle);
+  previewReady = true;
+  dealLanded = false;
+  flashOnNextPaint = true;  // the last preview, maybe another size, must not ghost
+  lock.unlock();
+  requestUpdate();
+  return true;
 }
 
 // PLAY PUZZLE: the one place the saved game is replaced.
@@ -293,6 +323,7 @@ void TrainTracksActivity::loop() {
 
   // The preview is laid only while its screen is up; input still runs, so a
   // difficulty can be changed or the screen left mid-deal.
+  if (dealLanded && screen == tt::Screen::NewGame) publishDeal();
   if (generating && screen == tt::Screen::NewGame) {
     if (generateDeferred) {
       generateDeferred = false;
@@ -313,6 +344,7 @@ void TrainTracksActivity::loop() {
       const int next = howToPage + (down ? 1 : -1);
       if (next >= 0 && next < traintracksui::howToPages()) {
         howToPage = next;
+        flashOnNextPaint = true;
         requestUpdate();
       }
     }
@@ -327,7 +359,11 @@ void TrainTracksActivity::loop() {
     input.touchX = static_cast<int16_t>(tapX);
     input.touchY = static_cast<int16_t>(tapY);
   }
-  if (!input.touchReleased || !interactionsReady) return;
+  if (!input.touchReleased) return;
+  if (!interactionsReady) {
+    LOG_DBG("TRACKS", "Tap at %d,%d dropped: a frame was being built", tapX, tapY);
+    return;
+  }
 
   if (screen == tt::Screen::Board && hasGame) {
     const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
@@ -343,6 +379,9 @@ void TrainTracksActivity::loop() {
     }
   }
 
+  if (!interactions.routable()) {
+    LOG_DBG("TRACKS", "Tap at %d,%d held: the panel has not shown this screen yet", tapX, tapY);
+  }
   const fui::ActionEvent event = interactions.route(input);
   switch (event.action) {
     case traintracksui::ActionPlay:
@@ -354,10 +393,9 @@ void TrainTracksActivity::loop() {
       return;
     }
     case traintracksui::ActionLevel:
-      // A different difficulty deals again; the one already shown keeps its deal.
-      if (event.value >= 0 && event.value < tt::kLevelCount && static_cast<tt::Level>(event.value) != menuLevel) {
-        startPreview(static_cast<tt::Level>(event.value));
-      }
+      // Any difficulty deals again, the one already chosen included: tapping it
+      // is how to ask for a different puzzle at the same level.
+      if (event.value >= 0 && event.value < tt::kLevelCount) startPreview(static_cast<tt::Level>(event.value));
       return;
     case traintracksui::ActionPlayPreview:
       playPreview();
@@ -369,6 +407,7 @@ void TrainTracksActivity::loop() {
     case traintracksui::ActionHowToNext:
       if (howToPage + 1 < traintracksui::howToPages()) {
         ++howToPage;
+        flashOnNextPaint = true;
         requestUpdate();
         return;
       }
@@ -397,6 +436,11 @@ void TrainTracksActivity::loop() {
 
 void TrainTracksActivity::render(RenderLock&&) {
   namespace fui = freeink::ui;
+
+  // Read before drawing, so a full refresh asked for while this frame is being
+  // built belongs to the next frame, the one that shows what asked for it.
+  const bool flash = flashOnNextPaint;
+  flashOnNextPaint = false;
 
   renderer.clearScreen();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
@@ -445,6 +489,5 @@ void TrainTracksActivity::render(RenderLock&&) {
 
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Train Tracks");
-  renderer.displayBuffer(flashOnNextPaint ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
-  flashOnNextPaint = false;
+  renderer.displayBuffer(flash ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
 }

@@ -133,6 +133,19 @@ Everything that needs the device:
    RAM; this is where #327 saw failures.
 7. **Sleep and wake** from a game and from a book, on battery and on USB.
 8. **The bezel**: whether the glass hides more than the default insets assume.
+   **First data, 2026-11-21 (Train Tracks, debug log):** taps aimed at a
+   bottom-row button drawn at y 732 to 784 (portrait) were reported at y 781 to
+   794, most of them below the button, so the button needed several tries.
+   Taps mid-panel land where drawn (40px squares are hit reliably). So the
+   bottom edge either reads low or sits further under the glass than the
+   3px inset assumes; which one is not yet known. Train Tracks extends its
+   bottom row's tap areas to the panel edge (`placeButton`); any app with
+   controls on the bottom margin will likely need the same, or a measured
+   bottom inset for the board. A second log, with the edge-extended buttons,
+   reported every bottom-row tap at exactly y 794 whatever its x, which looks
+   like the touch controller's range topping out short of the panel's edge:
+   a calibration question more than a bezel one. Other apps' bottom-row
+   buttons show the same trouble.
 9. **The refusals on a real cable**: the site's Install button and
    `usb-flash.sh` reading a Picco's table and stopping, which nobody has
    watched happen.

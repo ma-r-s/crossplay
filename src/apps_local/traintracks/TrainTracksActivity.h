@@ -27,6 +27,11 @@ class TrainTracksActivity final : public Activity {
   // deferred, so loop() runs once more after it; the preview stops there.
   bool handleHomeGesture() override;
 
+  // Generating is work, not idleness: without this the loop's idle timer drops
+  // the CPU to its low-power clock part-way through a Hard deal, which on the
+  // Picco stretched a five-attempt deal past four seconds.
+  bool skipLoopDelay() override { return generating || dealLanded; }
+
  private:
   void goTo(traintracks::Screen next);
   bool unfinished() const { return hasGame && !game.solved; }
@@ -35,6 +40,7 @@ class TrainTracksActivity final : public Activity {
   void startPreview(traintracks::Level level);
   void cancelGeneration();
   void stepGeneration();
+  bool publishDeal();
   void playPreview();
   void afterMove();
   void check();
@@ -44,7 +50,7 @@ class TrainTracksActivity final : public Activity {
   void saveState();
   uint32_t surfaceMeaning() const override;
 
-  // ~8.5KB of generator and solver scratch, allocated once in onEnter so
+  // ~9.6KB of generator and solver scratch, allocated once in onEnter so
   // generation, the win check and hints never touch the heap or the stack.
   std::unique_ptr<traintracks::GenWork> work;
 
@@ -61,6 +67,10 @@ class TrainTracksActivity final : public Activity {
   // only when the player presses PLAY PUZZLE.
   traintracks::Game preview{};
   bool previewReady = false;
+  // A deal that has finished but not yet been published: publishing waits for
+  // the render lock, and the loop never blocks on it (see publishDeal).
+  traintracks::Generated landed{};
+  bool dealLanded = false;
   bool generating = false;
   bool generateDeferred = false;
   uint32_t seed = 0;
