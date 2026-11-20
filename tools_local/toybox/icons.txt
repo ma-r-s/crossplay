@@ -481,3 +481,7 @@ weather       = cloud-sun
 # was the literal pick and reads as Study's sibling at 32px; `chart-column`
 # carries axes that fill in at one bit.
 readingstats = chart-no-axes-column-increasing
+
+# TRAIN TRACKS: a curved length of track with its sleepers, which is the game's
+# own material. Spliced into ToyboxIcons.h by hand (see the warning at the top).
+traintracks = train-track

@@ -51,6 +51,7 @@
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
+#include "../../src/apps_local/traintracks/TrainTracksScreens.h"
 #include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxFormat.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
@@ -9352,6 +9353,225 @@ void testTheSudokuCapsuleIsInertUntilTheGridIsFinished() {
   CHECK(contains(sudokuReachableActions(done), sudokuui::ActionSeeResult));
 }
 
+// --- train tracks ------------------------------------------------------------
+
+namespace traintrackstest {
+
+namespace tt = traintracks;
+
+tt::GenWork& work() {
+  // ~8.5KB of solver scratch; static so no test frame carries it.
+  static tt::GenWork scratch;
+  return scratch;
+}
+
+struct Game {
+  tt::Puzzle puzzle{};
+  tt::Board board{};
+};
+
+Game aGame(const tt::Level level) {
+  Game game;
+  tt::Generated made;
+  const bool ok = tt::generate(level, 0x7A1A0000u + static_cast<uint32_t>(level), 400, made, work());
+  CHECK(ok);
+  game.puzzle = made.puzzle;
+  tt::resetBoard(game.board, game.puzzle);
+  return game;
+}
+
+traintracksui::BoardModel modelOf(const Game& game, const tt::Level level) {
+  traintracksui::BoardModel model;
+  model.puzzle = &game.puzzle;
+  model.board = &game.board;
+  model.level = level;
+  return model;
+}
+
+void build(Rendered& out, const traintracksui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildBoard(screen, model);
+}
+
+std::vector<int> reachable(Rendered& out) { return sudokuReachableActions(out); }
+
+constexpr tt::Level kAllLevels[] = {tt::Level::Easy, tt::Level::Medium, tt::Level::Hard};
+
+// The grid is hit-tested by the activity from the geometry that drew it, so
+// the pair must be exact inverses at every size a level can deal: every pixel
+// of a square maps home, and nothing outside a square is claimed for it.
+void gridAndHitTestAreExactInverses() {
+  const fui::DeviceContext ctx = device();
+  for (const tt::Level level : kAllLevels) {
+    const int n = tt::spec(level).size;
+    const traintracksui::Geometry g = traintracksui::boardGeometry(ctx, n);
+    bool home = true;
+    bool inside = true;
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const fui::Rect box = traintracksui::cellRect(g, r, c);
+        for (int y = box.y; y < box.bottom(); ++y) {
+          for (int x = box.x; x < box.right(); ++x) {
+            int gr = -1;
+            int gc = -1;
+            if (!traintracksui::cellAt(g, x, y, gr, gc) || gr != r || gc != c) home = false;
+          }
+        }
+      }
+    }
+    for (int y = 0; y < 800; ++y) {
+      for (int x = 0; x < 480; ++x) {
+        int gr = -1;
+        int gc = -1;
+        if (!traintracksui::cellAt(g, x, y, gr, gc)) continue;
+        const fui::Rect box = traintracksui::cellRect(g, gr, gc);
+        if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) inside = false;
+      }
+    }
+    CHECK(home);
+    CHECK(inside);
+  }
+}
+
+// The sizes the doc quotes, and the order things stack in: clue band, grid,
+// status, controls, all inside the panel with the grid clear of the controls.
+void eachLevelFitsThePanel() {
+  const fui::DeviceContext ctx = device();
+  const int16_t expected[] = {64, 50, 40};
+  int k = 0;
+  for (const tt::Level level : kAllLevels) {
+    const int n = tt::spec(level).size;
+    const traintracksui::Geometry g = traintracksui::boardGeometry(ctx, n);
+    CHECK(g.cell == expected[k++]);
+    const fui::Rect last = traintracksui::cellRect(g, n - 1, n - 1);
+    CHECK(g.rowClueX >= 0);
+    CHECK(last.right() <= ctx.width);
+    CHECK(g.colClueY < g.gridY);
+    CHECK(last.bottom() < g.statusY);
+    CHECK(g.statusY < g.controlsY);
+    CHECK(g.controlsY < ctx.height);
+  }
+  // 6x6 is held at the cap rather than filling the width with tiles.
+  CHECK(traintracksui::boardGeometry(ctx, 6).cell < (480 - 80) / 6);
+}
+
+// Five controls and nothing else: the 144 squares are hit-tested by the
+// activity, so they spend none of the twenty-four slots, and every label is
+// whole in its box.
+void theBoardSpendsFiveControls() {
+  for (const tt::Level level : kAllLevels) {
+    Game game = aGame(level);
+    // Two moves and one undone, so both history controls are live.
+    int moves = 0;
+    for (int i = 0; i < tt::kMaxCells && moves < 2; ++i) {
+      const int r = tt::rowOf(i);
+      const int c = tt::colOf(i);
+      if (r < game.puzzle.size && c < game.puzzle.size && tt::tapCell(game.board, game.puzzle, r, c)) ++moves;
+    }
+    CHECK(moves == 2);
+    CHECK(tt::undo(game.board) >= 0);
+    Rendered out;
+    build(out, modelOf(game, level));
+    CHECK(!out.interactions.overflowed());
+    const std::vector<int> actions = reachable(out);
+    CHECK(actions.size() == 5);
+    CHECK(contains(actions, traintracksui::ActionUndo));
+    CHECK(contains(actions, traintracksui::ActionRedo));
+    CHECK(contains(actions, traintracksui::ActionCheck));
+    CHECK(contains(actions, traintracksui::ActionHint));
+    CHECK(contains(actions, traintracksui::ActionMenu));
+    for (const char* label : {"UNDO", "REDO", "CHECK", "HINT", "MENU"}) CHECK(drewLabelWhole(out, label));
+    CHECK(drewLabelWhole(out, traintracksui::levelName(level)));
+
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    bool silent = true;
+    for (int r = 0; r < game.puzzle.size; ++r) {
+      for (int c = 0; c < game.puzzle.size; ++c) {
+        const fui::Rect box = traintracksui::cellRect(g, r, c);
+        if (out.tap(box.x + box.width / 2, box.y + box.height / 2).action != fui::NO_ACTION) silent = false;
+      }
+    }
+    CHECK(silent);
+  }
+}
+
+// Every clue is drawn, and drawn whole, including the two-digit "10".
+void everyClueIsWhole() {
+  Game game = aGame(tt::Level::Hard);
+  game.puzzle.rowClue[0] = 10;  // the widest a clue can be
+  Rendered out;
+  build(out, modelOf(game, tt::Level::Hard));
+  CHECK(drewLabelWhole(out, "10"));
+  for (int i = 1; i < game.puzzle.size; ++i) {
+    char text[12];
+    std::snprintf(text, sizeof(text), "%d", game.puzzle.colClue[i]);
+    CHECK(drewLabelWhole(out, text));
+  }
+}
+
+// A fresh board has nothing to undo or redo, and those two are drawn but
+// cannot be tapped. MENU is always the way out of a deal.
+void aFreshBoardOffersNoHistory() {
+  Game game = aGame(tt::Level::Easy);
+  Rendered out;
+  build(out, modelOf(game, tt::Level::Easy));
+  const std::vector<int> actions = reachable(out);
+  CHECK(!contains(actions, traintracksui::ActionUndo));
+  CHECK(!contains(actions, traintracksui::ActionRedo));
+  CHECK(contains(actions, traintracksui::ActionMenu));
+  CHECK(drewText(out, "UNDO"));
+}
+
+// Solved, the board is finished: CHECK and HINT have nothing left to say.
+void aSolvedBoardStopsOfferingHelp() {
+  Game game = aGame(tt::Level::Easy);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  model.solved = true;
+  Rendered out;
+  build(out, model);
+  const std::vector<int> actions = reachable(out);
+  CHECK(!contains(actions, traintracksui::ActionCheck));
+  CHECK(!contains(actions, traintracksui::ActionHint));
+  CHECK(contains(actions, traintracksui::ActionMenu));
+  CHECK(drewText(out, "SOLVED"));
+}
+
+// While a puzzle is being laid the grid is not there yet, the status says why,
+// and only MENU answers.
+void generatingSaysSo() {
+  tt::Puzzle empty{};
+  tt::Board board{};
+  traintracksui::BoardModel model;
+  model.puzzle = &empty;
+  model.board = &board;
+  model.level = tt::Level::Hard;
+  model.generating = true;
+  Rendered out;
+  build(out, model);
+  CHECK(drewText(out, "LAYING TRACK"));
+  const std::vector<int> actions = reachable(out);
+  CHECK(actions.size() == 1);
+  CHECK(contains(actions, traintracksui::ActionMenu));
+}
+
+// The status line counts what the player has laid against what the clues add
+// up to.
+void theStatusCountsLaidTrack() {
+  Game game = aGame(tt::Level::Medium);
+  Rendered out;
+  build(out, modelOf(game, tt::Level::Medium));
+  int laid = 0;
+  for (int i = 0; i < tt::kMaxCells; ++i) laid += game.board.cell[i] == tt::kTrack;
+  char text[32];
+  std::snprintf(text, sizeof(text), "%d OF %d LAID", laid, tt::totalTrack(game.puzzle));
+  CHECK(drewText(out, text));
+}
+
+}  // namespace traintrackstest
+
 // A control that cannot act dims. It does not disappear, because a button that
 // vanishes takes its space with it and the layout jumps.
 void testTheSudokuUndoDimsRatherThanVanishing() {
@@ -18236,6 +18456,14 @@ int main() {
   testSudokuBoxRulesStandOutFromCellLines();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
+  traintrackstest::gridAndHitTestAreExactInverses();
+  traintrackstest::eachLevelFitsThePanel();
+  traintrackstest::theBoardSpendsFiveControls();
+  traintrackstest::everyClueIsWhole();
+  traintrackstest::aFreshBoardOffersNoHistory();
+  traintrackstest::aSolvedBoardStopsOfferingHelp();
+  traintrackstest::generatingSaysSo();
+  traintrackstest::theStatusCountsLaidTrack();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
   testTheSudokuDoorAgreesWithItsCaption();
