@@ -18,7 +18,7 @@ namespace {
 // 6x6. Everything else is placed from the grid outward.
 // ---------------------------------------------------------------------------
 
-constexpr int16_t kSide = 6;      // page margin left and right of the board
+constexpr int16_t kSide = 6;      // page margin left and right of the board; buttons keep kMargin
 constexpr int16_t kClueW = 38;    // row-clue gutter: "10" is 33px in the UI cut
 constexpr int16_t kClueH = 34;    // column-clue band
 constexpr int16_t kTab = 10;      // the stations live in this band outside the frame
@@ -456,7 +456,10 @@ void button(toybox::Screen& screen, const char* label, const fui::ActionId actio
 }
 
 void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
-  const int16_t width = static_cast<int16_t>(screen.device().width - 2 * kSide);
+  // The buttons keep the page margin the front door's do. Only the board runs
+  // nearly to the edge, because every pixel of it is grid.
+  const int16_t left = toybox::kMargin;
+  const int16_t width = static_cast<int16_t>(screen.device().width - 2 * left);
   const int16_t gap = 8;
   const int16_t top = g.controlsY;
   const int16_t thumbs = static_cast<int16_t>(top + toybox::kPillHeight + gap);
@@ -467,7 +470,7 @@ void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& m
     fui::ButtonProps next;
     next.label = "NEW PUZZLE";
     next.action = ActionNewGame;
-    placeButton(screen, next, fui::makeRect(kSide, thumbs, width, kThumbRow));
+    placeButton(screen, next, fui::makeRect(left, thumbs, width, kThumbRow));
     return;
   }
 
@@ -478,15 +481,15 @@ void drawControls(toybox::Screen& screen, const Geometry& g, const BoardModel& m
   // The thumb rail: CHECK / HINT / MENU, then UNDO and REDO tall on the bottom
   // margin, where the thumb rests and where the moves come from most often.
   const int16_t small = static_cast<int16_t>((width - 2 * gap) / 3);
-  button(screen, "CHECK", ActionCheck, live, fui::makeRect(kSide, top, small, toybox::kPillHeight));
+  button(screen, "CHECK", ActionCheck, live, fui::makeRect(left, top, small, toybox::kPillHeight));
   button(screen, "HINT", ActionHint, live,
-         fui::makeRect(static_cast<int16_t>(kSide + small + gap), top, small, toybox::kPillHeight));
+         fui::makeRect(static_cast<int16_t>(left + small + gap), top, small, toybox::kPillHeight));
   button(screen, "MENU", ActionMenu, true,
-         fui::makeRect(static_cast<int16_t>(kSide + 2 * (small + gap)), top, small, toybox::kPillHeight));
+         fui::makeRect(static_cast<int16_t>(left + 2 * (small + gap)), top, small, toybox::kPillHeight));
   const int16_t big = static_cast<int16_t>((width - gap) / 2);
-  button(screen, "UNDO", ActionUndo, undo, fui::makeRect(kSide, thumbs, big, kThumbRow));
+  button(screen, "UNDO", ActionUndo, undo, fui::makeRect(left, thumbs, big, kThumbRow));
   button(screen, "REDO", ActionRedo, redo,
-         fui::makeRect(static_cast<int16_t>(kSide + big + gap), thumbs, big, kThumbRow));
+         fui::makeRect(static_cast<int16_t>(left + big + gap), thumbs, big, kThumbRow));
 }
 
 // ---------------------------------------------------------------------------
@@ -701,28 +704,36 @@ void buildNewGame(toybox::Screen& screen, const NewGameModel& model) {
 
 namespace {
 
-// A lesson is a title, a sentence, a smaller second sentence, and a 4x4 board
-// drawn by the same code as the real one. Faces are 16 characters, row by row:
-// '.' empty, 'T' track, 'x' cross, 'G' a given.
+// A lesson is a sentence set at the UI cut above the board, and optionally a
+// second one under it, each broken by hand where it reads best rather than
+// where the width runs out, an optional smaller line on the bottom
+// margin, and a 4x4 board drawn by the same code as the real one. Faces are 16
+// characters, row by row: '.' empty, 'T' track, 'x' cross, 'G' a given.
 struct Lesson {
-  const char* title;
-  const char* body;
-  const char* detail;
+  const char* lines[3];  // above the board; nullptr after the last
+  const char* under[2];  // below it, at the same size; nullptr after the last
+  const char* detail;    // nullptr: none
   const char* face;
 };
 
 const Lesson kLessons[] = {
-    {"THE RULE", "JOIN THE TWO STATIONS WITH ONE TRACK.", "NUMBERS COUNT THE TRACK IN EACH LINE.",
+    {{"CONNECT THE STATIONS", "WITH A CONTINUOUS SET", "OF TRAIN TRACKS"},
+     {nullptr, nullptr},
+     "NUMBERS INDICATE TRACKS PER COLUMN OR ROW",
      ".TT."
      "TTT."
      "..TT"
      "...."},
-    {"MARKING", "TAP TO LAY TRACK, AGAIN TO TURN IT.", "HOLD TO CROSS OR CLEAR. GREY IS GIVEN.",
+    {{"TAP TO LAY TRACK,", "AGAIN TO CHANGE IT", nullptr},
+     {nullptr, nullptr},
+     "HOLD TO CLEAR OR CROSS OUT",
      ".T.x"
      "TG.."
      "..x."
      "x..."},
-    {"CLUES", "A BOX MEANS MET. BLACK IS TOO MANY.", "A BOXED LINE IS FULL: CROSS THE REST.",
+    {{"OUTLINED NUMBER", "MEANS MET", nullptr},
+     {"FILLED NUMBER", "MEANS TOO MANY"},
+     nullptr,
      ".TT."
      "TTT."
      "...."
@@ -776,22 +787,42 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   next.action = ActionHowToNext;
   placeButton(screen, next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
-  fui::TextStyle title;
-  title.font = toybox::kDisplayFont;
-  title.align = fui::TextAlign::Center;
-  screen.target().text(toybox::inkCentred(screen.takeTop(44), toybox::kDisplayCut), lesson.title, title);
-
+  // The sentences, one line per row in the UI cut, all stepping down to the
+  // small cut together if any line would not fit: two sizes on one page would
+  // read as two kinds of thing.
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
-  body.maxLines = 2;
-  screen.target().text(screen.takeTop(static_cast<int16_t>(2 * toybox::kUiCut.lineHeight)), lesson.body, body);
+  const int16_t width = screen.body().width;
+  bool fits = true;
+  for (const char* line : lesson.lines) {
+    if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
+  }
+  for (const char* line : lesson.under) {
+    if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
+  }
+  if (!fits) body.font = toybox::kTileFont;
+  const toybox::CutMetrics& cut = fits ? toybox::kUiCut : toybox::kTileCut;
 
-  fui::TextStyle detail;
-  detail.font = toybox::kTileFont;
-  detail.align = fui::TextAlign::Center;
-  const fui::Rect detailBand = screen.takeBottom(toybox::kTileCut.lineHeight, toybox::kGutter);
-  screen.target().text(toybox::inkCentred(detailBand, toybox::kTileCut), lesson.detail, detail);
+  if (lesson.detail != nullptr) {
+    fui::TextStyle detail;
+    detail.font = toybox::kTileFont;
+    detail.align = fui::TextAlign::Center;
+    const fui::Rect detailBand = screen.takeBottom(toybox::kTileCut.lineHeight, toybox::kGutter);
+    screen.target().text(toybox::inkCentred(detailBand, toybox::kTileCut), lesson.detail, detail);
+  }
+  // Under the board: taken from the bottom, last line first.
+  for (int k = 1; k >= 0; --k) {
+    if (lesson.under[k] == nullptr) continue;
+    screen.target().text(toybox::inkCentred(screen.takeBottom(cut.lineHeight, k == 0 ? toybox::kGutter : 0), cut),
+                         lesson.under[k], body);
+  }
+
+  screen.takeTop(toybox::kGutter);
+  for (const char* line : lesson.lines) {
+    if (line == nullptr) break;
+    screen.target().text(toybox::inkCentred(screen.takeTop(cut.lineHeight), cut), line, body);
+  }
 
   tt::Puzzle puzzle;
   tt::Board board;

@@ -325,6 +325,12 @@ on the bottom margin. The thumb rail won from three rendered layouts because it
 matches where the other games keep their controls and puts the two most-used
 ones nearest the thumb.
 
+The board runs to about 6px from the panel's edges, because every pixel of it
+is grid; the buttons under it, on the play and the solved screen, keep the
+16px page margin the front door's do. Squeezing the buttons out to the board's
+edges was the first version, and on the Picco they looked crowded against the
+bezel next to the front door's.
+
 The status line is blank while solving: the clues already say how each line
 stands, and a running count of laid track only repeated the clue total. It
 speaks only for CHECK and HINT.
@@ -476,10 +482,22 @@ difficulty.
 
 ### How to play
 
-Three pages, each a title, a sentence, a smaller second sentence and a 4x4
-board drawn by the play screen's own code: THE RULE (a solved example),
-MARKING (track, crosses and a given), CLUES (met, under and over). NEXT, GOT
-IT and the side keys page through them.
+Three pages, each a sentence in the UI cut over a 4x4 board drawn by the play
+screen's own code, with a smaller line on the bottom margin where it adds
+something, or a second sentence under the board:
+
+1. "CONNECT THE STATIONS WITH A CONTINUOUS SET OF TRAIN TRACKS", over a solved
+   example; "NUMBERS INDICATE TRACKS PER COLUMN OR ROW".
+2. "TAP TO LAY TRACK, AGAIN TO CHANGE IT", over track, crosses and a given;
+   "HOLD TO CLEAR OR CROSS OUT".
+3. "OUTLINED NUMBER MEANS MET" above met, under and over clues, and "FILLED
+   NUMBER MEANS TOO MANY" under them, at the same size: one sentence joining
+   the two read as wordy. No smaller line: it only repeated the sentences.
+
+Sentences are broken by hand where they read best; if a line ever outgrew the
+panel, every sentence on the page would step down to the small cut together. The pages once carried titles (THE RULE, MARKING, CLUES), which the
+header's HOW TO PLAY already said. NEXT, GOT IT and the side keys page through
+them.
 
 ### Saving and resume
 

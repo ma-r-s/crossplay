@@ -9609,6 +9609,29 @@ void checkAndHintMarkTheSquareNotThePiece() {
   CHECK(done.target.fills.size() == doneBare.target.fills.size());
 }
 
+// The play and solved screens' buttons keep the front door's page margin;
+// only the board runs nearly to the panel's edge.
+void theBoardButtonsKeepThePageMargin() {
+  for (const bool solved : {false, true}) {
+    Game game = aGame(tt::Level::Hard);
+    traintracksui::BoardModel model = modelOf(game, tt::Level::Hard);
+    model.solved = solved;
+    Rendered out;
+    build(out, model);
+    int left = 9999;
+    int right = 0;
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      const fui::Rect& r = out.interactions.data()[i].rect;
+      left = std::min<int>(left, r.x);
+      right = std::max<int>(right, r.x + r.width);
+    }
+    CHECK(left == toybox::kMargin);
+    CHECK(right == device().width - toybox::kMargin);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    CHECK(g.rowClueX < toybox::kMargin);  // the board itself is not inset
+  }
+}
+
 // The two stations are the same ringed dot, one on each opening in the frame:
 // the line can be laid from either end, so neither says which way it runs.
 void theStationsAreTwoMatchingDots() {
@@ -18856,6 +18879,7 @@ int main() {
   traintrackstest::aSolvedBoardStopsOfferingHelp();
   traintrackstest::theStatusIsQuietWhileSolving();
   traintrackstest::checkAndHintMarkTheSquareNotThePiece();
+  traintrackstest::theBoardButtonsKeepThePageMargin();
   traintrackstest::theStationsAreTwoMatchingDots();
   traintrackstest::theSolvedBoardIsTheResult();
   traintrackstest::theFrontDoorIsContinueOrNew();
