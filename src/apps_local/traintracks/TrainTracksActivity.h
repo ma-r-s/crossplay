@@ -48,6 +48,9 @@ class TrainTracksActivity final : public Activity {
   void tickClock();
   void loadState();
   void saveState();
+  // Records that the game moved on; maybeSave() writes it once play pauses.
+  void touchSave();
+  void maybeSave();
   uint32_t surfaceMeaning() const override;
 
   // ~9.6KB of generator and solver scratch, allocated once in onEnter so
@@ -84,14 +87,23 @@ class TrainTracksActivity final : public Activity {
   bool holdFired = false;
   bool holdShown = false;
 
-  // What CHECK and HINT leave on the board until the next move.
-  traintracks::CheckFlags flags{};
+  // CHECK's flags, one per square, shown until the next CHECK or the solve.
+  // HINT's mark lasts until the next move.
+  uint8_t wrong[traintracks::kMaxCells] = {};
   bool showWrong = false;
   int hintCell = -1;
   const char* notice = nullptr;
   char noticeText[24] = {};
 
   unsigned long lastTickMs = 0;
+  // An unsaved change: when the first one happened, and the latest. A save
+  // waits kSaveQuietMs after the last change, or kSaveMaxMs after the first,
+  // so a run of taps is one SD write and losing power costs seconds of play.
+  static constexpr unsigned long kSaveQuietMs = 4000;
+  static constexpr unsigned long kSaveMaxMs = 30000;
+  bool unsaved = false;
+  unsigned long unsavedSinceMs = 0;
+  unsigned long lastChangeMs = 0;
   // A new puzzle and a solve are the two beats that earn a full refresh.
   bool flashOnNextPaint = false;
 

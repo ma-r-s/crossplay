@@ -9484,7 +9484,9 @@ void theBoardSpendsFiveControls() {
     CHECK(contains(actions, traintracksui::ActionHint));
     CHECK(contains(actions, traintracksui::ActionMenu));
     for (const char* label : {"UNDO", "REDO", "CHECK", "HINT", "MENU"}) CHECK(drewLabelWhole(out, label));
-    CHECK(drewLabelWhole(out, traintracksui::levelName(level)));
+    // The header is the name alone; the level is on the SOLVED header.
+    CHECK(drewLabelWhole(out, "TRAIN TRACKS"));
+    CHECK(!drewText(out, traintracksui::levelName(level)));
 
     const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
     bool silent = true;
@@ -9618,7 +9620,7 @@ void theSolvedBoardIsTheResult() {
   Rendered unaided;
   build(unaided, model);
   CHECK(drewText(unaided, "SOLVED"));
-  CHECK(drewLabelWhole(unaided, "4:12   UNAIDED"));
+  CHECK(drewLabelWhole(unaided, "4:12   CLEAN WIN"));
   CHECK(drewLabelWhole(unaided, "NEW PUZZLE"));
   const std::vector<int> actions = reachable(unaided);
   CHECK(actions.size() == 1);
@@ -9757,8 +9759,7 @@ void theFrontDoorIsContinueOrNew() {
   CHECK(!resume.interactions.overflowed());
   CHECK(drewLabelWhole(resume, "CONTINUE"));
   CHECK(drewLabelWhole(resume, "NEW PUZZLE"));
-  CHECK(drewText(resume, "IN PROGRESS, 1:35"));
-  CHECK(drewText(resume, "MEDIUM"));
+  CHECK(drewText(resume, "MEDIUM IN PROGRESS, 1:35"));
   CHECK(!drewText(resume, "HOW TO PLAY"));
   CHECK(!resume.has(traintracksui::ActionLevel));
   const std::vector<int> actions = reachable(resume);

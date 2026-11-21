@@ -1,10 +1,13 @@
 # Train Tracks
 
-**Status: in progress.** The whole loop is built and host-tested: rules,
-solver and generator (Milestones 1 and 2), the play screen (3), and the front
-door, new-puzzle screen, CHECK, HINT, how to play, saving and wake resume (4).
-What is left is the hardware pass on the Picco (Milestone 5), recorded under
-"On-device findings" once it is done.
+**Status: in playtesting.** The whole loop is built and host-tested: rules,
+solver and generator, the play screen, the front door, the new-puzzle screen,
+CHECK, HINT, how to play, saving and wake resume. It is being played on a BOOX
+Picco, and what that turns up is recorded under "On-device findings" and in
+the sections it changed.
+
+This document is the game's specification: its rules, mechanics, screens and
+the reasons behind them. Change it together with the code.
 
 Lay one unbroken track from the start gate to the end gate. The number beside
 each row and above each column says how many squares of that line hold track.
@@ -21,34 +24,46 @@ panel.
   passes through each square at most once.
 - **Given squares are locked track, and their shape is shown.** A given
   straight or curve fixes that square's two connections, which is also how the
-  solver reads it. This was decided with the product owner on 2026-11-19
-  instead of the PRD's plain framed block: it makes Easy read like real Train
-  Tracks, and it gives the generator a strong clue to spend.
+  solver reads it. This was decided on 2026-11-19, over
+  a plain framed block: it makes Easy read like real Train Tracks, and it
+  gives the generator a strong clue to spend.
 
-**What wins.** The win is checked against the rules, not compared with a
-stored answer. Every clue must be met, and some single path from gate to gate
-must run through exactly the marked squares while keeping every given's shape.
-Crosses are notes only: they never count and are never required. Any valid
-solution wins, so a puzzle that turned out to be ambiguous would still be
-winnable from either answer. The generator will reject ambiguous puzzles anyway.
+**What wins.** Either of two things (`isSolved`):
 
-## Marking squares, not pieces
+- the marks alone satisfy the rules (`isWin`): every clue met, and some single
+  path from gate to gate runs through exactly the marked squares while keeping
+  every given's shape. Any valid solution wins this way; or
+- the line drawn from the start gate, followed piece by piece, leaves through
+  the end gate having run through every route square (`lineSolves`). Track
+  laid elsewhere does not stop it counting: on a hard puzzle the player may
+  have working track out on the board and not know the line is done. The route
+  is unique, so that line is the answer.
 
-A tap cycles a square through empty, track and crossed. The player never
-chooses a shape: `inferShapes` works out what to draw from the marks.
+Crosses are notes only: they never count and are never required. On a solve
+the stray track is taken away (`tidySolved`) so the solved board shows the
+route alone. (The first version had only the rules win, and on the Picco a
+correct line with unconnected track elsewhere did not finish the puzzle.)
 
-- Each track square starts with a connection toward every neighbouring track
-  square, plus its gate if it has one. Givens keep their own shape.
-- **Symmetry:** a square drops any connection its neighbour does not return.
-- **Saturation:** a connection is forced from a neighbour that is a given, or
-  that has two or fewer connections, and a gate is always forced. A square
-  with exactly two forced connections drops the rest.
-- Repeat until nothing changes. A square still left with three or four
-  connections is ambiguous and is drawn as a plain block until more marks
-  resolve it.
+## Squares, and the pieces on them
 
-So a U through a 2x2 block resolves with no help: each top square has its gate
-plus the settled square below it. A plus or a T junction stays a block.
+The rules are about squares: which hold track. Winning is exactly that, so a
+piece drawn in the wrong shape never blocks a solve. But a track square also
+shows a piece, a straight or a curve, and the player can choose it.
+
+- **A tap** lays track with an automatic piece, which follows its neighbours
+  until touched again. Each further tap chooses the next of all six pieces,
+  most likely first, skipping the one the automatic piece already showed, so
+  every piece is reached once; after the last, the square is empty again.
+- **A hold** takes a square back a step: track or a cross to empty, and an
+  empty square to a cross.
+- **Every track square draws a whole piece.** Automatic pieces
+  (`inferShapes`) never close a loop and never run off the board except
+  through a gate, unless the square is boxed in and no piece could avoid it.
+
+The full rules for drawing and input are under "Screens, input and refresh".
+This section once described a first version in which a tap cycled empty,
+track and cross and the player never chose a shape; playing it on the Picco
+is what replaced it.
 
 ## The solver, and what its tiers mean
 
@@ -202,8 +217,8 @@ Generation puts almost nothing on the stack.
 Measured on an Apple Silicon Mac over 1,000 seeds per level, including the
 test's own checks. **Host timings say nothing about the device.** The ESP32-S3
 is very roughly 15-30 times slower, which would put Hard at a few hundred
-milliseconds on average and around a second at worst. That is inside the PRD's
-6 s target, but it is a guess until it is measured on the Picco.
+milliseconds on average and around a second at worst. The target is a deal
+inside 6 s; the Picco measurements are under "On-device findings".
 
 ### Path shape
 
@@ -248,7 +263,7 @@ clues of 0 or 1 must stay near these figures.
 
 Still to judge in playtesting: some paths keep a blank corner or a pair of
 parallel hairpins, and track is somewhat under-represented on the outer ring.
-The given targets and path ranges are still the PRD's first guesses.
+The given targets and path ranges are first guesses, to be tuned from play.
 
 **Pinned.** `testPinnedPuzzles` pins one puzzle per level by hash, and
 `testRatingIsPinned` pins the rater. Changing either changes which puzzle an
@@ -266,8 +281,8 @@ together.
 
 There is one saved game at a time, and the front door depends on it:
 
-- **A game in progress:** the game itself, bracketed, with its difficulty in
-  the header and "IN PROGRESS, 4:12" above it, then CONTINUE (tall, where the
+- **A game in progress:** the game itself, bracketed, with "MEDIUM IN
+  PROGRESS, 4:12" above it, then CONTINUE (tall, where the
   thumb rests) and NEW PUZZLE. Tapping the picture also continues.
 - **Nothing in progress** (first visit, or the last game was solved): the
   new-puzzle screen is the front door.
@@ -297,7 +312,10 @@ the puzzle it deals, is what made it read as a choice.
 
 ### The play screen
 
-Portrait, top to bottom: the header band (title, and the level on the right),
+Portrait, top to bottom: the header band (the name alone: "TRAIN TRACKS"
+beside a level does not fit the display cut, and stepping it down made this
+header unlike every other screen's, so it follows Minesweeper and
+Knucklebones; SOLVED is short and carries the level),
 the column clues, the grid with the row clues on its left, a status line, and
 a thumb rail: CHECK, HINT and MENU at pill height, then UNDO and REDO 72px tall
 on the bottom margin. The thumb rail won from three rendered layouts because it
@@ -320,16 +338,35 @@ sets the cell, capped at 64px so a small grid still reads as a board:
 9x9 for Hard (44px) was rendered too. 10x10 kept the two-square step and the
 room for long routes, and Picross already ships a 10x10 at about 37px.
 
-**Drawing a square.** Every track square draws one real piece, a straight or
-a quarter-arc curve, each with two sleepers. A given's piece is its own, and
-so is one the player chose; the rest are automatic (`inferShapes`): the gate
-and any fixed piece pointing at a square pull it in, then neighbours join
-where a square has no other way to reach two connections and by the most
-constrained square first, never closing a loop; a square still short of two
-points its open ends at empty squares, preferring to run straight on. A guess
-never fakes a join. Only a square whose joins and free sides cannot make a
-whole piece (marks that cannot all be right) draws less: its one join as a
-stub, a stub toward its one free side, or, boxed in, a small block.
+**Drawing a square.** Every track square draws one whole piece, a straight
+or a quarter-arc curve, each with two sleepers. A given's piece is its own,
+and so is one the player chose, whatever it points at. The rest are automatic
+(`inferShapes`), and follow this rule book. Each rule only acts on the joins
+the rules above it left open, and none ever closes a loop:
+
+1. **The gate.** A gate square connects through its gate.
+2. **Fixed pieces.** A given or chosen piece pointing at an automatic square
+   pulls it in.
+3. **What is drawn stays drawn.** A join on screen (`Board::shape`, recorded
+   by `settle` after every move and kept in the save) between two squares that
+   are still both automatic track stays.
+4. **New track extends a line.** An end on screen pointing at a square that
+   has since become track joins it.
+5. **Forced, then most constrained.** Neighbours join where a square has no
+   other way to reach two connections, then by the most constrained square
+   first.
+6. **Open ends.** A square still short of two points its open ends at empty
+   squares (or its gate), preferring to run straight on. A square boxed in by
+   crosses, the edge or track that does not join it still draws a whole piece,
+   the one that leaves the board least; CHECK says whether it is right.
+
+Rules 3 and 4 came from the Picco. Without them inference was stateless, so
+track laid beside a line from the start gate could reroute the line through
+the new square, and a line the player had built would break somewhere else.
+The host test that lays half a route and then probes every square beside it
+found 2,675 joins broken that way across 120 puzzles. An earlier version also
+drew a boxed-in square as a stub or a small black block. The black block was
+one more symbol for the player to learn, and it said the same thing CHECK says.
 
 The first version joined every pair of neighbouring track squares and pruned
 afterwards. On the Picco that drew curves turning back on themselves in any
@@ -353,9 +390,15 @@ to inference shows open blocks even when it is complete and correct.
 
 **Input.** A tap lays track: an empty or crossed square becomes track with an
 automatic piece, which keeps following its neighbours until touched again. A
-further tap steps it through the pieces that fit there, most likely first
-(`piecesFor`: pieces that can connect on both ends, ranked by how many ends
-meet track that would join them), and after the last back to empty. Each
+further tap steps it through all six pieces, most likely first (`piecesFor`:
+ranked by how many ends meet track that would join them, with pieces that
+cannot fit, off the board or into a cross or away from a gate, offered last),
+skipping the one the automatic piece already showed, and after the last back
+to empty. Offering only the pieces that fit made a corner, where one curve
+fits, look broken on the Picco: the tap went straight back to empty. (The first version stepped
+on from the automatic piece's place in that list, so pieces ranked above it
+could never be reached, sometimes the answer's own; a cold rules critic found
+it.) Each
 chosen piece is pinned (`Board::pin`) and the neighbours fit around it. A hold
 of 400ms, as Sudoku's pencil and Minesweeper's flag, takes a square back a
 step: track or a cross to empty, an empty square to a cross. A cross therefore
@@ -374,35 +417,37 @@ board and turn pages in how to play.
 ### CHECK and HINT
 
 Both mark the square, never the piece (`docs/design-language.md`). HINT's
-bracket clears on the next move. CHECK's notches stay until their own square
-changes, its state or the piece it draws (`CheckFlags`, `keepFlags`), so one
-CHECK serves for as many moves as it takes to put its flags right; clearing
-them all on the next move made the player CHECK again, and pay for it, to see
-the flags they had not reached.
+bracket clears on the next move. CHECK's notches stay through every move,
+undo included, until the next CHECK redraws them or the puzzle is solved
+(or a HINT puts that square right, which clears its notch and no other), so
+one CHECK serves for as many moves as it takes to put its flags right; the
+player finds out a flag is fixed by checking again.
 
 - **CHECK** puts a solid notch in the top-right corner of every square that
   contradicts the answer, and says "2 WRONG" or "NOTHING WRONG SO FAR". That
   is a marked square in the wrong state (track where there is none, or a cross
   on track), and, since the route is unique and so is each of its squares'
-  piece, a route square drawn in the wrong shape: a piece the player chose
-  that is not the answer's, or a join to neighbouring track the answer does
-  not make, chosen or guessed. An empty square is never wrong, and neither is
-  a guessed piece's open end pointing at one: that is a placeholder while the
-  route is laid, not a claim. (The first version judged squares only, and on
-  the Picco a wrongly turned piece passed CHECK.)
+  piece, a route square drawn in a piece that is not the answer's. CHECK
+  judges what is on the screen: a piece the game guessed is judged exactly as
+  one the player chose, so a lone square drawn straight where the answer bends
+  is wrong. An empty square is never wrong. (The first version judged squares
+  only, and on the Picco a wrongly turned piece passed CHECK.)
 - **HINT** places one correct square, as an ordinary move that undo takes
   back, brackets it, and says how many hints so far ("1ST HINT", "2ND HINT").
-  A wrong mark comes first, then a wrong shape, set to the answer's piece,
-  because any deduction made past either would rest on something false.
-  Otherwise the solver reasons forward from the player's own marks
-  (`Solver::applyMarks`) and stops at the lowest tier that decides an empty
-  square, preferring track to a cross. A hint that would finish the puzzle is
-  refused ("LAST MOVE IS YOURS") and not counted: the last move is the
-  player's. It is tried on the board and taken back, history and redo
+  It never lays a cross. Track it lays is set to the answer's piece, so a
+  bracketed square never shows a guess the answer does not have.
+  A wrong mark comes first: track off the route is cleared, and a cross on it
+  becomes track. Then comes a wrong shape, set to the answer's piece, because
+  any deduction made past either would rest on something false. Otherwise the
+  solver reasons forward from the player's own marks (`Solver::applyMarks`)
+  and stops at the lowest tier that proves an empty square is track. (The
+  first version also offered crosses, which tell the player little.) A hint that would finish the puzzle is
+  refused ("LAST MOVE IS YOURS") and not counted, and CHECK's marks stay: the
+  last move is the player's, and nothing on the board changed. It is tried on the board and taken back, history and redo
   included (`hintSolves`).
 
 The game counts both. The solved board shows the time and the tally:
-"UNAIDED", "1 HINT", "3 CHECKS" or "2 HINTS, 1 CHECK", stepping down to the
+"CLEAN WIN" (no hints and no checks), "1 HINT", "3 CHECKS" or "2 HINTS, 1 CHECK", stepping down to the
 small cut rather than cutting a word if the tally is ever too long.
 `Game::assisted()` is either count being non-zero, for a future record.
 
@@ -424,11 +469,18 @@ IT and the side keys page through them.
 ### Saving and resume
 
 `/.crosspoint/traintracks.sav`, written on leaving, on sleep, when a puzzle is
-dealt and when one is solved. `TrainTracksSave.h` is freestanding and
+dealt and when one is solved. During play it is also written once play pauses:
+4 s after the last move or CHECK, or 30 s after the first unsaved one if play
+never pauses, and never while a finger is holding a square. A run of taps is one
+SD write, and a dead battery or a crash costs seconds of play.
+`TrainTracksSave.h` is freestanding and
 host-tested: one line of small integers (format version, remembered
 difficulty, whether a game is saved and whether the board was on screen,
 level, seed, attempt, puzzle hash, solved, hints, checks, elapsed time and the
-history ring's cursors), then the squares, then the 64 undo moves.
+history ring's cursors), then the squares (state, chosen piece and the shape
+last drawn, so a reload draws every line exactly as it was), then the 64 undo
+moves. Version 3 added the drawn shapes; a version 2 save still loads, with
+its shapes inferred afresh.
 
 The puzzle is not stored. It is regenerated from `(level, seed, attempt)` and
 must hash to the stored value, so a save from a generator that has since

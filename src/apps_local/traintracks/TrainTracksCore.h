@@ -191,6 +191,9 @@ struct Board {
   // The piece the player chose for a track square (a connection mask), or 0
   // while it is still automatic and follows its neighbours. Drawing only.
   uint8_t pin[kMaxCells];
+  // The shapes last drawn (settle). Inference keeps the joins in it, so track
+  // laid later joins a line's open ends instead of rerouting the line.
+  uint8_t shape[kMaxCells];
   History history;
 };
 
@@ -283,24 +286,27 @@ inline bool allCluesMet(const Board& b, const Puzzle& p) {
 // ---------------------------------------------------------------------------
 // Shapes for drawing, and what a tap and a hold do.
 //
-// Every track square draws one real piece, two connections, unless the marks
-// around it leave it no whole piece to make: then it draws only what is real
-// (its one join, or a stub toward its one free side), because any whole piece
-// there would have to fake a join or close a loop. Those marks cannot all be
-// right, and the stub says so where it happens. A given's piece is its own, and so is a piece the player chose
-// (Board::pin). The rest are automatic and follow their neighbours:
+// Every track square draws one whole piece, two connections. A given's piece
+// is its own, and so is a piece the player chose (Board::pin), whatever it
+// points at: CHECK is what says a piece is wrong. The rest are automatic and
+// follow these rules, earlier rules first, never closing a loop (a route is a
+// path, so a loop is never legal):
 //
 //   1. a gate square connects through its gate;
 //   2. a fixed piece pointing at an automatic neighbour pulls it in;
-//   3. automatic neighbours join where a square has no other way to reach
-//      two connections, then by the most constrained square first, never
-//      closing a loop (a route is a path, so a loop is never legal);
-//   4. a square still short of two points its open ends at empty squares (or
+//   3. a join drawn last time (Board::shape) between two squares that are
+//      both still automatic track stays;
+//   4. an end drawn last time toward a square that has since become track
+//      joins it, so new track extends a line rather than breaking it;
+//   5. automatic neighbours join where a square has no other way to reach
+//      two connections, then by the most constrained square first;
+//   6. a square still short of two points its open ends at empty squares (or
 //      its gate), preferring to run straight on, so it reads as track waiting
-//      for more.
+//      for more. Boxed in, it takes the piece that leaves the board least,
+//      and never one that closes a loop with a piece already pointing at it.
 //
-// A connection never leaves the board except through a gate, and never runs
-// into a cross or into a fixed piece that does not point back.
+// An automatic join never leaves the board except through a gate, and never
+// runs into a cross or into a fixed piece that does not point back.
 
 // The six pieces, in the order an isolated square tries them.
 constexpr uint8_t kPieces[6] = {
@@ -401,7 +407,29 @@ inline void inferShapes(const Board& b, const Puzzle& p, uint8_t* mask /* kMaxCe
       }
     }
   }
-  // 3: automatic neighbours. `open` lists the joins still possible from i.
+  // 3 and 4: what was drawn last time. Both sides' ends first, then one side's.
+  auto room = [&](const int i) { return automatic[i] && popcount4(mask[i]) < 2; };
+  for (int r = 0; r < n; ++r) {
+    for (int c = 0; c < n; ++c) {
+      const int i = cellIndex(r, c);
+      for (const int d : {kEast, kSouth}) {
+        if (!room(i) || !(b.shape[i] & dirBit(d)) || !isTrack(b, p, r + kDRow[d], c + kDCol[d])) continue;
+        const int j = cellIndex(r + kDRow[d], c + kDCol[d]);
+        if (room(j) && (b.shape[j] & dirBit(opposite(d)))) link(i, d);
+      }
+    }
+  }
+  for (int r = 0; r < n; ++r) {
+    for (int c = 0; c < n; ++c) {
+      const int i = cellIndex(r, c);
+      for (int d = 0; d < 4; ++d) {
+        if (!room(i) || !(b.shape[i] & dirBit(d)) || !isTrack(b, p, r + kDRow[d], c + kDCol[d])) continue;
+        const int j = cellIndex(r + kDRow[d], c + kDCol[d]);
+        if (room(j)) link(i, d);
+      }
+    }
+  }
+  // 5: automatic neighbours. `open` lists the joins still possible from i.
   auto openJoins = [&](const int i, uint8_t& dirs) {
     dirs = 0;
     if (!automatic[i] || popcount4(mask[i]) >= 2) return 0;
@@ -461,54 +489,73 @@ inline void inferShapes(const Board& b, const Puzzle& p, uint8_t* mask /* kMaxCe
     }
     if (pick >= 0) progress = link(best, pick);
   }
-  // 4: open ends, toward squares with nothing in them (or the gate). Only a
-  // whole piece is drawn that way; a square that cannot make one from its
-  // joins and its free sides draws what is real and no more: its join as a
-  // stub, or a stub toward its one free side, or, boxed in, the small block.
-  auto openEnd = [&](const int i, const int d) {
-    if (!detail::mayConnect(b, p, i, d)) return false;
+  // 6: open ends. An end toward an empty square (or the gate) scores 2, one
+  // toward anything else on the board 1, one off the board 0; the best whole
+  // piece that keeps the square's joins wins, and with one end set, running
+  // straight on beats turning.
+  // An end that meets a piece already pointing back is a join: worth most,
+  // unless it would close a loop, which is worth least.
+  auto endScore = [&](const int i, const int d) {
     const int r2 = rowOf(i) + kDRow[d];
     const int c2 = colOf(i) + kDCol[d];
-    return !inside(p, r2, c2) || b.cell[cellIndex(r2, c2)] == kEmpty;
+    if (!inside(p, r2, c2)) return gateSide(p, rowOf(i), colOf(i)) == d ? 2 : 0;
+    const int j = cellIndex(r2, c2);
+    if (b.cell[j] == kTrack && (mask[j] & dirBit(opposite(d)))) return links.find(i) == links.find(j) ? 0 : 3;
+    if (!detail::mayConnect(b, p, i, d)) return 1;
+    return b.cell[j] == kEmpty ? 2 : 1;
   };
   for (int i = 0; i < kMaxCells; ++i) {
     if (!automatic[i] || popcount4(mask[i]) >= 2) continue;
     uint8_t chosen = 0;
+    int best = -1;
     for (const uint8_t piece : kPieces) {
       if ((piece & mask[i]) != mask[i]) continue;
-      bool ok = true;
-      for (int d = 0; d < 4 && ok; ++d) {
-        if ((piece & dirBit(d)) && !(mask[i] & dirBit(d))) ok = openEnd(i, d);
+      int score = 0;
+      for (int d = 0; d < 4; ++d) {
+        if ((piece & dirBit(d)) && !(mask[i] & dirBit(d))) score += endScore(i, d);
       }
-      if (!ok) continue;
-      // With one end set, running straight on beats turning.
       const bool straight = piece == kPieces[0] || piece == kPieces[1];
-      if (chosen == 0 || (popcount4(mask[i]) == 1 && straight)) chosen = piece;
-    }
-    if (chosen == 0 && mask[i] == 0) {
-      for (const int d : {kEast, kWest, kNorth, kSouth}) {
-        if (chosen == 0 && openEnd(i, d)) chosen = dirBit(d);
+      const int rank = 2 * score + (popcount4(mask[i]) == 1 && straight ? 1 : 0);
+      if (rank > best) {
+        best = rank;
+        chosen = piece;
       }
     }
-    if (chosen) mask[i] = chosen;
+    for (int d = 0; d < 4; ++d) {
+      if (!(chosen & dirBit(d)) || (mask[i] & dirBit(d)) || !isTrack(b, p, rowOf(i) + kDRow[d], colOf(i) + kDCol[d])) {
+        continue;
+      }
+      const int j = cellIndex(rowOf(i) + kDRow[d], colOf(i) + kDCol[d]);
+      if (mask[j] & dirBit(opposite(d))) links.join(i, j);
+    }
+    mask[i] = chosen;
   }
 }
 
-// The pieces a track square can be set to, most likely first: every piece
-// that can connect on both its ends, ranked by how many of those ends meet
-// track that would join it. A gate square's pieces all use its gate.
+// Records what the board draws now, so the next inference keeps its joins.
+// Called after every change the player sees.
+inline void settle(Board& b, const Puzzle& p) {
+  uint8_t next[kMaxCells];
+  inferShapes(b, p, next);
+  for (int i = 0; i < kMaxCells; ++i) b.shape[i] = next[i];
+}
+
+// All six pieces, most likely first: a piece scores for each end that meets
+// track that would join it, and loses for each end that cannot connect (off
+// the board, into a cross, into a piece that does not point back) and, on a
+// gate square, for not using the gate. Pieces that cannot be right are still
+// offered, last: the player may lay what they like, and CHECK judges it.
 inline int piecesFor(const Board& b, const Puzzle& p, const int i, uint8_t* out /* 6 */) {
   const int side = gateSide(p, rowOf(i), colOf(i));
+  constexpr int kMisfit = 8;
   int scores[6] = {};
   int count = 0;
   for (const uint8_t piece : kPieces) {
-    if (side >= 0 && !(piece & dirBit(side))) continue;
-    bool ok = true;
-    int score = 0;
-    for (int d = 0; d < 4 && ok; ++d) {
+    int score = side >= 0 && !(piece & dirBit(side)) ? -kMisfit : 0;
+    for (int d = 0; d < 4; ++d) {
       if (!(piece & dirBit(d))) continue;
       if (!detail::mayConnect(b, p, i, d)) {
-        ok = false;
+        score -= kMisfit;
         continue;
       }
       const int r2 = rowOf(i) + kDRow[d];
@@ -516,7 +563,6 @@ inline int piecesFor(const Board& b, const Puzzle& p, const int i, uint8_t* out 
       if (!isTrack(b, p, r2, c2)) continue;
       score += fixedPiece(b, p, cellIndex(r2, c2)) ? 2 : 1;
     }
-    if (!ok) continue;
     // Insertion by score, stable in kPieces order.
     int at = count;
     while (at > 0 && scores[at - 1] < score) {
@@ -531,25 +577,34 @@ inline int piecesFor(const Board& b, const Puzzle& p, const int i, uint8_t* out 
   return count;
 }
 
-// A tap. An empty or crossed square becomes track, its piece automatic; a
-// track square steps to the next piece that fits, after the one it shows,
-// and from the last back to empty. Givens are refused.
+// A tap. An empty or crossed square becomes track, its piece automatic. After
+// that each tap chooses the next of the six pieces, most likely first,
+// skipping the one the automatic piece already showed, so every piece is
+// reached once; after the last, the square is empty again. Givens are refused.
 inline bool tapCell(Board& b, const Puzzle& p, const int row, const int col) {
   if (!inside(p, row, col)) return false;
   const int i = cellIndex(row, col);
   if (p.given[i]) return false;
   if (b.cell[i] != kTrack) return setCell(b, p, row, col, kTrack, 0);
+  // The piece this square showed while automatic: already seen, so skipped.
+  const uint8_t chosen = b.pin[i];
+  b.pin[i] = 0;
   uint8_t shapes[kMaxCells];
   inferShapes(b, p, shapes);
+  b.pin[i] = chosen;
+  const uint8_t automatic = shapes[i];
   uint8_t pieces[6];
   const int count = piecesFor(b, p, i, pieces);
+  // Where the cycle stands: before the first piece while automatic, else at
+  // the chosen piece.
   int at = -1;
-  for (int k = 0; k < count; ++k) {
-    if (pieces[k] == shapes[i]) at = k;
+  for (int k = 0; k < count && chosen; ++k) {
+    if (pieces[k] == chosen) at = k;
   }
-  if (at + 1 >= count && at >= 0) return setCell(b, p, row, col, kEmpty);
-  if (count == 0) return setCell(b, p, row, col, kEmpty);
-  return setCell(b, p, row, col, kTrack, pieces[at + 1]);
+  for (int k = at + 1; k < count; ++k) {
+    if (pieces[k] != automatic) return setCell(b, p, row, col, kTrack, pieces[k]);
+  }
+  return setCell(b, p, row, col, kEmpty);
 }
 
 // A hold takes a square back a step: track or a cross to empty, and an empty

@@ -23,6 +23,9 @@ constexpr int16_t kClueH = 34;    // column-clue band
 constexpr int16_t kTab = 10;      // gate arrows live in this band outside the frame
 constexpr int16_t kMaxCell = 64;  // a 6x6 should still read as a board, not as tiles
 constexpr int16_t kStatusH = 34;
+// Between the gate band under the board and the status line: without it a
+// bottom gate's arrow hung into the line's first letters.
+constexpr int16_t kStatusGap = 10;
 constexpr int16_t kThumbRow = 72;  // UNDO / REDO, sized for a thumb
 
 constexpr int16_t kFrameW = toybox::kFrame;
@@ -351,12 +354,12 @@ Geometry fitGeometry(const fui::Rect& room, const int n, const bool clues) {
   return g;
 }
 
-// "UNAIDED", "2 HINTS", "1 CHECK", "2 HINTS, 1 CHECK".
+// "CLEAN WIN", "2 HINTS", "1 CHECK", "2 HINTS, 1 CHECK".
 void helpText(const uint16_t hints, const uint16_t checks, char* out, const int size) {
   const unsigned h = hints;
   const unsigned c = checks;
   if (h == 0 && c == 0) {
-    std::snprintf(out, static_cast<size_t>(size), "UNAIDED");
+    std::snprintf(out, static_cast<size_t>(size), "CLEAN WIN");
   } else if (c == 0) {
     std::snprintf(out, static_cast<size_t>(size), "%u HINT%s", h, h == 1 ? "" : "S");
   } else if (h == 0) {
@@ -579,7 +582,7 @@ Geometry boardGeometry(const fui::DeviceContext& device, const int n) {
   const int16_t bottom = static_cast<int16_t>(height - toybox::kMargin);
   g.colClueY = top;
   g.gridY = static_cast<int16_t>(top + kClueH + kTab + kFrameW);
-  g.statusY = static_cast<int16_t>(g.gridY + side + kFrameW + kTab);
+  g.statusY = static_cast<int16_t>(g.gridY + side + kFrameW + kTab + kStatusGap);
   g.controlsY = static_cast<int16_t>(bottom - kThumbRow - 8 - toybox::kPillHeight);
   return g;
 }
@@ -600,7 +603,11 @@ bool cellAt(const Geometry& g, const int x, const int y, int& row, int& col) {
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
-  toyboxChrome(screen, model.solved ? "SOLVED" : "TRAIN TRACKS", levelName(model.level));
+  // "TRAIN TRACKS" beside a level does not fit the display cut, and the band
+  // would step the title down to the small one on this screen alone. So the
+  // name stands alone, as MINESWEEPER and KNUCKLEBONES do; the board's size
+  // says the level, and SOLVED, which is short, carries it.
+  toyboxChrome(screen, model.solved ? "SOLVED" : "TRAIN TRACKS", model.solved ? levelName(model.level) : nullptr);
   if (model.puzzle == nullptr || model.board == nullptr) return;
   const Geometry g = boardGeometry(screen.device(), model.puzzle->size);
   Marks marks;
@@ -621,12 +628,13 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 // instead.
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const tt::Game* game = model.game;
-  toyboxChrome(screen, "TRAIN TRACKS", game != nullptr ? levelName(game->level) : nullptr);
+  // The name alone, as on the board; the level moves into the state line.
+  toyboxChrome(screen, "TRAIN TRACKS", nullptr);
   char state[40] = "IN PROGRESS";
   if (game != nullptr) {
     char clock[16];
     formatClock(game->elapsedMs, clock, sizeof(clock));
-    std::snprintf(state, sizeof(state), "IN PROGRESS, %s", clock);
+    std::snprintf(state, sizeof(state), "%s IN PROGRESS, %s", levelName(game->level), clock);
   }
   stateAndRecord(screen, state);
 
@@ -680,7 +688,7 @@ const Lesson kLessons[] = {
      "TG.."
      "..x."
      "x..."},
-    {"CLUES", "A BOX MEANS MET. BLACK IS TOO MANY.", "CHECK AND HINT MARK THE RUN ASSISTED.",
+    {"CLUES", "A BOX MEANS MET. BLACK IS TOO MANY.", "A BOXED LINE IS FULL: CROSS THE REST.",
      ".TT."
      "TTT."
      "...."

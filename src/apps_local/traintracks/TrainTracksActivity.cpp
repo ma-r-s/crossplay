@@ -197,16 +197,18 @@ void TrainTracksActivity::tickClock() {
   game.elapsedMs += static_cast<uint32_t>(since);
 }
 
-// Every change to the board clears what CHECK and HINT left on it, then asks
-// whether that change finished the puzzle.
+// Every change to the board: the hint's mark and the status line answer only
+// the move they were about, so they go; CHECK's flags stay until the next CHECK
+// or the solve. Then, did that change finish the puzzle?
 void TrainTracksActivity::afterMove() {
-  // CHECK's flags stay until their own square changes; the hint's mark and
-  // the status line answer only the move they were about.
-  if (showWrong) showWrong = tt::keepFlags(game.puzzle, game.board, flags) > 0;
   hintCell = -1;
   notice = nullptr;
-  if (tt::isWin(game.puzzle, game.board, work->solver)) {
+  touchSave();
+  tt::settle(game.board, game.puzzle);
+  if (tt::isSolved(game.puzzle, game.board, work->solver)) {
+    tt::tidySolved(game.board, game.puzzle);
     game.solved = true;
+    showWrong = false;
     flashOnNextPaint = true;
     saveState();
   }
@@ -215,8 +217,9 @@ void TrainTracksActivity::afterMove() {
 
 void TrainTracksActivity::check() {
   if (game.checks < 0xFFFF) ++game.checks;
+  touchSave();
   hintCell = -1;
-  const int count = tt::checkAndStamp(game.puzzle, game.board, flags);
+  const int count = tt::checkBoard(game.puzzle, game.board, wrong);
   showWrong = count > 0;
   if (count == 0) {
     std::snprintf(noticeText, sizeof(noticeText), "NOTHING WRONG SO FAR");
@@ -230,8 +233,8 @@ void TrainTracksActivity::check() {
 void TrainTracksActivity::hint() {
   const tt::Hint found = tt::findHint(game.puzzle, game.board, work->solver);
   if (tt::hintSolves(game, found, work->solver)) {
-    // The last move is the player's. Not counted: no help was given.
-    showWrong = false;
+    // The last move is the player's. Not counted: no help was given, and
+    // nothing on the board changed, so CHECK's marks stay where they are.
     hintCell = -1;
     notice = "LAST MOVE IS YOURS";
     requestUpdate();
@@ -239,6 +242,8 @@ void TrainTracksActivity::hint() {
   }
   if (!tt::applyHint(game, found)) return;
   if (game.hints < 0xFFFF) ++game.hints;
+  // The hinted square is right now, so its CHECK flag has nothing left to say.
+  wrong[found.cell] = 0;
   afterMove();
   if (game.solved) return;
   hintCell = found.cell;
@@ -276,6 +281,7 @@ void TrainTracksActivity::loadState() {
 }
 
 void TrainTracksActivity::saveState() {
+  unsaved = false;
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
   auto buffer = makeUniqueNoThrow<char[]>(tt::kSaveBytes);
   if (!buffer) {
@@ -295,6 +301,20 @@ void TrainTracksActivity::saveState() {
 #endif
 }
 
+void TrainTracksActivity::touchSave() {
+  const unsigned long now = millis();
+  if (!unsaved) unsavedSinceMs = now;
+  unsaved = true;
+  lastChangeMs = now;
+}
+
+void TrainTracksActivity::maybeSave() {
+  if (!unsaved || heldCell >= 0) return;
+  const unsigned long now = millis();
+  if (now - lastChangeMs < kSaveQuietMs && now - unsavedSinceMs < kSaveMaxMs) return;
+  saveState();
+}
+
 // What a grid tap means: which screen is live, and the grid's size, which is
 // the whole of the pixel-to-square map. A deal landing on the new-puzzle
 // screen changes what a tap on its preview does, so readiness is in it too.
@@ -308,6 +328,7 @@ void TrainTracksActivity::loop() {
   namespace fui = freeink::ui;
 
   tickClock();
+  maybeSave();
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (tt::leavesApp(screen, unfinished())) {
@@ -536,7 +557,7 @@ void TrainTracksActivity::render(RenderLock&&) {
       model.hints = game.hints;
       model.checks = game.checks;
       model.notice = notice;
-      model.wrong = showWrong ? flags.wrong : nullptr;
+      model.wrong = showWrong ? wrong : nullptr;
       model.hintCell = hintCell;
       model.holdCell = holdShown ? heldCell : -1;
       traintracksui::buildBoard(surface, model);

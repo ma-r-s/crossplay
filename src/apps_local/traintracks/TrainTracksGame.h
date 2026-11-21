@@ -52,24 +52,13 @@ inline bool isWrong(const Puzzle& p, const Board& b, const int i) {
   return false;
 }
 
-// A track square on the route whose shape contradicts the answer, given the
-// shapes the board draws (`shapes`, from inferShapes). The route is unique, so
-// each of its squares has one right piece. Wrong is a piece the player chose
-// that is not that piece, or a join to a neighbouring track square that the
-// answer does not make, chosen or guessed. An open end toward an empty square
-// is not a claim, only a guess waiting for track, and is never wrong.
+// A track square on the route drawn in a shape the answer does not have, given
+// the shapes the board draws (`shapes`, from inferShapes). The route is unique,
+// so each of its squares has one right piece, and CHECK judges what is on the
+// screen: a piece the game guessed is judged exactly as one the player chose.
 inline bool isWrongShape(const Puzzle& p, const Board& b, const uint8_t* shapes, const int i) {
   if (b.cell[i] != kTrack || !p.solution[i] || p.given[i]) return false;
-  if (b.pin[i] && b.pin[i] != p.solution[i]) return true;
-  const int r = rowOf(i);
-  const int c = colOf(i);
-  for (int d = 0; d < 4; ++d) {
-    if (!(shapes[i] & dirBit(d)) || (p.solution[i] & dirBit(d))) continue;
-    const int r2 = r + kDRow[d];
-    const int c2 = c + kDCol[d];
-    if (isTrack(b, p, r2, c2) && (shapes[cellIndex(r2, c2)] & dirBit(opposite(d)))) return true;
-  }
-  return false;
+  return shapes[i] != p.solution[i];
 }
 
 // CHECK. Fills `wrong` (one flag per square) and returns how many: squares
@@ -86,46 +75,10 @@ inline int checkBoard(const Puzzle& p, const Board& b, uint8_t* wrong) {
   return count;
 }
 
-// What CHECK flagged, kept until the flagged square changes: its state, or the
-// piece it draws (a guessed piece re-bends when a neighbour changes, and that
-// counts). Taking flags away on every move made a player CHECK again, and pay
-// for it, just to see the flags they had not got to yet.
-struct CheckFlags {
-  uint8_t wrong[kMaxCells];
-  uint8_t state[kMaxCells];  // each flagged square as CHECK saw it
-  uint8_t shape[kMaxCells];
-};
-
-// CHECK, keeping what it saw. Returns how many squares are flagged.
-inline int checkAndStamp(const Puzzle& p, const Board& b, CheckFlags& flags) {
-  const int count = checkBoard(p, b, flags.wrong);
-  inferShapes(b, p, flags.shape);
-  for (int i = 0; i < kMaxCells; ++i) flags.state[i] = b.cell[i];
-  return count;
-}
-
-// After a move: drops each flag whose square has changed since the CHECK, and
-// returns how many are left.
-inline int keepFlags(const Puzzle& p, const Board& b, CheckFlags& flags) {
-  uint8_t shapes[kMaxCells];
-  inferShapes(b, p, shapes);
-  int left = 0;
-  for (int i = 0; i < kMaxCells; ++i) {
-    if (!flags.wrong[i]) continue;
-    if (b.cell[i] != flags.state[i] || shapes[i] != flags.shape[i]) {
-      flags.wrong[i] = 0;
-    } else {
-      ++left;
-    }
-  }
-  return left;
-}
-
 enum class HintKind : uint8_t {
   None,
   Fixed,  // a square the player had wrong, or its shape, put right
   Track,  // track belongs here
-  Cross,  // track does not belong here
 };
 
 struct Hint {
@@ -136,13 +89,14 @@ struct Hint {
   uint8_t tier = 0;  // the solver tier that found it, 0 for a fix
 };
 
-// HINT: one square, always correct.
+// HINT: one square, always correct, and never a cross: a hint lays track or
+// takes away track that does not belong.
 //
 // A wrong mark comes first, because any deduction made past it would be built
-// on something false, then a wrong shape, set to the answer's piece. Otherwise
-// the solver reasons forward from the player's
-// own marks and stops at the lowest tier that decides a square the player has
-// left empty, preferring track, which tells the player more than a cross does.
+// on something false: track off the route is cleared, a cross on it becomes
+// track. Then a wrong shape, set to the answer's piece. Otherwise the solver
+// reasons forward from the player's own marks and stops at the lowest tier
+// that decides a square the player has left empty is track.
 inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
   Hint hint;
   const int n = p.size;
@@ -151,7 +105,7 @@ inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
       const int i = cellIndex(r, c);
       if (!isWrong(p, b, i)) continue;
       hint.cell = i;
-      hint.state = p.solution[i] ? kTrack : kCross;
+      hint.state = p.solution[i] ? kTrack : kEmpty;
       hint.kind = HintKind::Fixed;
       return hint;
     }
@@ -173,28 +127,16 @@ inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
   if (solver.load(p) && solver.applyMarks(b)) {
     for (int tier = 1; tier <= 3; ++tier) {
       solver.deduce(tier);
-      int cross = -1;
       for (int r = 0; r < n; ++r) {
         for (int c = 0; c < n; ++c) {
           const int i = cellIndex(r, c);
-          if (b.cell[i] != kEmpty) continue;
-          const uint8_t known = solver.square(r, c);
-          if (known == kYes) {
-            hint.cell = i;
-            hint.state = kTrack;
-            hint.kind = HintKind::Track;
-            hint.tier = static_cast<uint8_t>(tier);
-            return hint;
-          }
-          if (known == kNo && cross < 0) cross = i;
+          if (b.cell[i] != kEmpty || solver.square(r, c) != kYes) continue;
+          hint.cell = i;
+          hint.state = kTrack;
+          hint.kind = HintKind::Track;
+          hint.tier = static_cast<uint8_t>(tier);
+          return hint;
         }
-      }
-      if (cross >= 0) {
-        hint.cell = cross;
-        hint.state = kCross;
-        hint.kind = HintKind::Cross;
-        hint.tier = static_cast<uint8_t>(tier);
-        return hint;
       }
     }
   }
@@ -215,9 +157,56 @@ inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
 }
 
 // Applies a hint as an ordinary move, so it can be undone like any other.
+// Track a hint lays is the answer's piece, set, so a bracketed square never
+// shows a guess the answer does not have.
 inline bool applyHint(Game& game, const Hint& hint) {
   if (hint.cell < 0) return false;
-  return setCell(game.board, game.puzzle, rowOf(hint.cell), colOf(hint.cell), hint.state, hint.pin);
+  const uint8_t pin = hint.state == kTrack ? game.puzzle.solution[hint.cell] : 0;
+  return setCell(game.board, game.puzzle, rowOf(hint.cell), colOf(hint.cell), hint.state, pin);
+}
+
+// Whether the line drawn from the start gate, followed piece by piece, leaves
+// through the end gate having run through every square of the route. The
+// route is unique, so that line is the answer, and track laid elsewhere does
+// not stop it counting.
+inline bool lineSolves(const Puzzle& p, const Board& b) {
+  uint8_t shapes[kMaxCells];
+  inferShapes(b, p, shapes);
+  int row = p.start.row;
+  int col = p.start.col;
+  int from = p.start.side;
+  for (int steps = 1; steps <= kMaxCells; ++steps) {
+    const int i = cellIndex(row, col);
+    const uint8_t piece = shapes[i];
+    if (b.cell[i] != kTrack || !p.solution[i] || !(piece & dirBit(from)) || popcount4(piece) != 2) return false;
+    const int to = popcount4(piece & ~dirBit(from)) == 1 ? __builtin_ctz(piece & ~dirBit(from)) : -1;
+    if (to < 0) return false;
+    if (row == p.end.row && col == p.end.col && to == p.end.side) return steps == totalTrack(p);
+    row += kDRow[to];
+    col += kDCol[to];
+    if (!inside(p, row, col)) return false;
+    from = opposite(to);
+  }
+  return false;
+}
+
+// Solved: the marks alone satisfy every rule (isWin), or the drawn line is the
+// route whatever else is on the board.
+inline bool isSolved(const Puzzle& p, const Board& b, Solver& scratch) {
+  return lineSolves(p, b) || isWin(p, b, scratch);
+}
+
+// A solved board drawn as the answer: track off the route is taken away, and
+// every route square shows its own piece. Outside the history, since a solved
+// game takes no more moves.
+inline void tidySolved(Board& b, const Puzzle& p) {
+  for (int i = 0; i < kMaxCells; ++i) {
+    if (b.cell[i] == kTrack && !p.solution[i]) {
+      b.cell[i] = kEmpty;
+      b.pin[i] = 0;
+    }
+    b.shape[i] = p.solution[i];
+  }
 }
 
 // Whether a hint would finish the puzzle. The last move is the player's: a
@@ -235,7 +224,7 @@ inline bool hintSolves(Game& game, const Hint& hint, Solver& scratch) {
   const int slot = (first + cursor) % kHistoryDepth;
   const Move overwritten = h.moves[slot];
   if (!applyHint(game, hint)) return false;
-  const bool solves = isWin(game.puzzle, game.board, scratch);
+  const bool solves = isSolved(game.puzzle, game.board, scratch);
   undo(game.board);
   h.moves[slot] = overwritten;
   h.first = first;

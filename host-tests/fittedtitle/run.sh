@@ -48,7 +48,7 @@ python3 ./corpus.py "$BUILD_DIR/corpus.generated.h"
   -I../../lib/Utf8 -I../../lib/EpdFont \
   -I"$APPS/ui" -I"$APPS/connections" -I"$APPS/dungeon" -I"$APPS/forehead" \
   -I"$APPS/link" -I"$APPS/toybattle" -I"$APPS/xkcd" -I"$APPS/player" \
-  -I"$APPS/hackernews" -I"$APPS/hearts" -I"$APPS/cards" \
+  -I"$APPS/hackernews" -I"$APPS/hearts" -I"$APPS/cards" -I"$APPS/traintracks" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../lib/Utf8/Utf8.cpp \
   ../../lib/EpdFont/EpdFont.cpp \
@@ -71,5 +71,6 @@ python3 ./corpus.py "$BUILD_DIR/corpus.generated.h"
   "$APPS/toybattle/ToyBattleMenus.cpp" \
   "$APPS/toybattle/ToyBattleScreens.cpp" \
   "$APPS/xkcd/XkcdScreens.cpp" \
+  "$APPS/traintracks/TrainTracksScreens.cpp" \
   test_fittedtitle.cpp -o "$BUILD_DIR/test_fittedtitle"
 "$BUILD_DIR/test_fittedtitle"

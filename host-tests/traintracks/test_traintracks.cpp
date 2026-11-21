@@ -49,7 +49,7 @@ bool onEdge(const int size, const int cell) {
 }
 
 // A random self-avoiding walk from an edge square, cut at its last edge
-// square. Test scaffolding only: Milestone 2 brings the real path builder.
+// square. Test scaffolding only: the generator has the real path builder.
 bool randomPuzzle(Puzzle& p, const int size, Rng& rng, const int minLength) {
   for (int attempt = 0; attempt < 200; ++attempt) {
     uint8_t path[kMaxCells];
@@ -365,37 +365,29 @@ void checkShapes(const Board& b, const Puzzle& p, const bool noPins) {
           ++usable;
         }
       }
-      // A whole piece wherever one can be made; otherwise less, never more.
-      if (popcount4(mask[i]) != 2) CHECK(automatic && popcount4(mask[i]) < 2 && usable < 2);
+      // Always a whole piece. An automatic one fakes an end (off the board
+      // away from its gate, or into a square that does not join it) only
+      // when it is boxed in: fewer than two real ends to use.
+      CHECK(popcount4(mask[i]) == 2);
       for (int d = 0; d < 4; ++d) {
         if (!(mask[i] & dirBit(d))) continue;
         const int r2 = r + kDRow[d];
         const int c2 = c + kDCol[d];
         if (!inside(p, r2, c2)) {
-          // Off the board only through a gate, unless every piece would leave
-          // it (a fixed piece, or a square hemmed in on all sides).
-          if (automatic && gateSide(p, r, c) != d) {
-            bool anyInside = false;
-            for (int e = 0; e < 4; ++e) {
-              if (inside(p, r + kDRow[e], c + kDCol[e]) && b.cell[cellIndex(r + kDRow[e], c + kDCol[e])] != kCross) {
-                anyInside = true;
-              }
-            }
-            CHECK(!anyInside);
-          }
+          if (automatic && gateSide(p, r, c) != d) CHECK(usable < 2);
           continue;
         }
         const int j = cellIndex(r2, c2);
         if (!automatic) continue;
-        if (b.cell[j] == kTrack) {
-          // A guessed join is always mutual: a guess never fakes one.
-          CHECK(mask[j] & dirBit(opposite(d)));
+        if (b.cell[j] == kTrack && (mask[j] & dirBit(opposite(d)))) {
           if (d == kEast || d == kSouth) {
             const int ri = find(i);
             const int rj = find(j);
             if (ri == rj) loop = true;
             parent[ri] = static_cast<uint8_t>(rj);
           }
+        } else if (b.cell[j] != kEmpty) {
+          CHECK(usable < 2);
         }
       }
     }
@@ -541,13 +533,28 @@ void testTapVisitsEveryPiece() {
     CHECK(tapCell(b, p, r, c));
     uint8_t options[6];
     const int count = piecesFor(b, p, i, options);
+    // Every piece that fits is shown once: first the automatic one, then each
+    // chosen one; then the square is empty.
+    uint8_t shapes[kMaxCells];
+    inferShapes(b, p, shapes);
+    uint8_t shown[8] = {shapes[i]};
+    int seen = 1;
     int taps = 0;
     while (b.cell[i] == kTrack && taps <= 8) {
       tapCell(b, p, r, c);
       ++taps;
+      if (b.cell[i] == kTrack) {
+        for (int k = 0; k < seen; ++k) CHECK(shown[k] != b.pin[i]);
+        shown[seen++] = b.pin[i];
+      }
     }
     CHECK(b.cell[i] == kEmpty);
     CHECK(taps <= count + 1);
+    for (int k = 0; k < count; ++k) {
+      bool reached = false;
+      for (int m = 0; m < seen; ++m) reached |= shown[m] == options[k];
+      CHECK(reached);
+    }
   }
 }
 

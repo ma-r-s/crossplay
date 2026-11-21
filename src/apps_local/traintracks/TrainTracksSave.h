@@ -7,8 +7,9 @@
 //
 //   version menuLevel hasGame onBoard level seed attempt hash solved hints
 //   checks elapsedMs first count cursor
-//   <size*size squares, row by row, two characters each: the state digit
-//    (0 empty, 1 track, 2 cross) and the chosen piece in hex (0: automatic)>
+//   <size*size squares, row by row, three characters each: the state digit
+//    (0 empty, 1 track, 2 cross), the chosen piece in hex (0: automatic) and
+//    the shape last drawn in hex (Board::shape)>
 //   <64 moves, six hex digits each: cell (2), from, to, fromPin, toPin>
 //
 // The puzzle itself is not saved. It is regenerated from (level, seed,
@@ -25,7 +26,9 @@ namespace traintracks {
 
 // Bumped when the format changes, and whenever the generator or the rater
 // changes what a (seed, attempt) builds (see testPinnedPuzzles).
-constexpr int kSaveVersion = 2;
+constexpr int kSaveVersion = 3;
+// Version 2 is version 3 without the drawn shapes, which are inferred afresh.
+constexpr int kSaveVersionNoShapes = 2;
 constexpr int kSaveBytes = 1024;
 
 struct SaveState {
@@ -40,6 +43,17 @@ struct SaveState {
 };
 
 inline char hexDigit(const int v) { return "0123456789ABCDEF"[v & 0xF]; }
+
+// A piece a square may hold: none (0), or one of the six two-way pieces, and
+// only on track. Anything else in a file is corruption.
+inline bool validPin(const int pin, const int state) {
+  if (pin == 0) return true;
+  if (state != kTrack) return false;
+  for (const uint8_t piece : kPieces) {
+    if (pin == piece) return true;
+  }
+  return false;
+}
 
 inline int hexValue(const char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -59,13 +73,14 @@ inline int writeSave(const SaveState& s, char* out, const int size) {
                     static_cast<unsigned>(g.checks), static_cast<unsigned>(g.elapsedMs), static_cast<unsigned>(h.first),
                     static_cast<unsigned>(h.count), static_cast<unsigned>(h.cursor));
   const int n = g.puzzle.size;
-  if (used <= 0 || used + 2 * n * n + 1 + 6 * kHistoryDepth + 2 >= size) return 0;
+  if (used <= 0 || used + 3 * n * n + 1 + 6 * kHistoryDepth + 2 >= size) return 0;
   for (int r = 0; r < n; ++r) {
     for (int c = 0; c < n; ++c) {
       const int i = cellIndex(r, c);
       const uint8_t state = g.board.cell[i];
       out[used++] = static_cast<char>('0' + (state <= kCross ? state : 0));
       out[used++] = hexDigit(g.board.pin[i]);
+      out[used++] = hexDigit(g.board.cell[i] == kTrack ? g.board.shape[i] : 0);
     }
   }
   out[used++] = '\n';
@@ -93,13 +108,19 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
   unsigned long v[kHeader] = {};
   const char* cursor = text;
   for (int i = 0; i < kHeader; ++i) {
+    // Digits only: strtoul would take "-5" as a huge number and carry on.
+    while (*cursor == ' ') ++cursor;
+    if (*cursor < '0' || *cursor > '9') return false;
     char* next = nullptr;
     const unsigned long value = std::strtoul(cursor, &next, 10);
     if (next == cursor) return false;
     v[i] = value;
     cursor = next;
   }
-  if (v[0] != static_cast<unsigned long>(kSaveVersion)) return false;
+  if (v[0] != static_cast<unsigned long>(kSaveVersion) && v[0] != static_cast<unsigned long>(kSaveVersionNoShapes)) {
+    return false;
+  }
+  const bool hasShapes = v[0] == static_cast<unsigned long>(kSaveVersion);
   if (v[1] >= static_cast<unsigned long>(kLevelCount)) return false;
 
   SaveState parsed;
@@ -145,13 +166,16 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
       const char ch = *cursor++;
       if (ch < '0' || ch > '2') return false;
       const int pin = hexValue(*cursor++);
-      if (pin < 0) return false;
+      if (pin < 0 || !validPin(pin, ch - '0')) return false;
+      const int shape = hasShapes ? hexValue(*cursor++) : 0;
+      if (shape < 0) return false;
       const int i = cellIndex(r, c);
       // A given is track whatever the file says, and only track has a piece.
       if (!g.puzzle.given[i]) {
         g.board.cell[i] = static_cast<uint8_t>(ch - '0');
         g.board.pin[i] = g.board.cell[i] == kTrack ? static_cast<uint8_t>(pin) : 0;
       }
+      g.board.shape[i] = g.board.cell[i] == kTrack ? static_cast<uint8_t>(shape) : 0;
     }
   }
 
@@ -165,6 +189,7 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
     }
     const int cell = digits[0] * 16 + digits[1];
     if (cell >= kMaxCells || digits[2] > kCross || digits[3] > kCross) return false;
+    if (!validPin(digits[4], digits[2]) || !validPin(digits[5], digits[3])) return false;
     h.moves[k] = Move{static_cast<uint8_t>(cell), static_cast<uint8_t>(digits[2]), static_cast<uint8_t>(digits[3]),
                       static_cast<uint8_t>(digits[4]), static_cast<uint8_t>(digits[5])};
   }
