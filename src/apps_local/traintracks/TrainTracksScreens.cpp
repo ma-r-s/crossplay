@@ -1,5 +1,6 @@
 #include "TrainTracksScreens.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "../ui/ToyboxFormat.h"
@@ -20,11 +21,11 @@ namespace {
 constexpr int16_t kSide = 6;      // page margin left and right of the board
 constexpr int16_t kClueW = 38;    // row-clue gutter: "10" is 33px in the UI cut
 constexpr int16_t kClueH = 34;    // column-clue band
-constexpr int16_t kTab = 10;      // gate arrows live in this band outside the frame
+constexpr int16_t kTab = 10;      // the stations live in this band outside the frame
 constexpr int16_t kMaxCell = 64;  // a 6x6 should still read as a board, not as tiles
 constexpr int16_t kStatusH = 34;
 // Between the gate band under the board and the status line: without it a
-// bottom gate's arrow hung into the line's first letters.
+// bottom station hung into the line's first letters.
 constexpr int16_t kStatusGap = 10;
 constexpr int16_t kThumbRow = 72;  // UNDO / REDO, sized for a thumb
 
@@ -199,7 +200,7 @@ void drawClue(toybox::Screen& screen, const fui::Rect& box, const int clue, cons
   screen.target().text(toybox::inkCentred(box, toybox::kUiCut), text, digit);
 }
 
-void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate, const bool entering) {
+void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate) {
   const fui::Rect box = cellRect(g, gate.row, gate.col);
   const int s = gate.side;
   const Pt mid = toward(centreOf(box), s, static_cast<int16_t>(g.cell / 2));
@@ -216,17 +217,18 @@ void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate, c
                                        static_cast<int16_t>(frameMid.y - gap / 2), kFrameW, gap),
                          white());
   }
-  // The arrow, in the tab band outside the frame: the start points in, the end
-  // points out, so the two gates say which way the line runs.
-  const Pt inner = toward(mid, s, kFrameW);
-  const Pt outer = toward(mid, s, static_cast<int16_t>(kFrameW + kTab));
-  const Pt tip = entering ? inner : outer;
-  const Pt base = entering ? outer : inner;
-  const int16_t wing = 8;
-  const int perp = (s + 1) & 3;
-  const Pt a = toward(base, perp, wing);
-  const Pt b = toward(base, perp, static_cast<int16_t>(-wing));
-  screen.target().triangle(fui::Point{tip.x, tip.y}, fui::Point{a.x, a.y}, fui::Point{b.x, b.y}, black());
+  // The station: a ringed dot on the opening, as a subway map marks a stop. It
+  // sits over the frame and the end of the rail, so the line arrives at it.
+  // Both ends look the same: the line can be laid from either.
+  const int16_t r = static_cast<int16_t>(kTab + kFrameW / 2 - 1);
+  const Pt c = toward(mid, s, static_cast<int16_t>(kFrameW / 2));
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(c.x - r), static_cast<int16_t>(c.y - r),
+                                     static_cast<int16_t>(2 * r + 1), static_cast<int16_t>(2 * r + 1)),
+                       black(), static_cast<uint8_t>(r));
+  const int16_t hole = static_cast<int16_t>(r - toybox::kRule - 1);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(c.x - hole), static_cast<int16_t>(c.y - hole),
+                                     static_cast<int16_t>(2 * hole + 1), static_cast<int16_t>(2 * hole + 1)),
+                       white(), static_cast<uint8_t>(hole));
 }
 
 // CHECK's mark: a solid notch in the top-right corner, clear of the rail,
@@ -322,8 +324,8 @@ void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p,
   // Hairlines after the squares, so no square can overdraw a line.
   drawHairlines(screen, g);
 
-  drawGate(screen, g, p.start, true);
-  drawGate(screen, g, p.end, false);
+  drawGate(screen, g, p.start);
+  drawGate(screen, g, p.end);
 
   if (!marks.clues) return;
   for (int k = 0; k < g.n; ++k) {
@@ -369,15 +371,47 @@ void helpText(const uint16_t hints, const uint16_t checks, char* out, const int 
   }
 }
 
+// The result on a solved board: the time large, the tally under it, centred
+// in the band the rail's top row leaves empty. Plain ink on white, so NEW
+// PUZZLE stays the only solid shape below the board: three renders put a
+// solid capsule or block here, and either read as a second button.
+void drawResult(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
+  char clock[16];
+  formatClock(model.elapsedMs, clock, sizeof(clock));
+  char help[32];
+  helpText(model.hints, model.checks, help, sizeof(help));
+  const int16_t width = static_cast<int16_t>(screen.device().width - 2 * kSide);
+  const int16_t top = g.statusY;
+  const int16_t height = static_cast<int16_t>(g.controlsY + toybox::kPillHeight - top);
+  // Stacked by ink, half the time's ink apart, the pair centred in the band.
+  const int16_t gap = toybox::kDisplayCut.inkHeight / 2;
+  const int16_t stack = static_cast<int16_t>(toybox::kDisplayCut.inkHeight + gap + toybox::kUiCut.inkHeight);
+  const int16_t inkTop = static_cast<int16_t>(top + (height - stack) / 2);
+  fui::TextStyle big;
+  big.font = toybox::kDisplayFont;
+  big.align = fui::TextAlign::Center;
+  fui::TextStyle small = big;
+  small.font = toybox::kBodyFont;
+  const fui::Rect timeBand = fui::makeRect(kSide, inkTop, width, toybox::kDisplayCut.inkHeight);
+  const fui::Rect helpBand = fui::makeRect(kSide, static_cast<int16_t>(inkTop + toybox::kDisplayCut.inkHeight + gap),
+                                           width, toybox::kUiCut.inkHeight);
+  screen.target().text(toybox::inkCentred(timeBand, toybox::kDisplayCut), clock, big);
+  // Never cut: a long tally steps down to the small cut rather than lose words.
+  if (screen.target().measureText(small.font, help, small).width > width) {
+    small.font = toybox::kTileFont;
+    screen.target().text(toybox::inkCentred(helpBand, toybox::kTileCut), help, small);
+    return;
+  }
+  screen.target().text(toybox::inkCentred(helpBand, toybox::kUiCut), help, small);
+}
+
 void drawStatus(toybox::Screen& screen, const Geometry& g, const BoardModel& model) {
   char text[64] = "";
   if (model.solved) {
-    char clock[16];
-    formatClock(model.elapsedMs, clock, sizeof(clock));
-    char help[32];
-    helpText(model.hints, model.checks, help, sizeof(help));
-    std::snprintf(text, sizeof(text), "%s   %s", clock, help);
-  } else if (model.notice != nullptr) {
+    drawResult(screen, g, model);
+    return;
+  }
+  if (model.notice != nullptr) {
     std::snprintf(text, sizeof(text), "%s", model.notice);
   }
   // Blank while solving: the clues already say how each line stands.
@@ -678,7 +712,7 @@ struct Lesson {
 };
 
 const Lesson kLessons[] = {
-    {"THE RULE", "JOIN THE TWO ARROWS WITH ONE TRACK.", "NUMBERS COUNT THE TRACK IN EACH LINE.",
+    {"THE RULE", "JOIN THE TWO STATIONS WITH ONE TRACK.", "NUMBERS COUNT THE TRACK IN EACH LINE.",
      ".TT."
      "TTT."
      "..TT"

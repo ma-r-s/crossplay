@@ -8,8 +8,11 @@
 // The state: the route laid from the start gate, square by square as a player
 // would, with automatic pieces; a few crosses where track cannot go; the rest
 // of the board open. onBoard is set, so the app opens straight onto it.
+// With a second argument "almost", the whole route but one square is laid and
+// that square is printed, so a shot can tap it and photograph the solve.
 
 #include <cstdio>
+#include <string>
 
 #include "TrainTracksGame.h"
 #include "TrainTracksGenerator.h"
@@ -55,13 +58,24 @@ int main(int argc, char** argv) {
     col += kDCol[to];
     from = opposite(to);
   }
-  for (int k = 0; k < len * 6 / 10; ++k) {
+  // "almost": every route square but one, for shooting the solved board after
+  // one tap; prints that square as "row col".
+  const bool almost = argc > 2 && std::string(argv[2]) == "almost";
+  int left = -1;
+  if (almost) {
+    for (int k = len - 2; k > 0 && left < 0; --k) {
+      if (!p.given[route[k]]) left = route[k];
+    }
+  }
+  const int laid = almost ? len : len * 6 / 10;
+  for (int k = 0; k < laid; ++k) {
+    if (route[k] == left) continue;
     setCell(g.board, p, rowOf(route[k]), colOf(route[k]), kTrack);
     settle(g.board, p);
   }
   // Crosses: the first few squares off the route beside the laid line.
   int crosses = 0;
-  for (int k = 0; k < len * 6 / 10 && crosses < 5; ++k) {
+  for (int k = 0; k < laid && crosses < 5; ++k) {
     for (int d = 0; d < 4 && crosses < 5; ++d) {
       const int r = rowOf(route[k]) + kDRow[d];
       const int c = colOf(route[k]) + kDCol[d];
@@ -80,6 +94,10 @@ int main(int argc, char** argv) {
   if (!f) return 1;
   std::fputs(text, f);
   std::fclose(f);
-  std::printf("laid %d of %d route squares, %d crosses\n", len * 6 / 10, len, crosses);
+  if (almost) {
+    std::printf("%d %d\n", rowOf(left), colOf(left));
+  } else {
+    std::printf("laid %d of %d route squares, %d crosses\n", laid, len, crosses);
+  }
   return 0;
 }

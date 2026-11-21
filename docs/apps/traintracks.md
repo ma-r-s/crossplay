@@ -9,7 +9,7 @@ the sections it changed.
 This document is the game's specification: its rules, mechanics, screens and
 the reasons behind them. Change it together with the code.
 
-Lay one unbroken track from the start gate to the end gate. The number beside
+Lay one unbroken track between the two stations. The number beside
 each row and above each column says how many squares of that line hold track.
 Train Tracks is the logic puzzle known as Tracks in Simon Tatham's Portable
 Puzzle Collection. This is a new implementation of that puzzle type for an e-ink
@@ -17,8 +17,11 @@ panel.
 
 ## The rules
 
-- The grid is N x N. The start and end gates sit outside two edge squares, and
-  the track enters and leaves through them.
+- The grid is N x N. Two stations sit outside two edge squares, and the track
+  enters and leaves through them. The player sees **stations**, drawn as
+  subway-map dots; the code, and the rest of this document, calls them
+  **gates**. The line can be laid from either end, so the two look the same,
+  though the code still has a start and an end.
 - Every row and column clue is the exact count of track squares in that line.
 - The track is one simple path: it never branches, crosses or loops, and it
   passes through each square at most once.
@@ -373,9 +376,14 @@ afterwards. On the Picco that drew curves turning back on themselves in any
 2x2 of track, which is never legal, and open blocks where a square had three
 track neighbours. Marks say which squares are track, not how they join, so the
 fix is both a better guess and a way to override it. Crosses are an
-X. Givens sit on a dithered grey ground and show their real shape. Gates
-break the frame, with an arrow in the band outside it: in at the start, out at
-the end. A clue is boxed when its line is met and inverted when it is over.
+X. Givens sit on a dithered grey ground and show their real shape. Each
+station breaks the frame and is drawn as a ringed dot on the opening, as a
+subway map marks a stop; it sits over the end of the rail, so the line arrives
+at it. Both look the same. The first version drew arrows, in at the start and
+out at the end, but the start does not matter to the player, and the arrows
+read as notches in the frame rather than as places. A platform slab and a
+buffer stop were rendered too; both came out as a small T, which at this size
+reads as one more piece of track. A clue is boxed when its line is met and inverted when it is over.
 
 Curves carry sleepers too, along the radius a third and two thirds of the way
 round. A first version left them bare, because a lone bar across a diagonal
@@ -454,7 +462,14 @@ small cut rather than cutting a word if the tally is ever too long.
 ### Solved
 
 Solving changes the header to SOLVED and the rail to one tall NEW PUZZLE, in
-the same footprint so the finished board does not move. It is a full refresh,
+the same footprint so the finished board does not move. The result fills the
+band where CHECK, HINT and MENU were: the time in the display cut, the tally
+("CLEAN WIN", "2 HINTS, 1 CHECK") under it, plain ink on white. Three were
+rendered: that, a solid capsule in the rail's top row (Sudoku's move), and a
+solid block filling the band. Both solid ones read as a second button above
+NEW PUZZLE, so the result is ink and NEW PUZZLE stays the only solid shape.
+The first version put the time and tally on one small line and left the band
+empty, on the screen most likely to sit on a desk for hours. It is a full refresh,
 as is a new puzzle arriving; every other change is a fast partial refresh.
 NEW PUZZLE and Back both go to the new-puzzle screen, starting on the same
 difficulty.

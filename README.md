@@ -75,7 +75,7 @@ the import lands a real pack instead of failing on an unreachable host.
 | **Hex**          | Join your two edges before they join theirs. No captures, and no draws.      |
 | **Underhand**    | The 2017 cult card game: bribe, sacrifice, dodge the police, summon a god.   |
 | **Wordle**       | Six guesses for the day's word, with every past day in an archive.           |
-| **Train Tracks** | Lay one line of track between two gates to match every row and column count. |
+| **Train Tracks** | Connect the two stations with a single continuous set of train tracks that matches every edge count. |
 
 ### Apps
 

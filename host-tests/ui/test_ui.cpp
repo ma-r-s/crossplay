@@ -9609,9 +9609,37 @@ void checkAndHintMarkTheSquareNotThePiece() {
   CHECK(done.target.fills.size() == doneBare.target.fills.size());
 }
 
-// The finished board keeps its place and trades the rail for two doors in the
-// same footprint, says SOLVED in the band, and gives the time and whether help
-// was used.
+// The two stations are the same ringed dot, one on each opening in the frame:
+// the line can be laid from either end, so neither says which way it runs.
+void theStationsAreTwoMatchingDots() {
+  Game game = aGame(tt::Level::Medium);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Medium);
+  Rendered out;
+  build(out, model);
+  // No arrows, and with no CHECK marks nothing else draws a triangle.
+  CHECK(out.target.triangles.empty());
+  const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+  int dots = 0;
+  int holes = 0;
+  for (size_t k = 0; k < out.target.fills.size(); ++k) {
+    const fui::Rect& f = out.target.fills[k];
+    if (f.width != f.height || f.width < 15 || f.width > 31) continue;
+    // Centred on the frame, outside the grid's own squares.
+    const int cx = f.x + f.width / 2;
+    const int cy = f.y + f.height / 2;
+    const int side = g.n * g.cell;
+    const bool onFrame = cx < g.gridX || cy < g.gridY || cx >= g.gridX + side || cy >= g.gridY + side;
+    if (!onFrame) continue;
+    if (out.target.fillPaints[k].color == fui::Color::Black) ++dots;
+    if (out.target.fillPaints[k].color == fui::Color::White) ++holes;
+  }
+  CHECK(dots == 2);
+  CHECK(holes == 2);
+}
+
+// The finished board keeps its place and trades the rail for one door in the
+// same footprint, says SOLVED in the band, and gives the time, large, with
+// whether help was used under it, in ink rather than in a second solid shape.
 void theSolvedBoardIsTheResult() {
   Game game = aGame(tt::Level::Hard);
   traintracksui::BoardModel model = modelOf(game, tt::Level::Hard);
@@ -9620,8 +9648,23 @@ void theSolvedBoardIsTheResult() {
   Rendered unaided;
   build(unaided, model);
   CHECK(drewText(unaided, "SOLVED"));
-  CHECK(drewLabelWhole(unaided, "4:12   CLEAN WIN"));
+  CHECK(drewLabelWhole(unaided, "4:12"));
+  CHECK(drewLabelWhole(unaided, "CLEAN WIN"));
   CHECK(drewLabelWhole(unaided, "NEW PUZZLE"));
+  {
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    int timeAt = -1;
+    int tallyAt = -1;
+    for (const auto& run : unaided.target.texts) {
+      if (run.text == "4:12") {
+        CHECK(run.style.font == toybox::kDisplayFont);
+        timeAt = run.rect.y;
+      }
+      if (run.text == "CLEAN WIN") tallyAt = run.rect.y;
+    }
+    // Under the board, the time above the tally.
+    CHECK(timeAt > g.gridY && tallyAt > timeAt);
+  }
   const std::vector<int> actions = reachable(unaided);
   CHECK(actions.size() == 1);
   CHECK(contains(actions, traintracksui::ActionNewGame));
@@ -9681,23 +9724,24 @@ void theSolvedBoardIsTheResult() {
   model.checks = 1;
   Rendered helped;
   build(helped, model);
-  CHECK(drewLabelWhole(helped, "4:12   2 HINTS, 1 CHECK"));
+  CHECK(drewLabelWhole(helped, "2 HINTS, 1 CHECK"));
   model.hints = 1;
   model.checks = 0;
   Rendered oneHint;
   build(oneHint, model);
-  CHECK(drewLabelWhole(oneHint, "4:12   1 HINT"));
+  CHECK(drewLabelWhole(oneHint, "1 HINT"));
   model.hints = 0;
   model.checks = 3;
   Rendered checks;
   build(checks, model);
-  CHECK(drewLabelWhole(checks, "4:12   3 CHECKS"));
+  CHECK(drewLabelWhole(checks, "3 CHECKS"));
   model.elapsedMs = (61 * 60 + 2) * 1000;
   model.hints = 65535;
   model.checks = 65535;
   Rendered worst;
   build(worst, model);
-  CHECK(drewLabelWhole(worst, "1:01:02   65535 HINTS, 65535 CHECKS"));
+  CHECK(drewLabelWhole(worst, "1:01:02"));
+  CHECK(drewLabelWhole(worst, "65535 HINTS, 65535 CHECKS"));
 }
 
 // A finger resting on a square long enough to mean a cross is drawn as a
@@ -9809,9 +9853,22 @@ void theNewPuzzleScreenShowsWhatItDeals() {
       if (run.text == traintracksui::levelName(level) && run.color == fui::Color::White) chosenInverted = true;
     }
     CHECK(chosenInverted);
-    // The preview is the deal itself: its gates are drawn. No size line; the
-    // difficulty already says it.
-    CHECK(dealt.target.triangles.size() >= 2);
+    // The preview is the deal itself: its stations are drawn, a ringed dot
+    // each (a black disc with a white one inside, both square fills, far
+    // smaller than the frame, which is drawn the same way). No size
+    // line; the difficulty already says it.
+    int rings = 0;
+    for (size_t k = 0; k + 1 < dealt.target.fills.size(); ++k) {
+      const fui::Rect& a = dealt.target.fills[k];
+      const fui::Rect& b = dealt.target.fills[k + 1];
+      if (a.width == a.height && b.width == b.height && b.width < a.width && a.width >= 9 && a.width <= 40 &&
+          dealt.target.fillPaints[k].color == fui::Color::Black &&
+          dealt.target.fillPaints[k + 1].color == fui::Color::White && a.x + a.width / 2 == b.x + b.width / 2 &&
+          a.y + a.height / 2 == b.y + b.height / 2) {
+        ++rings;
+      }
+    }
+    CHECK(rings == 2);
     for (const auto& run : dealt.target.texts) CHECK(run.text.find(" BY ") == std::string::npos);
   }
 }
@@ -18799,6 +18856,7 @@ int main() {
   traintrackstest::aSolvedBoardStopsOfferingHelp();
   traintrackstest::theStatusIsQuietWhileSolving();
   traintrackstest::checkAndHintMarkTheSquareNotThePiece();
+  traintrackstest::theStationsAreTwoMatchingDots();
   traintrackstest::theSolvedBoardIsTheResult();
   traintrackstest::theFrontDoorIsContinueOrNew();
   traintrackstest::theNewPuzzleScreenShowsWhatItDeals();
