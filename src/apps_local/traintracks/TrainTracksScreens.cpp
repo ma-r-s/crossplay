@@ -231,10 +231,12 @@ void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate) {
                        white(), static_cast<uint8_t>(hole));
 }
 
-// CHECK's mark: a solid notch in the top-right corner, clear of the rail,
-// which only ever runs through the square's centre lines.
+// CHECK's mark: a solid notch in the top-right corner. A quarter of the square
+// on a side, so it stays clear of a curve that turns through that corner: the
+// curve's sleepers reach to within about 0.27 of the square of the corner,
+// and a third-of-a-square notch touched them.
 void drawWrong(toybox::Screen& screen, const fui::Rect& box) {
-  const int16_t k = static_cast<int16_t>(box.width / 3);
+  const int16_t k = static_cast<int16_t>(box.width / 4);
   const int16_t right = static_cast<int16_t>(box.x + box.width - 1);
   screen.target().triangle(fui::Point{static_cast<int16_t>(right - k), static_cast<int16_t>(box.y + 1)},
                            fui::Point{right, static_cast<int16_t>(box.y + 1)},
@@ -795,33 +797,56 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   body.align = fui::TextAlign::Center;
   const int16_t width = screen.body().width;
   bool fits = true;
-  for (const char* line : lesson.lines) {
-    if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
-  }
-  for (const char* line : lesson.under) {
-    if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
+  for (const Lesson& any : kLessons) {
+    for (const char* line : any.lines) {
+      if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
+    }
+    for (const char* line : any.under) {
+      if (line != nullptr && screen.target().measureText(body.font, line, body).width > width) fits = false;
+    }
   }
   if (!fits) body.font = toybox::kTileFont;
   const toybox::CutMetrics& cut = fits ? toybox::kUiCut : toybox::kTileCut;
 
+  // Every page reserves the same room above and below its board, sized for
+  // the fullest page, so the board stands still while the pages turn and only
+  // the marks on it change.
+  int16_t above = 0;
+  int16_t below = 0;
+  for (const Lesson& any : kLessons) {
+    int16_t lines = 0;
+    for (const char* line : any.lines) lines = static_cast<int16_t>(lines + (line != nullptr));
+    int16_t under = 0;
+    for (const char* line : any.under) under = static_cast<int16_t>(under + (line != nullptr));
+    const int16_t foot = any.detail != nullptr ? toybox::kTileCut.lineHeight : 0;
+    above = std::max<int16_t>(above, static_cast<int16_t>(lines * cut.lineHeight));
+    below = std::max<int16_t>(below, static_cast<int16_t>(under * cut.lineHeight + foot));
+  }
+
+  screen.takeTop(toybox::kGutter);
+  const fui::Rect top = screen.takeTop(above);
+  const fui::Rect foot = screen.takeBottom(below, toybox::kGutter);
+  int16_t y = top.y;
+  for (const char* line : lesson.lines) {
+    if (line == nullptr) break;
+    screen.target().text(toybox::inkCentred(fui::makeRect(top.x, y, top.width, cut.lineHeight), cut), line, body);
+    y = static_cast<int16_t>(y + cut.lineHeight);
+  }
+  // Under the board: the second sentence from the top of the reserve, and the
+  // smaller line on its floor, just above the button.
+  y = foot.y;
+  for (const char* line : lesson.under) {
+    if (line == nullptr) break;
+    screen.target().text(toybox::inkCentred(fui::makeRect(foot.x, y, foot.width, cut.lineHeight), cut), line, body);
+    y = static_cast<int16_t>(y + cut.lineHeight);
+  }
   if (lesson.detail != nullptr) {
     fui::TextStyle detail;
     detail.font = toybox::kTileFont;
     detail.align = fui::TextAlign::Center;
-    const fui::Rect detailBand = screen.takeBottom(toybox::kTileCut.lineHeight, toybox::kGutter);
-    screen.target().text(toybox::inkCentred(detailBand, toybox::kTileCut), lesson.detail, detail);
-  }
-  // Under the board: taken from the bottom, last line first.
-  for (int k = 1; k >= 0; --k) {
-    if (lesson.under[k] == nullptr) continue;
-    screen.target().text(toybox::inkCentred(screen.takeBottom(cut.lineHeight, k == 0 ? toybox::kGutter : 0), cut),
-                         lesson.under[k], body);
-  }
-
-  screen.takeTop(toybox::kGutter);
-  for (const char* line : lesson.lines) {
-    if (line == nullptr) break;
-    screen.target().text(toybox::inkCentred(screen.takeTop(cut.lineHeight), cut), line, body);
+    const fui::Rect band = fui::makeRect(foot.x, static_cast<int16_t>(foot.bottom() - toybox::kTileCut.lineHeight),
+                                         foot.width, toybox::kTileCut.lineHeight);
+    screen.target().text(toybox::inkCentred(band, toybox::kTileCut), lesson.detail, detail);
   }
 
   tt::Puzzle puzzle;

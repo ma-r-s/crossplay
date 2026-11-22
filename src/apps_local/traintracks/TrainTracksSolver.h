@@ -96,6 +96,18 @@ class Solver {
     return true;
   }
 
+  // Fixes every square to the puzzle's own answer, for counting the routes
+  // that run through exactly those squares.
+  bool applySolution() {
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const int i = cellIndex(r, c);
+        if (!set(i, p->solution[i] ? kYes : kNo)) return false;
+      }
+    }
+    return true;
+  }
+
   // Fixes every square to the player's marks: track is track, anything else
   // (empty or crossed) is not.
   bool applyBoard(const Board& board) {
@@ -117,6 +129,21 @@ class Solver {
         const int i = cellIndex(r, c);
         if (board.cell[i] == kEmpty) continue;
         if (!set(i, board.cell[i] == kTrack ? kYes : kNo)) return false;
+      }
+    }
+    return true;
+  }
+
+  // As applyMarks, but only the marks that agree with the answer: track on a
+  // route square, a cross off it. For hints, which never touch a wrong mark
+  // and must not reason from one.
+  bool applyRightMarks(const Board& board) {
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const int i = cellIndex(r, c);
+        const bool track = board.cell[i] == kTrack;
+        if (board.cell[i] == kEmpty || track != (p->solution[i] != 0)) continue;
+        if (!set(i, track ? kYes : kNo)) return false;
       }
     }
     return true;
@@ -164,6 +191,18 @@ class Solver {
     const Rating root = deduce(3);
     (void)root;
     const int found = search(true, limit);
+    unwind(base);
+    return found;
+  }
+
+  // Distinct routes (sets of joins) from gate to gate through the squares as
+  // they stand, up to limit. countSolutions counts track sets, and one set of
+  // squares can carry two routes; CHECK and HINT judge pieces, so a puzzle
+  // must have one route as well as one set. Leaves the state as it found it.
+  int countRoutes(const int limit) {
+    const int base = trailLen;
+    progress = false;
+    const int found = search(false, limit);
     unwind(base);
     return found;
   }

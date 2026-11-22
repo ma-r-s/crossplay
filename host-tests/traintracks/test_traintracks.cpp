@@ -369,6 +369,43 @@ void checkShapes(const Board& b, const Puzzle& p, const bool noPins) {
       // away from its gate, or into a square that does not join it) only
       // when it is boxed in: fewer than two real ends to use.
       CHECK(popcount4(mask[i]) == 2);
+      // An automatic square with one real end (a mutual join or its gate)
+      // aims its other end at an empty square in a full row or column only
+      // when no empty square with room was open to it instead.
+      if (automatic) {
+        auto real = [&](const int e) {
+          const int r3 = r + kDRow[e];
+          const int c3 = c + kDCol[e];
+          if (!inside(p, r3, c3)) return gateSide(p, r, c) == e;
+          const int k = cellIndex(r3, c3);
+          return b.cell[k] == kTrack && (mask[i] & dirBit(e)) && (mask[k] & dirBit(opposite(e)));
+        };
+        auto emptyRoom = [&](const int e, bool& room) {
+          const int r3 = r + kDRow[e];
+          const int c3 = c + kDCol[e];
+          if (!inside(p, r3, c3) || b.cell[cellIndex(r3, c3)] != kEmpty) return false;
+          room = rowCount(b, p, r3) < p.rowClue[r3] && colCount(b, p, c3) < p.colClue[c3];
+          return true;
+        };
+        int reals = 0;
+        int other = -1;
+        for (int e = 0; e < 4; ++e) {
+          if (!(mask[i] & dirBit(e))) continue;
+          if (real(e)) {
+            ++reals;
+          } else {
+            other = e;
+          }
+        }
+        bool room = false;
+        if (reals == 1 && other >= 0 && emptyRoom(other, room) && !room) {
+          for (int e = 0; e < 4; ++e) {
+            if (mask[i] & dirBit(e)) continue;
+            bool alt = false;
+            if (emptyRoom(e, alt)) CHECK(!alt);
+          }
+        }
+      }
       for (int d = 0; d < 4; ++d) {
         if (!(mask[i] & dirBit(d))) continue;
         const int r2 = r + kDRow[d];

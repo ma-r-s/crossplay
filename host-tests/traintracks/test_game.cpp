@@ -189,31 +189,83 @@ void testHintsAreAlwaysCorrectAndFinish() {
   }
 }
 
-// A wrong mark is the first thing a hint deals with, since any deduction past
-// it would rest on something false.
-void testAHintPutsAWrongMarkRightFirst() {
+// A cross on the route is the first thing a hint puts right, as track. Track
+// laid off the route is never touched: a hint reveals track, it does not take
+// any away, and it reasons past the wrong track rather than from it.
+void testAHintOnlyEverLaysTrack() {
   for (const Level level : kLevels3) {
     for (uint32_t seed = 200; seed < 220; ++seed) {
       Game g = newGame(level, seed);
-      int bad = -1;
-      for (int i = 0; i < kMaxCells && bad < 0; ++i) {
-        if (inside(g.puzzle, rowOf(i), colOf(i)) && !g.puzzle.solution[i]) bad = i;
+      const Puzzle& p = g.puzzle;
+      int off = -1;
+      int on = -1;
+      for (int i = 0; i < kMaxCells; ++i) {
+        if (!inside(p, rowOf(i), colOf(i)) || p.given[i]) continue;
+        if (!p.solution[i] && off < 0) off = i;
+        if (p.solution[i] && on < 0) on = i;
       }
-      CHECK(bad >= 0);
-      if (bad < 0) continue;
-      g.board.cell[bad] = kTrack;
-      const Hint h = findHint(g.puzzle, g.board, scratch);
-      CHECK(h.kind == HintKind::Fixed);
-      CHECK(h.cell == bad);
-      // Taken away, not crossed: a hint never lays a cross.
-      CHECK(h.state == kEmpty);
+      CHECK(off >= 0 && on >= 0);
+      if (off < 0 || on < 0) continue;
+      // Wrong track alone: left where it is; the hint is track elsewhere.
+      setCell(g.board, p, rowOf(off), colOf(off), kTrack);
+      Hint h = findHint(p, g.board, scratch);
+      CHECK(h.cell != off && h.state == kTrack && p.solution[h.cell] != 0);
+      // A cross on the route as well: that comes first, and becomes track.
+      setCell(g.board, p, rowOf(on), colOf(on), kCross);
+      h = findHint(p, g.board, scratch);
+      CHECK(h.kind == HintKind::Fixed && h.cell == on && h.state == kTrack);
       CHECK(applyHint(g, h));
-      CHECK(g.board.cell[bad] == kEmpty);
-      // And it is an ordinary move: undo takes it back.
-      CHECK(undo(g.board) == bad);
-      CHECK(g.board.cell[bad] == kTrack);
+      CHECK(g.board.cell[on] == kTrack && g.board.pin[on] == p.solution[on]);
+      // An ordinary move: undo takes it back.
+      CHECK(undo(g.board) == on);
+      CHECK(g.board.cell[on] == kCross);
     }
   }
+}
+
+// From a board of random marks, right and wrong, hints taken one after
+// another only ever add track or turn it to the answer's piece, never take
+// track away or lay a cross, and carry the line through to a solve, with the
+// wrong track still lying where the player left it until the solve tidies it.
+void testHintsFinishAroundWrongTrack() {
+  int games = 0;
+  for (const Level level : kLevels3) {
+    for (uint32_t seed = 1100; seed < 1140; ++seed) {
+      Game g = newGame(level, seed);
+      const Puzzle& p = g.puzzle;
+      Rng rng{seed};
+      const int n = p.size;
+      for (int k = 0; k < n * 2; ++k) {
+        const int r = rng.below(n);
+        const int c = rng.below(n);
+        if (rng.below(3) == 0) {
+          holdCell(g.board, p, r, c);
+        } else {
+          tapCell(g.board, p, r, c);
+        }
+        settle(g.board, p);
+      }
+      bool done = isSolved(p, g.board, checker);
+      for (int taken = 0; taken < 2 * n * n && !done; ++taken) {
+        const Hint h = findHint(p, g.board, scratch);
+        CHECK(h.cell >= 0 && h.state == kTrack && p.solution[h.cell] != 0);
+        if (h.cell < 0) break;
+        if (hintSolves(g, h, checker)) {
+          done = true;  // the last move is the player's
+          break;
+        }
+        const int before = laidTrack(g.board);
+        CHECK(applyHint(g, h));
+        settle(g.board, p);
+        CHECK(laidTrack(g.board) >= before);
+        CHECK(g.board.pin[h.cell] == p.solution[h.cell]);
+        done = isSolved(p, g.board, checker);
+      }
+      CHECK(done);
+      ++games;
+    }
+  }
+  CHECK(games == 120);
 }
 
 // A hint reasons forward from the player's own correct marks, so on a board
@@ -387,31 +439,6 @@ void testSaveRoundTrip() {
   }
 }
 
-// A version 2 save, written before shapes were kept, still loads: same marks,
-// shapes inferred afresh.
-void testAVersion2SaveLoads() {
-  SaveState s;
-  s.hasGame = true;
-  s.game = newGame(Level::Medium, 320);
-  Rng rng{320};
-  const int n = s.game.puzzle.size;
-  for (int k = 0; k < 30; ++k) tapCell(s.game.board, s.game.puzzle, rng.below(n), rng.below(n));
-  settle(s.game.board, s.game.puzzle);
-  char buffer[kSaveBytes];
-  CHECK(writeSave(s, buffer, kSaveBytes) > 0);
-  // Back to version 2: the version digit, and each square's third character.
-  std::string text(buffer);
-  const size_t header = text.find('\n');
-  std::string old = "2" + text.substr(1, header);
-  for (int k = 0; k < n * n; ++k) old += text.substr(header + 1 + 3 * k, 2);
-  old += text.substr(header + 1 + 3 * n * n);
-  SaveState back;
-  CHECK(readSave(old.c_str(), back, work));
-  CHECK(sameBoard(back.game.board, s.game.board));
-  CHECK(std::memcmp(back.game.board.pin, s.game.board.pin, sizeof(s.game.board.pin)) == 0);
-  for (int i = 0; i < kMaxCells; ++i) CHECK(back.game.board.shape[i] == 0);
-}
-
 // The route's squares from the start gate to the end gate, in order.
 int routeOrder(const Puzzle& p, int* out) {
   int row = p.start.row;
@@ -478,6 +505,182 @@ void testALineIsNotRerouted() {
         }
         ++probes;
         CHECK(undo(g.board) == e);
+      }
+    }
+  }
+  CHECK(probes > 100);
+}
+
+// Growing a line out from a station, square by square in random directions,
+// its open end points into a row and column that still have room for track
+// whenever some empty square that does is open to it, rather than running
+// straight on into a line already full.
+void testAnOpenEndLooksForRoom() {
+  int ends = 0;
+  for (const Level level : kLevels3) {
+    for (uint32_t seed = 950; seed < 1110; ++seed) {
+      Game g = newGame(level, seed);
+      const Puzzle& p = g.puzzle;
+      Rng rng{seed};
+      int at = cellIndex(p.start.row, p.start.col);
+      int prev = -1;
+      for (int step = 0; step < p.size * 2; ++step) {
+        if (!p.given[at] && g.board.cell[at] != kTrack) {
+          setCell(g.board, p, rowOf(at), colOf(at), kTrack);
+          settle(g.board, p);
+        }
+        uint8_t shapes[kMaxCells];
+        inferShapes(g.board, p, shapes);
+        auto roomAt = [&](const int d, bool& empty) {
+          const int r2 = rowOf(at) + kDRow[d];
+          const int c2 = colOf(at) + kDCol[d];
+          empty = inside(p, r2, c2) && g.board.cell[cellIndex(r2, c2)] == kEmpty;
+          return empty && rowCount(g.board, p, r2) < p.rowClue[r2] && colCount(g.board, p, c2) < p.colClue[c2];
+        };
+        // The newest square's open end: not back the way the line came, and
+        // only judged when the square is automatic and its other end is a real
+        // join (the previous square, or the station).
+        if (!p.given[at] && g.board.pin[at] == 0) {
+          int back = -1;
+          for (int d = 0; d < 4; ++d) {
+            const int r2 = rowOf(at) + kDRow[d];
+            const int c2 = colOf(at) + kDCol[d];
+            if (prev < 0 ? d == p.start.side : (inside(p, r2, c2) && cellIndex(r2, c2) == prev)) back = d;
+          }
+          if (back >= 0 && (shapes[at] & dirBit(back))) {
+            for (int d = 0; d < 4; ++d) {
+              if (d == back || !(shapes[at] & dirBit(d))) continue;
+              bool empty = false;
+              if (roomAt(d, empty) || !empty) continue;
+              ++ends;
+              for (int e = 0; e < 4; ++e) {
+                if (shapes[at] & dirBit(e)) continue;
+                bool alt = false;
+                CHECK(!roomAt(e, alt));
+              }
+            }
+          }
+        }
+        // Step on to a random empty neighbour.
+        int options[4];
+        int count = 0;
+        for (int d = 0; d < 4; ++d) {
+          const int r2 = rowOf(at) + kDRow[d];
+          const int c2 = colOf(at) + kDCol[d];
+          if (inside(p, r2, c2) && g.board.cell[cellIndex(r2, c2)] == kEmpty) options[count++] = d;
+        }
+        if (count == 0) break;
+        const int d = options[rng.below(count)];
+        prev = at;
+        at = cellIndex(rowOf(at) + kDRow[d], colOf(at) + kDCol[d]);
+      }
+    }
+  }
+  CHECK(ends > 50);
+}
+
+// With the board settling after every tap, as it does in play, a cycle still
+// reaches each of the six pieces once and then empty: the neighbours fitting
+// around a chosen piece must not change which piece counts as already shown.
+void testACycleSurvivesSettling() {
+  int cycles = 0;
+  for (const Level level : kLevels3) {
+    for (uint32_t seed = 800; seed < 830; ++seed) {
+      Game g = newGame(level, seed);
+      const Puzzle& p = g.puzzle;
+      int route[kMaxCells];
+      const int len = routeOrder(p, route);
+      for (int k = 0; k < len; k += 3) {
+        setCell(g.board, p, rowOf(route[k]), colOf(route[k]), kTrack);
+        settle(g.board, p);
+      }
+      for (int i = 0; i < kMaxCells; ++i) {
+        if (!inside(p, rowOf(i), colOf(i)) || p.given[i]) continue;
+        const Board before = g.board;
+        const int r = rowOf(i);
+        const int c = colOf(i);
+        if (g.board.cell[i] != kTrack) {
+          tapCell(g.board, p, r, c);
+          settle(g.board, p);
+        }
+        uint8_t shown[kMaxCells];
+        inferShapes(g.board, p, shown);
+        uint8_t seen = 0;
+        int pieces = 0;
+        auto mark = [&](const uint8_t piece) {
+          for (int k = 0; k < 6; ++k) {
+            if (kPieces[k] == piece) {
+              if (seen & (1u << k)) CHECK(false);
+              seen = static_cast<uint8_t>(seen | (1u << k));
+            }
+          }
+          ++pieces;
+        };
+        mark(shown[i]);
+        int taps = 0;
+        while (taps < 10) {
+          tapCell(g.board, p, r, c);
+          settle(g.board, p);
+          ++taps;
+          if (g.board.cell[i] != kTrack) break;
+          mark(g.board.pin[i]);
+        }
+        CHECK(taps == 6);
+        CHECK(pieces == 6 && seen == 0x3F);
+        ++cycles;
+        g.board = before;
+      }
+    }
+  }
+  CHECK(cycles > 1000);
+}
+
+// Turning a square beside a line through its pieces and back to empty leaves
+// the line drawn as it was: a chosen piece pointing into the line never pulls
+// it apart, so there is nothing to put back.
+void testCyclingBesideALineLeavesItWhole() {
+  int probes = 0;
+  for (const Level level : kLevels3) {
+    for (uint32_t seed = 900; seed < 920; ++seed) {
+      Game g = newGame(level, seed);
+      const Puzzle& p = g.puzzle;
+      int route[kMaxCells];
+      const int len = routeOrder(p, route);
+      bool laid[kMaxCells] = {};
+      for (int k = 0; k < len / 2; ++k) {
+        setCell(g.board, p, rowOf(route[k]), colOf(route[k]), kTrack);
+        settle(g.board, p);
+        laid[route[k]] = true;
+      }
+      uint8_t before[kMaxCells];
+      inferShapes(g.board, p, before);
+      for (int e = 0; e < kMaxCells; ++e) {
+        if (!inside(p, rowOf(e), colOf(e)) || g.board.cell[e] != kEmpty) continue;
+        bool beside = false;
+        for (int d = 0; d < 4; ++d) {
+          const int r2 = rowOf(e) + kDRow[d];
+          const int c2 = colOf(e) + kDCol[d];
+          if (inside(p, r2, c2) && laid[cellIndex(r2, c2)]) beside = true;
+        }
+        if (!beside) continue;
+        const Board saved = g.board;
+        for (int t = 0; t < 10 && !(t > 0 && g.board.cell[e] == kEmpty); ++t) {
+          tapCell(g.board, p, rowOf(e), colOf(e));
+          settle(g.board, p);
+          uint8_t now[kMaxCells];
+          inferShapes(g.board, p, now);
+          for (int i = 0; i < kMaxCells; ++i) {
+            if (!laid[i]) continue;
+            for (const int d : {kEast, kSouth}) {
+              if (inside(p, rowOf(i) + kDRow[d], colOf(i) + kDCol[d]) && joined(before, i, d)) {
+                CHECK(joined(now, i, d));
+              }
+            }
+          }
+        }
+        CHECK(g.board.cell[e] == kEmpty);
+        ++probes;
+        g.board = saved;
       }
     }
   }
@@ -598,6 +801,21 @@ void testBadSavesAreDiscarded() {
   }
   reject(tampered, true);
 
+  // A header field wider than what it is read into: seed (field 5) and the
+  // clock (field 11) are 32 bits, and 2^32 + 7 must not come back as 7.
+  auto withField = [&](const int index, const std::string& value) {
+    std::string out = text;
+    size_t at = 0;
+    for (int field = 0; field < index; ++field) at = out.find(' ', at) + 1;
+    const size_t end = out.find_first_of(" \n", at);
+    out.replace(at, end - at, value);
+    return out;
+  };
+  reject(withField(5, "4294967303"), true);
+  reject(withField(11, "4294967301"), true);
+  // SOLVED over a board that is not: field 8 is the solved flag.
+  reject(withField(8, "1"), true);
+
   // A negative number in the header.
   {
     std::string negative = text;
@@ -674,16 +892,19 @@ int main() {
   testCheckJudgesAChosenPiece();
   testCheckJudgesAGuessedPiece();
   testHintsAreAlwaysCorrectAndFinish();
-  testAHintPutsAWrongMarkRightFirst();
+  testAHintOnlyEverLaysTrack();
+  testHintsFinishAroundWrongTrack();
   testAHintUsesWhatThePlayerKnows();
   testFlow();
   testAssistedMeansAnyHelp();
   testOrdinals();
   testTheLastMoveIsThePlayers();
   testSaveRoundTrip();
-  testAVersion2SaveLoads();
   testALineIsNotRerouted();
   testATapReachesEverySixPieces();
+  testACycleSurvivesSettling();
+  testAnOpenEndLooksForRoom();
+  testCyclingBesideALineLeavesItWhole();
   testStrayTrackDoesNotBlockTheWin();
   testBadSavesAreDiscarded();
   testASaveCannotUnlockAGiven();

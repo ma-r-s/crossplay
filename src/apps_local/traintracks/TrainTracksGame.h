@@ -89,23 +89,25 @@ struct Hint {
   uint8_t tier = 0;  // the solver tier that found it, 0 for a fix
 };
 
-// HINT: one square, always correct, and never a cross: a hint lays track or
-// takes away track that does not belong.
+// HINT: one square, always correct, and always track: a hint lays track or
+// turns track already laid to the answer's piece. It never lays a cross and
+// never takes track away, since revealing track is what HINT is pressed for.
 //
-// A wrong mark comes first, because any deduction made past it would be built
-// on something false: track off the route is cleared, a cross on it becomes
-// track. Then a wrong shape, set to the answer's piece. Otherwise the solver
-// reasons forward from the player's own marks and stops at the lowest tier
-// that decides a square the player has left empty is track.
+// A cross on the route comes first, becoming track, then a route square drawn
+// in the wrong piece, set to the answer's. Otherwise the solver reasons
+// forward from the player's marks that are right, leaving out any that are
+// wrong so nothing is deduced from them, and stops at the lowest tier that
+// decides a square the player has left empty is track. Track laid off the
+// route is left for the player, and for CHECK, to find.
 inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
   Hint hint;
   const int n = p.size;
   for (int r = 0; r < n; ++r) {
     for (int c = 0; c < n; ++c) {
       const int i = cellIndex(r, c);
-      if (!isWrong(p, b, i)) continue;
+      if (b.cell[i] != kCross || !p.solution[i]) continue;
       hint.cell = i;
-      hint.state = p.solution[i] ? kTrack : kEmpty;
+      hint.state = kTrack;
       hint.kind = HintKind::Fixed;
       return hint;
     }
@@ -124,7 +126,7 @@ inline Hint findHint(const Puzzle& p, const Board& b, Solver& solver) {
     }
   }
 
-  if (solver.load(p) && solver.applyMarks(b)) {
+  if (solver.load(p) && solver.applyRightMarks(b)) {
     for (int tier = 1; tier <= 3; ++tier) {
       solver.deduce(tier);
       for (int r = 0; r < n; ++r) {
@@ -197,14 +199,13 @@ inline bool isSolved(const Puzzle& p, const Board& b, Solver& scratch) {
 }
 
 // A solved board drawn as the answer: track off the route is taken away, and
-// every route square shows its own piece. Outside the history, since a solved
-// game takes no more moves.
+// every route square shows its own piece, so no chosen piece is left behind
+// that the drawing contradicts. Outside the history, since a solved game takes
+// no more moves.
 inline void tidySolved(Board& b, const Puzzle& p) {
   for (int i = 0; i < kMaxCells; ++i) {
-    if (b.cell[i] == kTrack && !p.solution[i]) {
-      b.cell[i] = kEmpty;
-      b.pin[i] = 0;
-    }
+    if (b.cell[i] == kTrack && !p.solution[i]) b.cell[i] = kEmpty;
+    b.pin[i] = 0;
     b.shape[i] = p.solution[i];
   }
 }

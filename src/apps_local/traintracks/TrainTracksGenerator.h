@@ -68,6 +68,7 @@ struct GenStats {
   uint32_t pathFailures;
   uint32_t pruneFailures;
   uint32_t rateFailures;
+  uint32_t routeFailures;
   uint32_t solverCalls;
 };
 
@@ -346,6 +347,14 @@ inline bool generateAttempt(const Level level, const uint32_t seed, const uint16
   if (s.tier != 3) rating = rate(3);
   if (!rating.solved || rating.tier != s.tier) {
     if (stats) ++stats->rateFailures;
+    return false;
+  }
+  // One route, not just one set of squares: CHECK and HINT judge each
+  // square's piece against the answer's, which is only fair when no other
+  // route runs through the same squares. Searched with every square fixed,
+  // so only the joins are open, which is quick.
+  if (!solver.load(p) || !solver.applySolution() || solver.countRoutes(2) != 1) {
+    if (stats) ++stats->routeFailures;
     return false;
   }
   // A complete deduction implies one track set: every tier is sound, so the

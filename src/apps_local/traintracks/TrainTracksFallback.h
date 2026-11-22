@@ -26,8 +26,8 @@ constexpr int kFallbackPerLevel = 6;
 
 constexpr FallbackEntry kFallback[kLevelCount][kFallbackPerLevel] = {
     {{0xF0000000u, 0}, {0xF0000001u, 0}, {0xF0000002u, 0}, {0xF0000003u, 0}, {0xF0000004u, 0}, {0xF0000005u, 0}},
-    {{0xF0000064u, 2}, {0xF0000065u, 0}, {0xF0000066u, 0}, {0xF0000067u, 2}, {0xF0000068u, 1}, {0xF0000069u, 0}},
-    {{0xF00000C8u, 2}, {0xF00000C9u, 0}, {0xF00000CAu, 0}, {0xF00000CBu, 1}, {0xF00000CCu, 2}, {0xF00000CDu, 0}},
+    {{0xF0000064u, 2}, {0xF0000065u, 0}, {0xF0000066u, 0}, {0xF0000067u, 3}, {0xF0000068u, 1}, {0xF0000069u, 0}},
+    {{0xF00000C8u, 2}, {0xF00000C9u, 0}, {0xF00000CAu, 0}, {0xF00000CBu, 1}, {0xF00000CCu, 2}, {0xF00000CDu, 5}},
 };
 
 inline bool loadFallback(const Level level, const int index, Generated& out, GenWork& work) {

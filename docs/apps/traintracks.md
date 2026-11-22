@@ -87,6 +87,8 @@ held by its owner, never put on the stack.
 the highest tier it needed. That number is the puzzle's rating.
 `countSolutions(limit)` counts distinct **sets of track squares**, because that
 is what the player marks. Two paths over the same squares count once.
+`countRoutes(limit)` counts the paths themselves, with every square fixed, and
+the generator requires exactly one (below).
 
 **The rating is part of what a seed means.** The generator will keep or reject
 a candidate by its rating, so changing a rule changes which puzzle a saved seed
@@ -199,7 +201,14 @@ One attempt:
    enough, give one track square the solver could not decide, at most twice.
    Then it strips whatever it can.
 5. Rate with all tiers: the rating must equal the level's tier exactly.
-   Confirm uniqueness with the exhaustive search.
+6. **One route, not only one set of squares.** With every square fixed to the
+   answer, `countRoutes(2)` must find one path. CHECK and HINT judge each
+   square's piece against the answer's, which is only fair if no other route
+   runs through the same squares. A cold rules critic found that one set of
+   squares often carried two: 9 of 1,000 Easy puzzles, 71 Medium and 175 Hard.
+   On those, a player who laid the other route had correct pieces flagged by
+   CHECK and "fixed" by HINT. `test_generator` checks every puzzle it makes
+   with a plain depth-first route count that shares nothing with the solver.
 
 Attempts are capped by **count**, never by time, so a seed means the same
 puzzle on every device. The activity adds its own wall-clock budget. If that
@@ -354,22 +363,33 @@ and so is one the player chose, whatever it points at. The rest are automatic
 the rules above it left open, and none ever closes a loop:
 
 1. **The gate.** A gate square connects through its gate.
-2. **Fixed pieces.** A given or chosen piece pointing at an automatic square
-   pulls it in.
-3. **What is drawn stays drawn.** A join on screen (`Board::shape`, recorded
-   by `settle` after every move and kept in the save) between two squares that
-   are still both automatic track stays.
-4. **New track extends a line.** An end on screen pointing at a square that
+2. **What is drawn stays drawn.** A join on screen (`Board::shape`, recorded
+   by `settle` after every move and kept in the save) stays, between two
+   squares that are still automatic track, or between an automatic square and
+   a fixed piece that still points back at it.
+3. **New track extends a line.** An end on screen pointing at a square that
    has since become track joins it.
+4. **Fixed pieces.** A given or chosen piece pointing at an automatic square
+   that still has room pulls it in.
 5. **Forced, then most constrained.** Neighbours join where a square has no
    other way to reach two connections, then by the most constrained square
    first.
 6. **Open ends.** A square still short of two points its open ends at empty
-   squares (or its gate), preferring to run straight on. A square boxed in by
+   squares (or its gate): first into a row and column that both still have
+   room for track, then preferring to run straight on. A square boxed in by
    crosses, the edge or track that does not join it still draws a whole piece,
    the one that leaves the board least; CHECK says whether it is right.
 
-Rules 3 and 4 came from the Picco. Without them inference was stateless, so
+What is drawn outranks a chosen piece's pull. With the pull first, a piece
+being turned beside a line could drag a line square toward it, the board
+remembered the new join, and the line stayed broken after the piece went back
+to empty; a cold rules critic found 75 lines left that way in 2,857 probes. A
+chosen piece pointing into a full line now just points there, and CHECK
+judges it. The room preference in rule 6 came from the play critic: a line
+laid up a column ran its open end straight on into a row whose clue was
+already met.
+
+Rules 2 and 3 came from the Picco. Without them inference was stateless, so
 track laid beside a line from the start gate could reroute the line through
 the new square, and a line the player had built would break somewhere else.
 The host test that lays half a route and then probes every square beside it
@@ -408,7 +428,10 @@ further tap steps it through all six pieces, most likely first (`piecesFor`:
 ranked by how many ends meet track that would join them, with pieces that
 cannot fit, off the board or into a cross or away from a gate, offered last),
 skipping the one the automatic piece already showed, and after the last back
-to empty. Offering only the pieces that fit made a corner, where one curve
+to empty. That piece is remembered when the cycle starts (`Board::cycleAuto`):
+once a piece is chosen the neighbours settle around it, and asking inference
+again mid-cycle gave a different answer, so a cycle could repeat or skip a
+piece; a cold rules critic found it in 2,305 of 38,460 cycles. Offering only the pieces that fit made a corner, where one curve
 fits, look broken on the Picco: the tap went straight back to empty. (The first version stepped
 on from the automatic piece's place in that list, so pieces ranked above it
 could never be reached, sometimes the answer's own; a cold rules critic found
@@ -437,7 +460,8 @@ undo included, until the next CHECK redraws them or the puzzle is solved
 one CHECK serves for as many moves as it takes to put its flags right; the
 player finds out a flag is fixed by checking again.
 
-- **CHECK** puts a solid notch in the top-right corner of every square that
+- **CHECK** puts a solid notch, a quarter of the square on a side, in the
+  top-right corner of every square that
   contradicts the answer, and says "2 WRONG" or "NOTHING WRONG SO FAR". That
   is a marked square in the wrong state (track where there is none, or a cross
   on track), and, since the route is unique and so is each of its squares'
@@ -445,17 +469,22 @@ player finds out a flag is fixed by checking again.
   judges what is on the screen: a piece the game guessed is judged exactly as
   one the player chose, so a lone square drawn straight where the answer bends
   is wrong. An empty square is never wrong. (The first version judged squares
-  only, and on the Picco a wrongly turned piece passed CHECK.)
+  only, and on the Picco a wrongly turned piece passed CHECK. The notch was a
+  third of the square at first; on a curve turning through that corner it
+  covered the sleepers, which is marking the piece rather than the square.)
 - **HINT** places one correct square, as an ordinary move that undo takes
   back, brackets it, and says how many hints so far ("1ST HINT", "2ND HINT").
-  It never lays a cross. Track it lays is set to the answer's piece, so a
-  bracketed square never shows a guess the answer does not have.
-  A wrong mark comes first: track off the route is cleared, and a cross on it
-  becomes track. Then comes a wrong shape, set to the answer's piece, because
-  any deduction made past either would rest on something false. Otherwise the
-  solver reasons forward from the player's own marks (`Solver::applyMarks`)
-  and stops at the lowest tier that proves an empty square is track. (The
-  first version also offered crosses, which tell the player little.) A hint that would finish the puzzle is
+  It only ever lays track or turns track already laid to the answer's piece:
+  revealing track is what the player presses HINT for. It never lays a cross
+  and never takes track away; track laid off the route is left for the player,
+  and CHECK, to find. Track it lays is set to the answer's piece, so a
+  bracketed square never shows a guess the answer does not have. A cross on
+  the route comes first, becoming track; then a route square drawn in the
+  wrong piece. Otherwise the solver reasons forward from the player's marks
+  that are right (`Solver::applyRightMarks`), so nothing is deduced from a
+  wrong one, and stops at the lowest tier that proves an empty square is
+  track. (The first version offered crosses, which tell the player little,
+  and then cleared wrong track, which left a bracket around an empty square.) A hint that would finish the puzzle is
   refused ("LAST MOVE IS YOURS") and not counted, and CHECK's marks stay: the
   last move is the player's, and nothing on the board changed. It is tried on the board and taken back, history and redo
   included (`hintSolves`).
@@ -495,7 +524,9 @@ something, or a second sentence under the board:
    the two read as wordy. No smaller line: it only repeated the sentences.
 
 Sentences are broken by hand where they read best; if a line ever outgrew the
-panel, every sentence on the page would step down to the small cut together. The pages once carried titles (THE RULE, MARKING, CLUES), which the
+panel, every sentence would step down to the small cut together. Every page
+reserves the same room above and below the board, sized for the fullest page,
+so the board stands still while the pages turn and only its marks change. The pages once carried titles (THE RULE, MARKING, CLUES), which the
 header's HOW TO PLAY already said. NEXT, GOT IT and the side keys page through
 them.
 
@@ -512,8 +543,8 @@ difficulty, whether a game is saved and whether the board was on screen,
 level, seed, attempt, puzzle hash, solved, hints, checks, elapsed time and the
 history ring's cursors), then the squares (state, chosen piece and the shape
 last drawn, so a reload draws every line exactly as it was), then the 64 undo
-moves. Version 3 added the drawn shapes; a version 2 save still loads, with
-its shapes inferred afresh.
+moves. Every header number is range-checked for the field it is read into,
+and a game marked solved has to be solved.
 
 The puzzle is not stored. It is regenerated from `(level, seed, attempt)` and
 must hash to the stored value, so a save from a generator that has since

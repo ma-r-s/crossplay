@@ -94,6 +94,38 @@ uint32_t fnv(const void* data, const size_t size) {
   return h;
 }
 
+// Routes from the start gate to the end gate through exactly the answer's
+// squares, keeping every given's shape, counted by a plain depth-first walk
+// that shares nothing with the solver. Stops at `limit`.
+int bruteRoutes(const Puzzle& p, const int limit) {
+  const int total = totalTrack(p);
+  bool used[kMaxCells] = {};
+  int found = 0;
+  // At square i, entered from direction `from` (the side it came in by).
+  auto walk = [&](auto&& self, const int i, const int from, const int depth) -> void {
+    if (found >= limit) return;
+    used[i] = true;
+    for (int d = 0; d < 4; ++d) {
+      if (d == from) continue;
+      if (p.given[i] && !(p.given[i] & dirBit(d))) continue;
+      if (p.given[i] && !(p.given[i] & dirBit(from))) continue;
+      const int r = rowOf(i) + kDRow[d];
+      const int c = colOf(i) + kDCol[d];
+      if (!inside(p, r, c)) {
+        if (rowOf(i) == p.end.row && colOf(i) == p.end.col && d == p.end.side && depth == total) ++found;
+        continue;
+      }
+      const int j = cellIndex(r, c);
+      if (!p.solution[j] || used[j]) continue;
+      if (p.given[j] && !(p.given[j] & dirBit(opposite(d)))) continue;
+      self(self, j, opposite(d), depth + 1);
+    }
+    used[i] = false;
+  };
+  walk(walk, cellIndex(p.start.row, p.start.col), p.start.side, 1);
+  return found;
+}
+
 void checkPuzzle(const Level level, const Generated& g) {
   const LevelSpec& s = spec(level);
   const Puzzle& p = g.puzzle;
@@ -143,6 +175,8 @@ void checkPuzzle(const Level level, const Generated& g) {
   }
   CHECK(checker.load(p));
   CHECK(checker.countSolutions(2) == 1);
+  // And one route through those squares, so every square has one right piece.
+  CHECK(bruteRoutes(p, 2) == 1);
 
   // The generated answer wins.
   Board b;

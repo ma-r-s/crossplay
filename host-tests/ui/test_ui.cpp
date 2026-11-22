@@ -9609,6 +9609,83 @@ void checkAndHintMarkTheSquareNotThePiece() {
   CHECK(done.target.fills.size() == doneBare.target.fills.size());
 }
 
+// CHECK's notch marks the square, not the piece: on a curve that turns
+// through the notch's own corner, no sleeper reaches into it, at any level.
+void theCheckNotchClearsACornerCurve() {
+  for (const tt::Level level : {tt::Level::Easy, tt::Level::Medium, tt::Level::Hard}) {
+    Game game = aGame(level);
+    int at = -1;
+    for (int i = 0; i < tt::kMaxCells && at < 0; ++i) {
+      if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) && !game.puzzle.given[i] &&
+          tt::gateSide(game.puzzle, tt::rowOf(i), tt::colOf(i)) < 0) {
+        at = i;
+      }
+    }
+    game.board.cell[at] = tt::kTrack;
+    game.board.pin[at] = tt::dirBit(tt::kNorth) | tt::dirBit(tt::kEast);
+    uint8_t wrong[tt::kMaxCells] = {};
+    wrong[at] = 1;
+    traintracksui::BoardModel model = modelOf(game, level);
+    model.wrong = wrong;
+    Rendered out;
+    build(out, model);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    const fui::Rect box = traintracksui::cellRect(g, tt::rowOf(at), tt::colOf(at));
+    const int right = box.x + box.width - 1;
+    const int topY = box.y + 1;
+    // The notch: the triangle with a corner at the square's top right.
+    int leg = 0;
+    for (const auto& t : out.target.triangles) {
+      for (const fui::Point q : {t.a, t.b, t.c}) {
+        if (q.x == right && q.y > topY) leg = std::max(leg, q.y - topY);
+      }
+    }
+    CHECK(leg > 0);
+    // Every stroke drawn in the square stays outside it, with a little air:
+    // measured as distance in from the corner along both edges, plus half
+    // the stroke.
+    for (const auto& seg : out.target.lines) {
+      for (const fui::Point q : {seg.a, seg.b}) {
+        if (q.x < box.x || q.y < box.y || q.x >= box.x + box.width || q.y >= box.y + box.height) continue;
+        const int inX = right - q.x;
+        const int inY = q.y - topY;
+        CHECK(inX + inY - seg.width / 2 > leg);
+      }
+    }
+  }
+}
+
+// The how-to board stands still while the pages turn: the same grid, in the
+// same place, on every page, so only the marks on it change.
+void theHowToBoardStandsStill() {
+  fui::Rect first{};
+  for (int page = 0; page < traintracksui::howToPages(); ++page) {
+    traintracksui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, model);
+    }
+    // The board's frame: the largest square black fill on the page.
+    fui::Rect frame{};
+    for (size_t k = 0; k < out.target.fills.size(); ++k) {
+      const fui::Rect& f = out.target.fills[k];
+      if (f.width == f.height && out.target.fillPaints[k].color == fui::Color::Black && f.width > frame.width)
+        frame = f;
+    }
+    CHECK(frame.width > 100);
+    if (page == 0) {
+      first = frame;
+    } else {
+      CHECK(frame.x == first.x && frame.y == first.y && frame.width == first.width);
+    }
+  }
+}
+
 // The play and solved screens' buttons keep the front door's page margin;
 // only the board runs nearly to the panel's edge.
 void theBoardButtonsKeepThePageMargin() {
@@ -18879,6 +18956,8 @@ int main() {
   traintrackstest::aSolvedBoardStopsOfferingHelp();
   traintrackstest::theStatusIsQuietWhileSolving();
   traintrackstest::checkAndHintMarkTheSquareNotThePiece();
+  traintrackstest::theCheckNotchClearsACornerCurve();
+  traintrackstest::theHowToBoardStandsStill();
   traintrackstest::theBoardButtonsKeepThePageMargin();
   traintrackstest::theStationsAreTwoMatchingDots();
   traintrackstest::theSolvedBoardIsTheResult();

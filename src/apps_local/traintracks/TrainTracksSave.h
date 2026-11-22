@@ -26,9 +26,7 @@ namespace traintracks {
 
 // Bumped when the format changes, and whenever the generator or the rater
 // changes what a (seed, attempt) builds (see testPinnedPuzzles).
-constexpr int kSaveVersion = 3;
-// Version 2 is version 3 without the drawn shapes, which are inferred afresh.
-constexpr int kSaveVersionNoShapes = 2;
+constexpr int kSaveVersion = 4;
 constexpr int kSaveBytes = 1024;
 
 struct SaveState {
@@ -117,10 +115,7 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
     v[i] = value;
     cursor = next;
   }
-  if (v[0] != static_cast<unsigned long>(kSaveVersion) && v[0] != static_cast<unsigned long>(kSaveVersionNoShapes)) {
-    return false;
-  }
-  const bool hasShapes = v[0] == static_cast<unsigned long>(kSaveVersion);
+  if (v[0] != static_cast<unsigned long>(kSaveVersion)) return false;
   if (v[1] >= static_cast<unsigned long>(kLevelCount)) return false;
 
   SaveState parsed;
@@ -137,7 +132,10 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
   s = SaveState{};
   s.menuLevel = parsed.menuLevel;
 
-  if (v[4] >= static_cast<unsigned long>(kLevelCount) || v[6] > 0xFFFFul || v[9] > 0xFFFFul || v[10] > 0xFFFFul) {
+  // Every field in range for what it is read into: a 32-bit seed, hash or
+  // clock that overflowed would otherwise come back as some other number.
+  if (v[4] >= static_cast<unsigned long>(kLevelCount) || v[5] > 0xFFFFFFFFul || v[6] > 0xFFFFul ||
+      v[7] > 0xFFFFFFFFul || v[9] > 0xFFFFul || v[10] > 0xFFFFul || v[11] > 0xFFFFFFFFul) {
     return false;
   }
   if (v[12] >= static_cast<unsigned long>(kHistoryDepth) || v[13] > static_cast<unsigned long>(kHistoryDepth) ||
@@ -167,7 +165,7 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
       if (ch < '0' || ch > '2') return false;
       const int pin = hexValue(*cursor++);
       if (pin < 0 || !validPin(pin, ch - '0')) return false;
-      const int shape = hasShapes ? hexValue(*cursor++) : 0;
+      const int shape = hexValue(*cursor++);
       if (shape < 0) return false;
       const int i = cellIndex(r, c);
       // A given is track whatever the file says, and only track has a piece.
@@ -205,6 +203,10 @@ inline bool readSave(const char* text, SaveState& s, GenWork& work) {
       break;
     }
   }
+
+  // A game marked solved has to be solved: otherwise a corrupt file would put
+  // SOLVED over a board that is not.
+  if (g.solved && !isSolved(g.puzzle, g.board, work.solver)) return false;
 
   s = parsed;
   return true;
