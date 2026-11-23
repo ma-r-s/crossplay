@@ -184,12 +184,18 @@ struct History {
   uint8_t cursor;
 };
 
+// A pin for track whose piece is left undecided: drawn as a question mark,
+// inferred like an automatic piece so neighbours still join it, and judged by
+// CHECK as a wrong piece. All four connections, which no piece has.
+constexpr uint8_t kPinUnknown = 0x0F;
+
 struct Board {
   // What each square is: empty, track or crossed. Everything that judges the
   // board (clues, the win, CHECK, HINT, the solver) reads only this.
   uint8_t cell[kMaxCells];
-  // The piece the player chose for a track square (a connection mask), or 0
-  // while it is still automatic and follows its neighbours. Drawing only.
+  // The piece the player chose for a track square (a connection mask), 0
+  // while it is still automatic and follows its neighbours, or kPinUnknown
+  // for track whose piece the player has not decided. Drawing only.
   uint8_t pin[kMaxCells];
   // The shapes last drawn (settle). Inference keeps the joins in it, so track
   // laid later joins a line's open ends instead of rerouting the line.
@@ -199,7 +205,8 @@ struct Board {
   // piece it showed when the steps began, which they skip. Remembered because
   // once a piece is chosen the neighbours settle around it, and the piece
   // inference would give the square now is no longer the one that was shown.
-  // Not saved: after a reload the cycle infers it again.
+  // 0 when none was shown: the steps began at an undecided piece. Not saved:
+  // after a reload the cycle infers it again.
   uint8_t cycleCell = 0xFF;
   uint8_t cycleAuto = 0;
 };
@@ -326,10 +333,12 @@ inline bool isTrack(const Board& b, const Puzzle& p, const int row, const int co
   return inside(p, row, col) && b.cell[cellIndex(row, col)] == kTrack;
 }
 
-// The piece a track square is fixed to, or 0 if it is automatic.
+// The piece a track square is fixed to, or 0 if it is automatic (an
+// undecided piece counts as automatic).
 inline uint8_t fixedPiece(const Board& b, const Puzzle& p, const int i) {
   if (b.cell[i] != kTrack) return 0;
-  return p.given[i] ? p.given[i] : b.pin[i];
+  if (p.given[i]) return p.given[i];
+  return b.pin[i] == kPinUnknown ? 0 : b.pin[i];
 }
 
 namespace detail {
@@ -595,37 +604,50 @@ inline int piecesFor(const Board& b, const Puzzle& p, const int i, uint8_t* out 
   return count;
 }
 
-// A tap. An empty or crossed square becomes track, its piece automatic. After
-// that each tap chooses the next of the six pieces, most likely first,
-// skipping the one the automatic piece already showed, so every piece is
-// reached once; after the last, the square is empty again. Givens are refused.
+// A tap. An empty square becomes track with an automatic piece; the next tap
+// leaves its piece undecided, and each tap after that chooses the next of the
+// six pieces, most likely first, skipping the one the automatic piece already
+// showed, so every piece is reached once; after the last, the square is empty
+// again. A tap on a cross goes straight to undecided track, the quick way to
+// say "track here" about a square once ruled out, and since no automatic piece
+// was shown, all six pieces follow. Givens are refused.
 inline bool tapCell(Board& b, const Puzzle& p, const int row, const int col) {
   if (!inside(p, row, col)) return false;
   const int i = cellIndex(row, col);
   if (p.given[i]) return false;
-  if (b.cell[i] != kTrack) return setCell(b, p, row, col, kTrack, 0);
-  // The piece this square showed while automatic: already seen, so skipped.
+  if (b.cell[i] == kEmpty) return setCell(b, p, row, col, kTrack, 0);
+  if (b.cell[i] == kCross) {
+    b.cycleCell = static_cast<uint8_t>(i);
+    b.cycleAuto = 0;
+    return setCell(b, p, row, col, kTrack, kPinUnknown);
+  }
   const uint8_t chosen = b.pin[i];
-  uint8_t automatic = b.cycleAuto;
+  // The piece this square showed while automatic, remembered when the steps
+  // begin: once a piece is chosen the neighbours settle around it, and
+  // inference would no longer give the piece that was shown.
   if (chosen == 0 || b.cycleCell != i) {
-    b.pin[i] = 0;
-    uint8_t shapes[kMaxCells];
-    inferShapes(b, p, shapes);
-    b.pin[i] = chosen;
-    automatic = shapes[i];
+    uint8_t automatic = 0;
+    if (chosen != kPinUnknown) {
+      b.pin[i] = 0;
+      uint8_t shapes[kMaxCells];
+      inferShapes(b, p, shapes);
+      b.pin[i] = chosen;
+      automatic = shapes[i];
+    }
     b.cycleCell = static_cast<uint8_t>(i);
     b.cycleAuto = automatic;
   }
+  if (chosen == 0) return setCell(b, p, row, col, kTrack, kPinUnknown);
   uint8_t pieces[6];
   const int count = piecesFor(b, p, i, pieces);
-  // Where the cycle stands: before the first piece while automatic, else at
+  // Where the cycle stands: before the first piece while undecided, else at
   // the chosen piece.
   int at = -1;
-  for (int k = 0; k < count && chosen; ++k) {
+  for (int k = 0; k < count && chosen != kPinUnknown; ++k) {
     if (pieces[k] == chosen) at = k;
   }
   for (int k = at + 1; k < count; ++k) {
-    if (pieces[k] != automatic) return setCell(b, p, row, col, kTrack, pieces[k]);
+    if (pieces[k] != b.cycleAuto) return setCell(b, p, row, col, kTrack, pieces[k]);
   }
   return setCell(b, p, row, col, kEmpty);
 }

@@ -6,8 +6,8 @@
 //       tools_local/traintracks/seed_shot_save.cpp -o seed && ./seed <card>/.crosspoint/traintracks.sav
 //
 // The state: the route laid from the start gate, square by square as a player
-// would, with automatic pieces; a few crosses where track cannot go; the rest
-// of the board open. onBoard is set, so the app opens straight onto it.
+// would, with automatic pieces; crosses in two rows or columns the laid track
+// has already filled; the rest of the board open. onBoard is set, so the app opens straight onto it.
 // With a second argument "almost", the whole route but one square is laid and
 // that square is printed, so a shot can tap it and photograph the solve.
 
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
   s.onBoard = true;
   Game& g = s.game;
   Generated made;
-  if (!generate(Level::Medium, 1121, 2000, made, work)) return 1;
+  if (!generate(Level::Medium, 154, 2000, made, work)) return 1;
   g.level = Level::Medium;
   g.seed = made.seed;
   g.attempt = made.attempt;
@@ -73,17 +73,36 @@ int main(int argc, char** argv) {
     setCell(g.board, p, rowOf(route[k]), colOf(route[k]), kTrack);
     settle(g.board, p);
   }
-  // Crosses: the first few squares off the route beside the laid line.
+  // Crosses where a player would have reasoned them: a row or column whose
+  // number the laid track already meets has no more track, so its empty
+  // squares are crossed out. Two such lines, the fullest first, read as that
+  // reasoning in a still; crossing every met line would cover the board.
+  auto laidIn = [&](const bool isRow, const int line) {
+    int n = 0;
+    for (int k = 0; k < p.size; ++k) {
+      n += g.board.cell[isRow ? cellIndex(line, k) : cellIndex(k, line)] == kTrack;
+    }
+    return n;
+  };
   int crosses = 0;
-  for (int k = 0; k < laid && crosses < 5; ++k) {
-    for (int d = 0; d < 4 && crosses < 5; ++d) {
-      const int r = rowOf(route[k]) + kDRow[d];
-      const int c = colOf(route[k]) + kDCol[d];
-      if (!inside(p, r, c)) continue;
-      const int j = cellIndex(r, c);
-      if (p.solution[j] || g.board.cell[j] != kEmpty) continue;
-      setCell(g.board, p, r, c, kCross);
-      ++crosses;
+  int lines = 0;
+  for (int want = p.size; want >= 0 && lines < 2; --want) {
+    for (int isRow = 1; isRow >= 0 && lines < 2; --isRow) {
+      for (int line = 0; line < p.size && lines < 2; ++line) {
+        const int clue = isRow ? p.rowClue[line] : p.colClue[line];
+        if (clue != want || laidIn(isRow, line) != clue) continue;
+        int crossed = 0;
+        for (int k = 0; k < p.size; ++k) {
+          const int r = isRow ? line : k;
+          const int c = isRow ? k : line;
+          const int j = cellIndex(r, c);
+          if (g.board.cell[j] != kEmpty || p.solution[j]) continue;
+          setCell(g.board, p, r, c, kCross);
+          ++crossed;
+        }
+        crosses += crossed;
+        lines += crossed > 0;
+      }
     }
   }
   settle(g.board, p);

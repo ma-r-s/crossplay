@@ -623,9 +623,10 @@ void testACycleSurvivesSettling() {
           settle(g.board, p);
           ++taps;
           if (g.board.cell[i] != kTrack) break;
+          if (g.board.pin[i] == kPinUnknown) continue;
           mark(g.board.pin[i]);
         }
-        CHECK(taps == 6);
+        CHECK(taps == 7);
         CHECK(pieces == 6 && seen == 0x3F);
         ++cycles;
         g.board = before;
@@ -714,6 +715,8 @@ void testATapReachesEverySixPieces() {
       }
     };
     mark(shapes[corner]);
+    CHECK(tapCell(g.board, p, r, c));
+    CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPinUnknown);
     for (int k = 0; k < 5; ++k) {
       CHECK(tapCell(g.board, p, r, c));
       CHECK(g.board.cell[corner] == kTrack);
@@ -722,7 +725,117 @@ void testATapReachesEverySixPieces() {
     CHECK(seen == 0x3F);
     CHECK(tapCell(g.board, p, r, c));
     CHECK(g.board.cell[corner] == kEmpty);
+
+    // From a cross: undecided first, then all six pieces, since no automatic
+    // piece was shown, then empty.
+    CHECK(holdCell(g.board, p, r, c) && g.board.cell[corner] == kCross);
+    CHECK(tapCell(g.board, p, r, c));
+    CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPinUnknown);
+    // And so it is when the steps resume at an undecided piece later on, as
+    // after a reload or a tap somewhere else.
+    g.board.cycleCell = 0xFF;
+    seen = 0;
+    for (int k = 0; k < 6; ++k) {
+      CHECK(tapCell(g.board, p, r, c));
+      CHECK(g.board.cell[corner] == kTrack);
+      mark(g.board.pin[corner]);
+    }
+    CHECK(seen == 0x3F);
+    CHECK(tapCell(g.board, p, r, c));
+    CHECK(g.board.cell[corner] == kEmpty);
   }
+}
+
+// A piece left undecided is still track: it counts toward its line and the
+// win, and the neighbours draw just as they would beside an automatic piece.
+// CHECK calls it wrong on the route (its piece is not set), HINT sets it, and
+// a save and undo both keep it.
+void testAnUndecidedPieceIsTrack() {
+  int tried = 0;
+  for (uint32_t seed = 500; seed < 540; ++seed) {
+    Game g = newGame(Level::Medium, seed);
+    const Puzzle& p = g.puzzle;
+    int target = -1;
+    for (int i = 0; i < kMaxCells && target < 0; ++i) {
+      if (inside(p, rowOf(i), colOf(i)) && p.solution[i] && !p.given[i]) target = i;
+    }
+    if (target < 0) continue;
+    ++tried;
+    const int r = rowOf(target);
+    const int c = colOf(target);
+    // Lay the route except the target, which is automatic track.
+    for (int i = 0; i < kMaxCells; ++i) {
+      if (p.solution[i] && !p.given[i] && i != target) setCell(g.board, p, rowOf(i), colOf(i), kTrack);
+    }
+    CHECK(tapCell(g.board, p, r, c));
+    uint8_t automatic[kMaxCells];
+    inferShapes(g.board, p, automatic);
+    // Tap through to the undecided piece.
+    int taps = 0;
+    while (g.board.pin[target] != kPinUnknown && taps < 8) {
+      CHECK(tapCell(g.board, p, r, c));
+      ++taps;
+    }
+    CHECK(g.board.cell[target] == kTrack && g.board.pin[target] == kPinUnknown);
+    CHECK(taps == 1);  // the tap after the automatic piece
+    CHECK(rowCount(g.board, p, r) == p.rowClue[r] && colCount(g.board, p, c) == p.colClue[c]);
+    uint8_t shapes[kMaxCells];
+    inferShapes(g.board, p, shapes);
+    for (int i = 0; i < kMaxCells; ++i) {
+      if (i != target) CHECK(shapes[i] == automatic[i]);
+    }
+    // The squares are all right, but the puzzle is not solved until the piece
+    // is set: finishing is laying the route, pieces and all.
+    CHECK(isWin(p, g.board, checker));
+    CHECK(!isSolved(p, g.board, checker));
+    uint8_t wrong[kMaxCells];
+    CHECK(checkBoard(p, g.board, wrong) == 1 && wrong[target] == 1);
+    const Hint h = findHint(p, g.board, scratch);
+    CHECK(h.kind == HintKind::Fixed && h.cell == target && h.pin == p.solution[target]);
+    // Setting it is the winning move, so HINT will not make it.
+    CHECK(hintSolves(g, h, scratch));
+    {
+      Board set = g.board;
+      CHECK(setCell(set, p, r, c, kTrack, p.solution[target]));
+      CHECK(isSolved(p, set, checker));
+      // Any piece will do for the win, as everywhere else: what was held back
+      // was only the question mark.
+      for (const uint8_t piece : kPieces) {
+        Board other = g.board;
+        setCell(other, p, r, c, kTrack, piece);
+        CHECK(isSolved(p, other, checker));
+      }
+    }
+    // An undecided piece off the route is stray track and does not hold the
+    // win back.
+    {
+      Board stray = g.board;
+      for (int i = 0; i < kMaxCells; ++i) {
+        if (p.solution[i] && !p.given[i]) setCell(stray, p, rowOf(i), colOf(i), kTrack, p.solution[i]);
+      }
+      int off = -1;
+      for (int i = 0; i < kMaxCells && off < 0; ++i) {
+        if (inside(p, rowOf(i), colOf(i)) && !p.solution[i]) off = i;
+      }
+      CHECK(off >= 0 && setCell(stray, p, rowOf(off), colOf(off), kTrack, kPinUnknown));
+      CHECK(isSolved(p, stray, checker));
+    }
+
+    SaveState s;
+    s.hasGame = true;
+    s.game = g;
+    char buffer[kSaveBytes];
+    CHECK(writeSave(s, buffer, kSaveBytes) > 0);
+    SaveState back;
+    CHECK(readSave(buffer, back, work));
+    CHECK(back.game.board.pin[target] == kPinUnknown);
+
+    // The next tap chooses a piece; undo brings the undecided piece back.
+    CHECK(tapCell(g.board, p, r, c) && g.board.cell[target] == kTrack && g.board.pin[target] != kPinUnknown &&
+          g.board.pin[target] != 0);
+    CHECK(undo(g.board) == target && g.board.pin[target] == kPinUnknown);
+  }
+  CHECK(tried > 30);
 }
 
 // The route drawn from gate to gate is a solve, whatever stray track lies
@@ -829,7 +942,10 @@ void testBadSavesAreDiscarded() {
     std::string bad = text;
     const size_t cells = bad.find('\n') + 1;
     bad[cells] = '1';
-    bad[cells + 1] = 'F';
+    bad[cells + 1] = 'E';  // three connections
+    reject(bad, true);
+    bad[cells] = '2';
+    bad[cells + 1] = 'F';  // undecided, but on a cross
     reject(bad, true);
     bad[cells] = '2';
     bad[cells + 1] = 'A';  // east-west, but on a cross
@@ -840,7 +956,7 @@ void testBadSavesAreDiscarded() {
   {
     std::string bad = text;
     const size_t history = bad.find('\n', bad.find('\n') + 1) + 1;
-    bad[history + 5] = 'F';  // toPin of the first move
+    bad[history + 5] = 'E';  // toPin of the first move: three connections
     reject(bad, true);
   }
 
@@ -906,6 +1022,7 @@ int main() {
   testAnOpenEndLooksForRoom();
   testCyclingBesideALineLeavesItWhole();
   testStrayTrackDoesNotBlockTheWin();
+  testAnUndecidedPieceIsTrack();
   testBadSavesAreDiscarded();
   testASaveCannotUnlockAGiven();
   std::printf("traintracks game: %d checks, %d failed\n", checks, failures);

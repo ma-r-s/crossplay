@@ -10034,7 +10034,7 @@ void theBottomRowReachesTheEdge() {
 
 void everyHowToPageFitsAndMovesOn() {
   const int pages = traintracksui::howToPages();
-  CHECK(pages >= 2 && pages <= 3);
+  CHECK(pages >= 2 && pages <= 4);
   for (int page = 0; page < pages; ++page) {
     traintracksui::HowToModel model;
     model.page = page;

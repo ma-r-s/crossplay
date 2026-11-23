@@ -31,7 +31,8 @@ panel.
   a plain framed block: it makes Easy read like real Train Tracks, and it
   gives the generator a strong clue to spend.
 
-**What wins.** Either of two things (`isSolved`):
+**What wins.** No square of the route left showing a question mark (an
+undecided piece, below), and either of two things (`isSolved`):
 
 - the marks alone satisfy the rules (`isWin`): every clue met, and some single
   path from gate to gate runs through exactly the marked squares while keeping
@@ -47,16 +48,27 @@ the stray track is taken away (`tidySolved`) so the solved board shows the
 route alone. (The first version had only the rules win, and on the Picco a
 correct line with unconnected track elsewhere did not finish the puzzle.)
 
+The question mark holds the win back because finishing is laying the route,
+pieces and all. The first version let it count like any track, and on the
+Picco the last square laid solved the puzzle and turned every question mark
+into its piece: efficient, and it took the finish away from the player, who
+had not completed the puzzle yet. Any piece on those squares will do, as with
+every other square; only the question mark is held back. One off the route is
+stray track and holds nothing back.
+
 ## Squares, and the pieces on them
 
-The rules are about squares: which hold track. Winning is exactly that, so a
-piece drawn in the wrong shape never blocks a solve. But a track square also
+The rules are about squares: which hold track. Winning is that, so a piece
+drawn in the wrong shape never blocks a solve; only a piece left undecided on
+the route does. But a track square also
 shows a piece, a straight or a curve, and the player can choose it.
 
 - **A tap** lays track with an automatic piece, which follows its neighbours
-  until touched again. Each further tap chooses the next of all six pieces,
-  most likely first, skipping the one the automatic piece already showed, so
-  every piece is reached once; after the last, the square is empty again.
+  until touched again. The next tap leaves the piece undecided, drawn as a
+  question mark; each tap after that chooses the next of all six pieces, most
+  likely first, skipping the one the automatic piece already showed, so every
+  piece is reached once; after the last, the square is empty again. A tap on a
+  cross goes straight to the question mark, and then all six pieces follow.
 - **A hold** takes a square back a step: track or a cross to empty, and an
   empty square to a cross.
 - **Every track square draws a whole piece.** Automatic pieces
@@ -422,13 +434,14 @@ A solved board draws every square from the answer's own shapes instead. Marks
 say which squares are track, not how they join, so a tightly wound route left
 to inference shows open blocks even when it is complete and correct.
 
-**Input.** A tap lays track: an empty or crossed square becomes track with an
-automatic piece, which keeps following its neighbours until touched again. A
-further tap steps it through all six pieces, most likely first (`piecesFor`:
+**Input.** A tap lays track: an empty square becomes track with an automatic
+piece, which keeps following its neighbours until touched again. The next tap
+leaves the piece undecided, and further taps step it through all six pieces, most likely first (`piecesFor`:
 ranked by how many ends meet track that would join them, with pieces that
 cannot fit, off the board or into a cross or away from a gate, offered last),
 skipping the one the automatic piece already showed, and after the last back
-to empty. That piece is remembered when the cycle starts (`Board::cycleAuto`):
+to empty. A tap on a cross gives an undecided piece straight away, and since
+no automatic piece was shown, all six follow (`cycleAuto` is 0). That piece is remembered when the cycle starts (`Board::cycleAuto`):
 once a piece is chosen the neighbours settle around it, and asking inference
 again mid-cycle gave a different answer, so a cycle could repeat or skip a
 piece; a cold rules critic found it in 2,305 of 38,460 cycles. Offering only the pieces that fit made a corner, where one curve
@@ -436,7 +449,20 @@ fits, look broken on the Picco: the tap went straight back to empty. (The first 
 on from the automatic piece's place in that list, so pieces ranked above it
 could never be reached, sometimes the answer's own; a cold rules critic found
 it.) Each
-chosen piece is pinned (`Board::pin`) and the neighbours fit around it. A hold
+chosen piece is pinned (`Board::pin`) and the neighbours fit around it.
+
+An undecided piece (`kPinUnknown`) is for a square the player believes is
+track without yet knowing which way it turns. It is track to everything that
+judges the board: the clues count it and CHECK judges it, though while one
+stands on the route the puzzle is not yet solved (see "What wins"). Inference treats it as an
+automatic piece and works out a shape for it, which is simply not drawn, so
+neighbours join it exactly as they would join automatic track; only the
+drawing shows a question mark. It sits right after the automatic piece, and
+a tap on a cross reaches it in one, since a square once ruled out and now
+believed to be track is when the player most often knows the square but not
+the piece. At the end of the cycle it took seven taps on the Picco; there,
+choosing a piece costs one tap more, which matters less because the
+automatic piece is usually the one wanted. A hold
 of 400ms, as Sudoku's pencil and Minesweeper's flag, takes a square back a
 step: track or a cross to empty, an empty square to a cross. A cross therefore
 only goes on an empty square, and clearing track is one hold. (The first
@@ -444,7 +470,8 @@ version had a hold cross out track; on the Picco the player found themselves
 crossing squares only to clear them.) a frame is drawn inside the square from 250ms so
 the hold is visibly registering (taps took 140 to 250ms on the Picco, so a
 sooner frame would repaint for most taps). Winning reads only which squares are
-track, so a chosen piece never blocks a solve; CHECK and HINT also judge
+track, so a chosen piece never blocks a solve (an undecided one on the route
+does); CHECK and HINT also judge
 shapes (below). The grid is
 hit-tested from the same `Geometry` that draws it (`cellRect` and `cellAt`,
 tested as exact inverses at every level's size), so its 144 squares spend
@@ -468,7 +495,8 @@ player finds out a flag is fixed by checking again.
   piece, a route square drawn in a piece that is not the answer's. CHECK
   judges what is on the screen: a piece the game guessed is judged exactly as
   one the player chose, so a lone square drawn straight where the answer bends
-  is wrong. An empty square is never wrong. (The first version judged squares
+  is wrong. An undecided piece on the route is wrong too: the answer has a
+  piece there and the player has not set it. An empty square is never wrong. (The first version judged squares
   only, and on the Picco a wrongly turned piece passed CHECK. The notch was a
   third of the square at first; on a curve turning through that corner it
   covered the sleepers, which is marking the piece rather than the square.)
@@ -480,7 +508,7 @@ player finds out a flag is fixed by checking again.
   and CHECK, to find. Track it lays is set to the answer's piece, so a
   bracketed square never shows a guess the answer does not have. A cross on
   the route comes first, becoming track; then a route square drawn in the
-  wrong piece. Otherwise the solver reasons forward from the player's marks
+  wrong piece or left undecided. Otherwise the solver reasons forward from the player's marks
   that are right (`Solver::applyRightMarks`), so nothing is deduced from a
   wrong one, and stops at the lowest tier that proves an empty square is
   track. (The first version offered crosses, which tell the player little,
@@ -511,17 +539,30 @@ difficulty.
 
 ### How to play
 
-Three pages, each a sentence in the UI cut over a 4x4 board drawn by the play
-screen's own code, with a smaller line on the bottom margin where it adds
-something, or a second sentence under the board:
+Four pages, each a sentence in the UI cut over a 4x4 board drawn by the play
+screen's own code and a second sentence under it, at the same size. Every
+board has the same given, so the shaded square is there from the first page
+rather than appearing partway through:
 
 1. "CONNECT THE STATIONS WITH A CONTINUOUS SET OF TRAIN TRACKS", over a solved
-   example; "NUMBERS INDICATE TRACKS PER COLUMN OR ROW".
-2. "TAP TO LAY TRACK, AGAIN TO CHANGE IT", over track, crosses and a given;
-   "HOLD TO CLEAR OR CROSS OUT".
-3. "OUTLINED NUMBER MEANS MET" above met, under and over clues, and "FILLED
-   NUMBER MEANS TOO MANY" under them, at the same size: one sentence joining
-   the two read as wordy. No smaller line: it only repeated the sentences.
+   example, and "NUMBERS INDICATE TRACKS PER COLUMN OR ROW" under it. That
+   second line was once a smaller line on the bottom margin, the only small
+   type left in the how-to once page 2's moved up, which the look critic had
+   flagged; it fits at full size.
+2. "TAP TO LAY TRACK, AGAIN TO CHANGE IT", over track and a given, and "HOLD
+   TO CLEAR" under it.
+3. "HOLD EMPTY BOX TO CROSS OUT" over crosses and two question marks, and "TAP
+   AGAIN TO MARK ? AS POSSIBLE TRACK" under them: the two marks that help work
+   a puzzle out share a page, and the second sentence follows the first, since
+   a tap on a cross is the quick way to a question mark. The player's own
+   wording. The question marks sit on the route, so the clues beside them read
+   met, which shows they count as track without saying so. The crosses are the
+   ones the numbers give: the first column's 1 is the station square, and the
+   bottom row's 0 has no track at all. Crosses picked off the answer read as
+   arbitrary, and one of the first set sat on the route.
+4. "OUTLINED NUMBER MEANS MET" above met, under and over clues, and "FILLED
+   NUMBER MEANS TOO MANY" under them: one sentence joining the two read as
+   wordy.
 
 Sentences are broken by hand where they read best; if a line ever outgrew the
 panel, every sentence would step down to the small cut together. Every page

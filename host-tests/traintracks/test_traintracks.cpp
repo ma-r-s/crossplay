@@ -230,7 +230,8 @@ void testTapCycleAndGivens() {
   // First tap: track, still automatic.
   const int i = cellIndex(1, 1);
   CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == 0);
-  // Each further tap is a different piece that fits, then empty again.
+  // Each further tap is a different piece that fits, then track left
+  // undecided, then empty again.
   uint8_t seen[8] = {};
   int pieces = 0;
   uint8_t shapes[kMaxCells];
@@ -240,22 +241,27 @@ void testTapCycleAndGivens() {
   while (b.cell[i] == kTrack && taps < 10) {
     CHECK(tapCell(b, p, 1, 1));
     ++taps;
+    if (b.pin[i] == kPinUnknown) {
+      CHECK(b.cell[i] == kTrack);
+      CHECK(tapCell(b, p, 1, 1));
+      ++taps;
+    }
     if (b.cell[i] != kTrack) break;
     CHECK(b.pin[i] != 0 && popcount4(b.pin[i]) == 2);
     for (int k = 0; k < pieces; ++k) CHECK(seen[k] != b.pin[i]);
     seen[pieces++] = b.pin[i];
   }
   CHECK(b.cell[i] == kEmpty && b.pin[i] == 0);
-  CHECK(taps >= 2 && taps <= 6);
+  CHECK(taps >= 3 && taps <= 7);
 
   // A hold crosses an empty square, and clears a cross or track.
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kCross);
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty);
   CHECK(tapCell(b, p, 1, 1) && tapCell(b, p, 1, 1) && b.pin[i] != 0);
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty && b.pin[i] == 0);
-  // A tap on a cross lays track over it.
+  // A tap on a cross lays track over it, its piece undecided.
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kCross);
-  CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == 0);
+  CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == kPinUnknown);
 
   CHECK(!tapCell(b, p, 0, 1) && b.cell[cellIndex(0, 1)] == kTrack);  // given: locked
   CHECK(!holdCell(b, p, 0, 1) && b.cell[cellIndex(0, 1)] == kTrack);
@@ -577,16 +583,20 @@ void testTapVisitsEveryPiece() {
     uint8_t shown[8] = {shapes[i]};
     int seen = 1;
     int taps = 0;
-    while (b.cell[i] == kTrack && taps <= 8) {
+    while (b.cell[i] == kTrack && taps <= 9) {
       tapCell(b, p, r, c);
       ++taps;
+      if (b.cell[i] == kTrack && b.pin[i] == kPinUnknown) {
+        tapCell(b, p, r, c);  // undecided, then empty
+        ++taps;
+      }
       if (b.cell[i] == kTrack) {
         for (int k = 0; k < seen; ++k) CHECK(shown[k] != b.pin[i]);
         shown[seen++] = b.pin[i];
       }
     }
     CHECK(b.cell[i] == kEmpty);
-    CHECK(taps <= count + 1);
+    CHECK(taps <= count + 2);
     for (int k = 0; k < count; ++k) {
       bool reached = false;
       for (int m = 0; m < seen; ++m) reached |= shown[m] == options[k];

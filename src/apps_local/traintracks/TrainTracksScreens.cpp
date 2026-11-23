@@ -167,13 +167,26 @@ void drawRail(toybox::Screen& screen, const fui::Rect& box, const uint8_t mask) 
   line(screen, arcPoint(4, inner), arcPoint(4, outer), toybox::kRule);
 }
 
+// A cross is drawn heavier than the rails so it pairs with the question mark,
+// the other mark the player works the puzzle out with.
 void drawCross(toybox::Screen& screen, const fui::Rect& box) {
+  constexpr uint8_t kStroke = 5;
   const Pt c = centreOf(box);
   const int16_t arm = static_cast<int16_t>(box.width * 16 / 100);
   line(screen, Pt{static_cast<int16_t>(c.x - arm), static_cast<int16_t>(c.y - arm)},
-       Pt{static_cast<int16_t>(c.x + arm), static_cast<int16_t>(c.y + arm)}, toybox::kRule);
+       Pt{static_cast<int16_t>(c.x + arm), static_cast<int16_t>(c.y + arm)}, kStroke);
   line(screen, Pt{static_cast<int16_t>(c.x - arm), static_cast<int16_t>(c.y + arm)},
-       Pt{static_cast<int16_t>(c.x + arm), static_cast<int16_t>(c.y - arm)}, toybox::kRule);
+       Pt{static_cast<int16_t>(c.x + arm), static_cast<int16_t>(c.y - arm)}, kStroke);
+}
+
+// Track whose piece the player has left undecided: a question mark at the
+// clue size, which reads at Hard's 40px squares and leaves the corner where
+// CHECK's notch goes clear.
+void drawUnknown(toybox::Screen& screen, const fui::Rect& box) {
+  fui::TextStyle mark;
+  mark.align = fui::TextAlign::Center;
+  mark.font = toybox::kBodyFont;
+  screen.target().text(toybox::inkCentred(box, toybox::kUiCut), "?", mark);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,17 +200,26 @@ void drawClue(toybox::Screen& screen, const fui::Rect& box, const int clue, cons
   digit.align = fui::TextAlign::Center;
   // Boxed when met, inverted when over: two states that read at a glance and
   // need no grey, which this panel does not have for type.
-  const int16_t chipW = clue >= 10 ? 40 : 30;
-  const int16_t chipH = 30;
+  // The chip is placed around the digits' ink, not the box, so the space
+  // inside its 2px border is the same above and below. The renderer draws the
+  // cut one row above where the metrics put its ink, so the digits move down
+  // that row; centring on the box had left their tops touching the border.
+  fui::Rect textRect = toybox::inkCentred(box, toybox::kUiCut);
+  textRect.y = static_cast<int16_t>(textRect.y + 1);
+  const int16_t inkTop = static_cast<int16_t>(textRect.y + toybox::kUiCut.ascender - toybox::kUiCut.inkHeight - 1);
+  const int16_t inkHeight = toybox::kUiCut.inkHeight;
+  constexpr int16_t kInset = 4;  // border and gap
+  const int16_t chipW = clue >= 10 ? 42 : 32;
+  const int16_t chipH = static_cast<int16_t>(inkHeight + 2 * kInset);
   const fui::Rect chip = fui::makeRect(static_cast<int16_t>(box.x + (box.width - chipW) / 2),
-                                       static_cast<int16_t>(box.y + (box.height - chipH) / 2), chipW, chipH);
+                                       static_cast<int16_t>(inkTop - kInset), chipW, chipH);
   if (state == tt::ClueState::Over) {
     screen.target().fill(chip, black());
     digit.color = fui::Color::White;
   } else if (state == tt::ClueState::Met) {
     screen.target().stroke(chip, black(), 2);
   }
-  screen.target().text(toybox::inkCentred(box, toybox::kUiCut), text, digit);
+  screen.target().text(textRect, text, digit);
 }
 
 void drawGate(toybox::Screen& screen, const Geometry& g, const tt::Gate& gate) {
@@ -304,7 +326,9 @@ void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p,
       // A given is the board's own material: the dithered ground Sudoku gives
       // its clues, with its real shape drawn on it.
       if (p.given[i]) screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
-      if (b.cell[i] == tt::kTrack) {
+      if (b.cell[i] == tt::kTrack && b.pin[i] == tt::kPinUnknown && !marks.solved) {
+        drawUnknown(screen, box);
+      } else if (b.cell[i] == tt::kTrack) {
         drawRail(screen, box, shapes[i]);
       } else if (b.cell[i] == tt::kCross) {
         drawCross(screen, box);
@@ -706,38 +730,43 @@ void buildNewGame(toybox::Screen& screen, const NewGameModel& model) {
 
 namespace {
 
-// A lesson is a sentence set at the UI cut above the board, and optionally a
-// second one under it, each broken by hand where it reads best rather than
-// where the width runs out, an optional smaller line on the bottom
-// margin, and a 4x4 board drawn by the same code as the real one. Faces are 16
-// characters, row by row: '.' empty, 'T' track, 'x' cross, 'G' a given.
+// A lesson is a sentence set at the UI cut above the board and a second one
+// under it, each broken by hand where it reads best rather than where the
+// width runs out, and a 4x4 board drawn by the same code as the real one, with
+// the same given on every page. Faces are 16
+// characters, row by row: '.' empty, 'T' track, 'x' cross, '?' track with its
+// piece undecided, 'G' a given.
 struct Lesson {
   const char* lines[3];  // above the board; nullptr after the last
   const char* under[2];  // below it, at the same size; nullptr after the last
-  const char* detail;    // nullptr: none
   const char* face;
 };
 
 const Lesson kLessons[] = {
     {{"CONNECT THE STATIONS", "WITH A CONTINUOUS SET", "OF TRAIN TRACKS"},
-     {nullptr, nullptr},
-     "NUMBERS INDICATE TRACKS PER COLUMN OR ROW",
+     {"NUMBERS INDICATE TRACKS", "PER COLUMN OR ROW"},
      ".TT."
-     "TTT."
+     "TGT."
      "..TT"
      "...."},
     {{"TAP TO LAY TRACK,", "AGAIN TO CHANGE IT", nullptr},
-     {nullptr, nullptr},
-     "HOLD TO CLEAR OR CROSS OUT",
-     ".T.x"
+     {"HOLD TO CLEAR", nullptr},
+     ".TT."
      "TG.."
-     "..x."
-     "x..."},
+     "...."
+     "...."},
+    {{"HOLD EMPTY BOX", "TO CROSS OUT", nullptr},
+     {"TAP AGAIN TO MARK ?", "AS POSSIBLE TRACK"},
+     // Crossed where the numbers say: column 1's track is the station square,
+     // and row 4 has none.
+     "x?T."
+     "TG?."
+     "x..."
+     "xxxx"},
     {{"OUTLINED NUMBER", "MEANS MET", nullptr},
      {"FILLED NUMBER", "MEANS TOO MANY"},
-     nullptr,
      ".TT."
-     "TTT."
+     "TGT."
      "...."
      ".T.."},
 };
@@ -765,6 +794,10 @@ void lessonPuzzle(tt::Puzzle& p, tt::Board& b, const char* face) {
         break;
       case 'x':
         b.cell[i] = tt::kCross;
+        break;
+      case '?':
+        b.cell[i] = tt::kTrack;
+        b.pin[i] = tt::kPinUnknown;
         break;
       default:
         break;
@@ -818,9 +851,8 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
     for (const char* line : any.lines) lines = static_cast<int16_t>(lines + (line != nullptr));
     int16_t under = 0;
     for (const char* line : any.under) under = static_cast<int16_t>(under + (line != nullptr));
-    const int16_t foot = any.detail != nullptr ? toybox::kTileCut.lineHeight : 0;
     above = std::max<int16_t>(above, static_cast<int16_t>(lines * cut.lineHeight));
-    below = std::max<int16_t>(below, static_cast<int16_t>(under * cut.lineHeight + foot));
+    below = std::max<int16_t>(below, static_cast<int16_t>(under * cut.lineHeight));
   }
 
   screen.takeTop(toybox::kGutter);
@@ -832,21 +864,12 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
     screen.target().text(toybox::inkCentred(fui::makeRect(top.x, y, top.width, cut.lineHeight), cut), line, body);
     y = static_cast<int16_t>(y + cut.lineHeight);
   }
-  // Under the board: the second sentence from the top of the reserve, and the
-  // smaller line on its floor, just above the button.
+  // Under the board, the second sentence from the top of the reserve.
   y = foot.y;
   for (const char* line : lesson.under) {
     if (line == nullptr) break;
     screen.target().text(toybox::inkCentred(fui::makeRect(foot.x, y, foot.width, cut.lineHeight), cut), line, body);
     y = static_cast<int16_t>(y + cut.lineHeight);
-  }
-  if (lesson.detail != nullptr) {
-    fui::TextStyle detail;
-    detail.font = toybox::kTileFont;
-    detail.align = fui::TextAlign::Center;
-    const fui::Rect band = fui::makeRect(foot.x, static_cast<int16_t>(foot.bottom() - toybox::kTileCut.lineHeight),
-                                         foot.width, toybox::kTileCut.lineHeight);
-    screen.target().text(toybox::inkCentred(band, toybox::kTileCut), lesson.detail, detail);
   }
 
   tt::Puzzle puzzle;

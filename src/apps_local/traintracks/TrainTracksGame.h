@@ -55,10 +55,11 @@ inline bool isWrong(const Puzzle& p, const Board& b, const int i) {
 // A track square on the route drawn in a shape the answer does not have, given
 // the shapes the board draws (`shapes`, from inferShapes). The route is unique,
 // so each of its squares has one right piece, and CHECK judges what is on the
-// screen: a piece the game guessed is judged exactly as one the player chose.
+// screen: a piece the game guessed is judged exactly as one the player chose,
+// and an undecided piece is never right.
 inline bool isWrongShape(const Puzzle& p, const Board& b, const uint8_t* shapes, const int i) {
   if (b.cell[i] != kTrack || !p.solution[i] || p.given[i]) return false;
-  return shapes[i] != p.solution[i];
+  return b.pin[i] == kPinUnknown || shapes[i] != p.solution[i];
 }
 
 // CHECK. Fills `wrong` (one flag per square) and returns how many: squares
@@ -192,9 +193,21 @@ inline bool lineSolves(const Puzzle& p, const Board& b) {
   return false;
 }
 
-// Solved: the marks alone satisfy every rule (isWin), or the drawn line is the
-// route whatever else is on the board.
+// Whether a square of the route still has its piece undecided. Finishing is
+// laying the route, pieces and all, so a question mark on it holds the win
+// back; one off the route is stray track and holds nothing back.
+inline bool routeUndecided(const Puzzle& p, const Board& b) {
+  for (int i = 0; i < kMaxCells; ++i) {
+    if (p.solution[i] && b.cell[i] == kTrack && b.pin[i] == kPinUnknown) return true;
+  }
+  return false;
+}
+
+// Solved: no route square left undecided, and either the marks alone satisfy
+// every rule (isWin) or the drawn line is the route whatever else is on the
+// board.
 inline bool isSolved(const Puzzle& p, const Board& b, Solver& scratch) {
+  if (routeUndecided(p, b)) return false;
   return lineSolves(p, b) || isWin(p, b, scratch);
 }
 

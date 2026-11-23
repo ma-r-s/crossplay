@@ -26,7 +26,7 @@ namespace traintracks {
 
 // Bumped when the format changes, and whenever the generator or the rater
 // changes what a (seed, attempt) builds (see testPinnedPuzzles).
-constexpr int kSaveVersion = 4;
+constexpr int kSaveVersion = 5;
 constexpr int kSaveBytes = 1024;
 
 struct SaveState {
@@ -42,11 +42,12 @@ struct SaveState {
 
 inline char hexDigit(const int v) { return "0123456789ABCDEF"[v & 0xF]; }
 
-// A piece a square may hold: none (0), or one of the six two-way pieces, and
-// only on track. Anything else in a file is corruption.
+// A piece a square may hold: none (0), or one of the six two-way pieces or
+// undecided, and only on track. Anything else in a file is corruption.
 inline bool validPin(const int pin, const int state) {
   if (pin == 0) return true;
   if (state != kTrack) return false;
+  if (pin == kPinUnknown) return true;
   for (const uint8_t piece : kPieces) {
     if (pin == piece) return true;
   }
