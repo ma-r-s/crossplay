@@ -51,6 +51,7 @@
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
+#include "../../src/apps_local/traintracks/TrainTracksScreens.h"
 #include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxFormat.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
@@ -9352,6 +9353,718 @@ void testTheSudokuCapsuleIsInertUntilTheGridIsFinished() {
   CHECK(contains(sudokuReachableActions(done), sudokuui::ActionSeeResult));
 }
 
+// --- train tracks ------------------------------------------------------------
+
+namespace traintrackstest {
+
+namespace tt = traintracks;
+
+tt::GenWork& work() {
+  // ~8.5KB of solver scratch; static so no test frame carries it.
+  static tt::GenWork scratch;
+  return scratch;
+}
+
+struct Game {
+  tt::Puzzle puzzle{};
+  tt::Board board{};
+};
+
+Game aGame(const tt::Level level) {
+  Game game;
+  tt::Generated made;
+  const bool ok = tt::generate(level, 0x7A1A0000u + static_cast<uint32_t>(level), 400, made, work());
+  CHECK(ok);
+  game.puzzle = made.puzzle;
+  tt::resetBoard(game.board, game.puzzle);
+  return game;
+}
+
+traintracksui::BoardModel modelOf(const Game& game, const tt::Level level) {
+  traintracksui::BoardModel model;
+  model.puzzle = &game.puzzle;
+  model.board = &game.board;
+  model.level = level;
+  return model;
+}
+
+void build(Rendered& out, const traintracksui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildBoard(screen, model);
+}
+
+std::vector<int> reachable(Rendered& out) { return sudokuReachableActions(out); }
+
+constexpr tt::Level kAllLevels[] = {tt::Level::Easy, tt::Level::Medium, tt::Level::Hard};
+
+// The grid is hit-tested by the activity from the geometry that drew it, so
+// the pair must be exact inverses at every size a level can deal: every pixel
+// of a square maps home, and nothing outside a square is claimed for it.
+void gridAndHitTestAreExactInverses() {
+  const fui::DeviceContext ctx = device();
+  for (const tt::Level level : kAllLevels) {
+    const int n = tt::spec(level).size;
+    const traintracksui::Geometry g = traintracksui::boardGeometry(ctx, n);
+    bool home = true;
+    bool inside = true;
+    for (int r = 0; r < n; ++r) {
+      for (int c = 0; c < n; ++c) {
+        const fui::Rect box = traintracksui::cellRect(g, r, c);
+        for (int y = box.y; y < box.bottom(); ++y) {
+          for (int x = box.x; x < box.right(); ++x) {
+            int gr = -1;
+            int gc = -1;
+            if (!traintracksui::cellAt(g, x, y, gr, gc) || gr != r || gc != c) home = false;
+          }
+        }
+      }
+    }
+    for (int y = 0; y < 800; ++y) {
+      for (int x = 0; x < 480; ++x) {
+        int gr = -1;
+        int gc = -1;
+        if (!traintracksui::cellAt(g, x, y, gr, gc)) continue;
+        const fui::Rect box = traintracksui::cellRect(g, gr, gc);
+        if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) inside = false;
+      }
+    }
+    CHECK(home);
+    CHECK(inside);
+  }
+}
+
+// The sizes the doc quotes, and the order things stack in: clue band, grid,
+// status, controls, all inside the panel with the grid clear of the controls.
+void eachLevelFitsThePanel() {
+  const fui::DeviceContext ctx = device();
+  const int16_t expected[] = {64, 50, 40};
+  int k = 0;
+  for (const tt::Level level : kAllLevels) {
+    const int n = tt::spec(level).size;
+    const traintracksui::Geometry g = traintracksui::boardGeometry(ctx, n);
+    CHECK(g.cell == expected[k++]);
+    const fui::Rect last = traintracksui::cellRect(g, n - 1, n - 1);
+    CHECK(g.rowClueX >= 0);
+    CHECK(last.right() <= ctx.width);
+    CHECK(g.colClueY < g.gridY);
+    CHECK(last.bottom() < g.statusY);
+    CHECK(g.statusY < g.controlsY);
+    CHECK(g.controlsY < ctx.height);
+  }
+  // 6x6 is held at the cap rather than filling the width with tiles.
+  CHECK(traintracksui::boardGeometry(ctx, 6).cell < (480 - 80) / 6);
+}
+
+// Five controls and nothing else: the 144 squares are hit-tested by the
+// activity, so they spend none of the twenty-four slots, and every label is
+// whole in its box.
+void theBoardSpendsFiveControls() {
+  for (const tt::Level level : kAllLevels) {
+    Game game = aGame(level);
+    // Two moves and one undone, so both history controls are live.
+    int moves = 0;
+    for (int i = 0; i < tt::kMaxCells && moves < 2; ++i) {
+      const int r = tt::rowOf(i);
+      const int c = tt::colOf(i);
+      if (r < game.puzzle.size && c < game.puzzle.size && tt::tapCell(game.board, game.puzzle, r, c)) ++moves;
+    }
+    CHECK(moves == 2);
+    CHECK(tt::undo(game.board) >= 0);
+    Rendered out;
+    build(out, modelOf(game, level));
+    CHECK(!out.interactions.overflowed());
+    const std::vector<int> actions = reachable(out);
+    CHECK(actions.size() == 5);
+    CHECK(contains(actions, traintracksui::ActionUndo));
+    CHECK(contains(actions, traintracksui::ActionRedo));
+    CHECK(contains(actions, traintracksui::ActionCheck));
+    CHECK(contains(actions, traintracksui::ActionHint));
+    CHECK(contains(actions, traintracksui::ActionMenu));
+    for (const char* label : {"UNDO", "REDO", "CHECK", "HINT", "MENU"}) CHECK(drewLabelWhole(out, label));
+    // The header is the name alone; the level is on the SOLVED header.
+    CHECK(drewLabelWhole(out, "TRAIN TRACKS"));
+    CHECK(!drewText(out, traintracksui::levelName(level)));
+
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    bool silent = true;
+    for (int r = 0; r < game.puzzle.size; ++r) {
+      for (int c = 0; c < game.puzzle.size; ++c) {
+        const fui::Rect box = traintracksui::cellRect(g, r, c);
+        if (out.tap(box.x + box.width / 2, box.y + box.height / 2).action != fui::NO_ACTION) silent = false;
+      }
+    }
+    CHECK(silent);
+  }
+}
+
+// Every clue is drawn, and drawn whole, including the two-digit "10".
+void everyClueIsWhole() {
+  Game game = aGame(tt::Level::Hard);
+  game.puzzle.rowClue[0] = 10;  // the widest a clue can be
+  Rendered out;
+  build(out, modelOf(game, tt::Level::Hard));
+  CHECK(drewLabelWhole(out, "10"));
+  for (int i = 1; i < game.puzzle.size; ++i) {
+    char text[12];
+    std::snprintf(text, sizeof(text), "%d", game.puzzle.colClue[i]);
+    CHECK(drewLabelWhole(out, text));
+  }
+}
+
+// A fresh board has nothing to undo or redo, and those two are drawn but
+// cannot be tapped. MENU is always the way out of a deal.
+void aFreshBoardOffersNoHistory() {
+  Game game = aGame(tt::Level::Easy);
+  Rendered out;
+  build(out, modelOf(game, tt::Level::Easy));
+  const std::vector<int> actions = reachable(out);
+  CHECK(!contains(actions, traintracksui::ActionUndo));
+  CHECK(!contains(actions, traintracksui::ActionRedo));
+  CHECK(contains(actions, traintracksui::ActionMenu));
+  CHECK(drewText(out, "UNDO"));
+}
+
+// Solved, the board is finished: CHECK and HINT have nothing left to say.
+void aSolvedBoardStopsOfferingHelp() {
+  Game game = aGame(tt::Level::Easy);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  model.solved = true;
+  Rendered out;
+  build(out, model);
+  const std::vector<int> actions = reachable(out);
+  CHECK(!contains(actions, traintracksui::ActionCheck));
+  CHECK(!contains(actions, traintracksui::ActionHint));
+  CHECK(contains(actions, traintracksui::ActionNewGame));
+  CHECK(drewText(out, "SOLVED"));
+}
+
+// While solving the status line is blank: the clues already say how each line
+// stands. It speaks only for CHECK and HINT, and says nothing about counts.
+void theStatusIsQuietWhileSolving() {
+  Game game = aGame(tt::Level::Medium);
+  Rendered quiet;
+  build(quiet, modelOf(game, tt::Level::Medium));
+  for (const auto& run : quiet.target.texts) CHECK(run.text.find("LAID") == std::string::npos);
+
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Medium);
+  model.notice = "2 WRONG";
+  Rendered told;
+  build(told, model);
+  CHECK(drewLabelWhole(told, "2 WRONG"));
+  CHECK(drewLabelWhole(told, "2ND HINT") == false);
+  model.notice = "2ND HINT";
+  Rendered hinted;
+  build(hinted, model);
+  CHECK(drewLabelWhole(hinted, "2ND HINT"));
+  model.notice = "LAST MOVE IS YOURS";
+  Rendered last;
+  build(last, model);
+  CHECK(drewLabelWhole(last, "LAST MOVE IS YOURS"));
+  model.notice = "NOTHING WRONG SO FAR";
+  Rendered fine;
+  build(fine, model);
+  CHECK(drewLabelWhole(fine, "NOTHING WRONG SO FAR"));
+}
+
+// CHECK marks each wrong square with a notch in its corner and nothing else,
+// and HINT brackets the square it filled: marks on the cell, never over the
+// rail. A solved board wears neither.
+void checkAndHintMarkTheSquareNotThePiece() {
+  Game game = aGame(tt::Level::Easy);
+  uint8_t wrong[tt::kMaxCells] = {};
+  int target = -1;
+  for (int i = 0; i < tt::kMaxCells && target < 0; ++i) {
+    if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) && !game.puzzle.solution[i]) target = i;
+  }
+  CHECK(target >= 0);
+  game.board.cell[target] = tt::kTrack;
+  CHECK(tt::checkBoard(game.puzzle, game.board, wrong) == 1);
+
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  Rendered plain;
+  build(plain, model);
+  model.wrong = wrong;
+  Rendered checked;
+  build(checked, model);
+  CHECK(checked.target.triangles.size() == plain.target.triangles.size() + 1);
+
+  model.wrong = nullptr;
+  model.hintCell = target;
+  Rendered hinted;
+  build(hinted, model);
+  CHECK(hinted.target.fills.size() == plain.target.fills.size() + 8);  // four corner brackets, two bars each
+
+  model.solved = true;
+  model.wrong = wrong;
+  Rendered done;
+  build(done, model);
+  model.wrong = nullptr;
+  model.hintCell = -1;
+  Rendered doneBare;
+  build(doneBare, model);
+  CHECK(done.target.triangles.size() == doneBare.target.triangles.size());
+  CHECK(done.target.fills.size() == doneBare.target.fills.size());
+}
+
+// CHECK's notch marks the square, not the piece: on a curve that turns
+// through the notch's own corner, no sleeper reaches into it, at any level.
+void theCheckNotchClearsACornerCurve() {
+  for (const tt::Level level : {tt::Level::Easy, tt::Level::Medium, tt::Level::Hard}) {
+    Game game = aGame(level);
+    int at = -1;
+    for (int i = 0; i < tt::kMaxCells && at < 0; ++i) {
+      if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) && !game.puzzle.given[i] &&
+          tt::gateSide(game.puzzle, tt::rowOf(i), tt::colOf(i)) < 0) {
+        at = i;
+      }
+    }
+    game.board.cell[at] = tt::kTrack;
+    game.board.pin[at] = tt::dirBit(tt::kNorth) | tt::dirBit(tt::kEast);
+    uint8_t wrong[tt::kMaxCells] = {};
+    wrong[at] = 1;
+    traintracksui::BoardModel model = modelOf(game, level);
+    model.wrong = wrong;
+    Rendered out;
+    build(out, model);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    const fui::Rect box = traintracksui::cellRect(g, tt::rowOf(at), tt::colOf(at));
+    const int right = box.x + box.width - 1;
+    const int topY = box.y + 1;
+    // The notch: the triangle with a corner at the square's top right.
+    int leg = 0;
+    for (const auto& t : out.target.triangles) {
+      for (const fui::Point q : {t.a, t.b, t.c}) {
+        if (q.x == right && q.y > topY) leg = std::max(leg, q.y - topY);
+      }
+    }
+    CHECK(leg > 0);
+    // Every stroke drawn in the square stays outside it, with a little air:
+    // measured as distance in from the corner along both edges, plus half
+    // the stroke.
+    for (const auto& seg : out.target.lines) {
+      for (const fui::Point q : {seg.a, seg.b}) {
+        if (q.x < box.x || q.y < box.y || q.x >= box.x + box.width || q.y >= box.y + box.height) continue;
+        const int inX = right - q.x;
+        const int inY = q.y - topY;
+        CHECK(inX + inY - seg.width / 2 > leg);
+      }
+    }
+  }
+}
+
+// The how-to board stands still while the pages turn: the same grid, in the
+// same place, on every page, so only the marks on it change.
+void theHowToBoardStandsStill() {
+  fui::Rect first{};
+  for (int page = 0; page < traintracksui::howToPages(); ++page) {
+    traintracksui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, model);
+    }
+    // The board's frame: the largest square black fill on the page.
+    fui::Rect frame{};
+    for (size_t k = 0; k < out.target.fills.size(); ++k) {
+      const fui::Rect& f = out.target.fills[k];
+      if (f.width == f.height && out.target.fillPaints[k].color == fui::Color::Black && f.width > frame.width)
+        frame = f;
+    }
+    CHECK(frame.width > 100);
+    if (page == 0) {
+      first = frame;
+    } else {
+      CHECK(frame.x == first.x && frame.y == first.y && frame.width == first.width);
+    }
+  }
+}
+
+// The play and solved screens' buttons keep the front door's page margin;
+// only the board runs nearly to the panel's edge.
+void theBoardButtonsKeepThePageMargin() {
+  for (const bool solved : {false, true}) {
+    Game game = aGame(tt::Level::Hard);
+    traintracksui::BoardModel model = modelOf(game, tt::Level::Hard);
+    model.solved = solved;
+    Rendered out;
+    build(out, model);
+    int left = 9999;
+    int right = 0;
+    for (size_t i = 0; i < out.interactions.count(); ++i) {
+      const fui::Rect& r = out.interactions.data()[i].rect;
+      left = std::min<int>(left, r.x);
+      right = std::max<int>(right, r.x + r.width);
+    }
+    CHECK(left == toybox::kMargin);
+    CHECK(right == device().width - toybox::kMargin);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    CHECK(g.rowClueX < toybox::kMargin);  // the board itself is not inset
+  }
+}
+
+// The two stations are the same ringed dot, one on each opening in the frame:
+// the line can be laid from either end, so neither says which way it runs.
+void theStationsAreTwoMatchingDots() {
+  Game game = aGame(tt::Level::Medium);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Medium);
+  Rendered out;
+  build(out, model);
+  // No arrows, and with no CHECK marks nothing else draws a triangle.
+  CHECK(out.target.triangles.empty());
+  const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+  int dots = 0;
+  int holes = 0;
+  for (size_t k = 0; k < out.target.fills.size(); ++k) {
+    const fui::Rect& f = out.target.fills[k];
+    if (f.width != f.height || f.width < 15 || f.width > 31) continue;
+    // Centred on the frame, outside the grid's own squares.
+    const int cx = f.x + f.width / 2;
+    const int cy = f.y + f.height / 2;
+    const int side = g.n * g.cell;
+    const bool onFrame = cx < g.gridX || cy < g.gridY || cx >= g.gridX + side || cy >= g.gridY + side;
+    if (!onFrame) continue;
+    if (out.target.fillPaints[k].color == fui::Color::Black) ++dots;
+    if (out.target.fillPaints[k].color == fui::Color::White) ++holes;
+  }
+  CHECK(dots == 2);
+  CHECK(holes == 2);
+}
+
+// The finished board keeps its place and trades the rail for one door in the
+// same footprint, says SOLVED in the band, and gives the time, large, with
+// whether help was used under it, in ink rather than in a second solid shape.
+void theSolvedBoardIsTheResult() {
+  Game game = aGame(tt::Level::Hard);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Hard);
+  model.solved = true;
+  model.elapsedMs = (4 * 60 + 12) * 1000;
+  Rendered unaided;
+  build(unaided, model);
+  CHECK(drewText(unaided, "SOLVED"));
+  CHECK(drewLabelWhole(unaided, "4:12"));
+  CHECK(drewLabelWhole(unaided, "CLEAN WIN"));
+  CHECK(drewLabelWhole(unaided, "NEW PUZZLE"));
+  {
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), game.puzzle.size);
+    int timeAt = -1;
+    int tallyAt = -1;
+    for (const auto& run : unaided.target.texts) {
+      if (run.text == "4:12") {
+        CHECK(run.style.font == toybox::kDisplayFont);
+        timeAt = run.rect.y;
+      }
+      if (run.text == "CLEAN WIN") tallyAt = run.rect.y;
+    }
+    // Under the board, the time above the tally.
+    CHECK(timeAt > g.gridY && tallyAt > timeAt);
+  }
+  const std::vector<int> actions = reachable(unaided);
+  CHECK(actions.size() == 1);
+  CHECK(contains(actions, traintracksui::ActionNewGame));
+
+  // Every square of a finished route is drawn as rail, never as the open
+  // block that means "not resolved yet", however tightly the route winds.
+  {
+    Game full = aGame(tt::Level::Hard);
+    for (int i = 0; i < tt::kMaxCells; ++i) {
+      if (tt::inside(full.puzzle, tt::rowOf(i), tt::colOf(i)))
+        full.board.cell[i] = full.puzzle.solution[i] ? tt::kTrack : tt::kCross;
+    }
+    traintracksui::BoardModel finished = modelOf(full, tt::Level::Hard);
+    finished.solved = true;
+    Rendered out;
+    build(out, finished);
+    const traintracksui::Geometry g = traintracksui::boardGeometry(device(), full.puzzle.size);
+    int openBlocks = 0;
+    for (const auto& stroke : out.target.strokes) {
+      if (stroke.width == toybox::kRule && stroke.rect.width == g.cell - 2 * (g.cell / 4)) ++openBlocks;
+    }
+    CHECK(openBlocks == 0);
+  }
+
+  // Every curve is six chords of arc and two sleepers across it, a straight's
+  // rail is one line (its sleepers are fills), and every cross two strokes;
+  // nothing else on the board is drawn as a line. So a
+  // finished board's line count is exact, and a curve that lost its sleepers
+  // shows up here.
+  {
+    Game full = aGame(tt::Level::Hard);
+    int curves = 0;
+    int straights = 0;
+    int crosses = 0;
+    for (int i = 0; i < tt::kMaxCells; ++i) {
+      if (!tt::inside(full.puzzle, tt::rowOf(i), tt::colOf(i))) continue;
+      const uint8_t mask = full.puzzle.solution[i];
+      full.board.cell[i] = mask ? tt::kTrack : tt::kCross;
+      if (!mask) {
+        ++crosses;
+      } else if ((mask & 0x5) == 0x5 || (mask & 0xA) == 0xA) {
+        ++straights;
+      } else {
+        ++curves;
+      }
+    }
+    CHECK(curves > 0);
+    traintracksui::BoardModel finished = modelOf(full, tt::Level::Hard);
+    finished.solved = true;
+    Rendered out;
+    build(out, finished);
+    CHECK(static_cast<int>(out.target.lines.size()) == 8 * curves + straights + 2 * crosses);
+  }
+
+  // The help it took, counted, and never cut however long the tally runs.
+  model.hints = 2;
+  model.checks = 1;
+  Rendered helped;
+  build(helped, model);
+  CHECK(drewLabelWhole(helped, "2 HINTS, 1 CHECK"));
+  model.hints = 1;
+  model.checks = 0;
+  Rendered oneHint;
+  build(oneHint, model);
+  CHECK(drewLabelWhole(oneHint, "1 HINT"));
+  model.hints = 0;
+  model.checks = 3;
+  Rendered checks;
+  build(checks, model);
+  CHECK(drewLabelWhole(checks, "3 CHECKS"));
+  model.elapsedMs = (61 * 60 + 2) * 1000;
+  model.hints = 65535;
+  model.checks = 65535;
+  Rendered worst;
+  build(worst, model);
+  CHECK(drewLabelWhole(worst, "1:01:02"));
+  CHECK(drewLabelWhole(worst, "65535 HINTS, 65535 CHECKS"));
+}
+
+// A finger resting on a square long enough to mean a cross draws the square's
+// four grid lines heavy and a ring outside the board's frame, so the hold is
+// visibly registering before it fires.
+void aHoldIsDrawnBeforeItFires() {
+  Game game = aGame(tt::Level::Easy);
+  traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
+  Rendered plain;
+  build(plain, model);
+  model.holdCell = tt::cellIndex(2, 2);
+  Rendered held;
+  build(held, model);
+  CHECK(held.target.fills.size() == plain.target.fills.size() + 8);
+  model.solved = true;
+  Rendered done;
+  build(done, model);
+  model.holdCell = -1;
+  Rendered doneBare;
+  build(doneBare, model);
+  CHECK(done.target.fills.size() == doneBare.target.fills.size());
+}
+
+// --- the front door ---
+
+void buildMenu(Rendered& out, const traintracksui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildMenu(screen, model);
+}
+
+void buildNewGame(Rendered& out, const traintracksui::NewGameModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  traintracksui::buildNewGame(screen, model);
+}
+
+tt::Game asGame(const Game& from, const tt::Level level) {
+  tt::Game game;
+  game.level = level;
+  game.puzzle = from.puzzle;
+  game.board = from.board;
+  game.elapsedMs = 95 * 1000;
+  return game;
+}
+
+// The front door while a game is unfinished: the game, CONTINUE, and NEW
+// PUZZLE, and nothing else. No difficulty: that is chosen where its puzzle can
+// be seen.
+void theFrontDoorIsContinueOrNew() {
+  tt::Game game = asGame(aGame(tt::Level::Medium), tt::Level::Medium);
+  traintracksui::MenuModel saved;
+  saved.game = &game;
+  Rendered resume;
+  buildMenu(resume, saved);
+  CHECK(!resume.interactions.overflowed());
+  CHECK(drewLabelWhole(resume, "CONTINUE"));
+  CHECK(drewLabelWhole(resume, "NEW PUZZLE"));
+  CHECK(drewText(resume, "MEDIUM IN PROGRESS, 1:35"));
+  CHECK(!drewText(resume, "HOW TO PLAY"));
+  CHECK(!resume.has(traintracksui::ActionLevel));
+  const std::vector<int> actions = reachable(resume);
+  CHECK(actions.size() == 2);
+  CHECK(contains(actions, traintracksui::ActionPlay));
+  CHECK(contains(actions, traintracksui::ActionNewGame));
+}
+
+// The new-puzzle screen, which is also the front door with nothing unfinished:
+// every difficulty a tap away with the chosen one inverted, the deal it made
+// on show, PLAY PUZZLE once there is one, and HOW TO PLAY. It is the same
+// screen whatever is saved.
+void theNewPuzzleScreenShowsWhatItDeals() {
+  for (const tt::Level level : kAllLevels) {
+    Game made = aGame(level);
+    tt::Game preview = asGame(made, level);
+
+    traintracksui::NewGameModel laying;
+    laying.selected = level;
+    Rendered wait;
+    buildNewGame(wait, laying);
+    CHECK(!wait.interactions.overflowed());
+    CHECK(drewLabelWhole(wait, "LAYING TRACK"));
+    CHECK(!wait.has(traintracksui::ActionPlayPreview));
+
+    traintracksui::NewGameModel ready = laying;
+    ready.preview = &preview;
+    Rendered dealt;
+    buildNewGame(dealt, ready);
+    CHECK(!dealt.interactions.overflowed());
+    CHECK(drewLabelWhole(dealt, "PLAY PUZZLE"));
+    CHECK(drewLabelWhole(dealt, "HOW TO PLAY"));
+    CHECK(!drewText(dealt, "LAYING TRACK"));
+    for (const char* name : {"EASY", "MEDIUM", "HARD"}) CHECK(drewLabelWhole(dealt, name));
+    const std::vector<int> actions = reachable(dealt);
+    CHECK(contains(actions, traintracksui::ActionPlayPreview));
+    CHECK(contains(actions, traintracksui::ActionHowTo));
+    CHECK(contains(actions, traintracksui::ActionLevel));
+    CHECK(actions.size() == 3);
+    int levels = 0;
+    for (size_t i = 0; i < dealt.interactions.count(); ++i) {
+      if (dealt.interactions.data()[i].action == traintracksui::ActionLevel) ++levels;
+    }
+    CHECK(levels == tt::kLevelCount);
+    bool chosenInverted = false;
+    for (const auto& run : dealt.target.texts) {
+      if (run.text == traintracksui::levelName(level) && run.color == fui::Color::White) chosenInverted = true;
+    }
+    CHECK(chosenInverted);
+    // The preview is the deal itself: its stations are drawn, a ringed dot
+    // each (a black disc with a white one inside, both square fills, far
+    // smaller than the frame, which is drawn the same way). No size
+    // line; the difficulty already says it.
+    int rings = 0;
+    for (size_t k = 0; k + 1 < dealt.target.fills.size(); ++k) {
+      const fui::Rect& a = dealt.target.fills[k];
+      const fui::Rect& b = dealt.target.fills[k + 1];
+      if (a.width == a.height && b.width == b.height && b.width < a.width && a.width >= 9 && a.width <= 40 &&
+          dealt.target.fillPaints[k].color == fui::Color::Black &&
+          dealt.target.fillPaints[k + 1].color == fui::Color::White && a.x + a.width / 2 == b.x + b.width / 2 &&
+          a.y + a.height / 2 == b.y + b.height / 2) {
+        ++rings;
+      }
+    }
+    CHECK(rings == 2);
+    for (const auto& run : dealt.target.texts) CHECK(run.text.find(" BY ") == std::string::npos);
+  }
+}
+
+// The bottom row owns the bottom edge. On the Picco, taps aimed at it read 781
+// to 794 against a drawn 732 to 784, so each control there must answer right
+// down to the panel's last row, and nothing above it may lose its own taps.
+void theBottomRowReachesTheEdge() {
+  const int edgeY = 798;
+  Game game = aGame(tt::Level::Medium);
+  // Two moves and one undone, so UNDO and REDO are both live.
+  int moves = 0;
+  for (int i = 0; i < tt::kMaxCells && moves < 2; ++i) {
+    if (tt::inside(game.puzzle, tt::rowOf(i), tt::colOf(i)) &&
+        tt::tapCell(game.board, game.puzzle, tt::rowOf(i), tt::colOf(i))) {
+      ++moves;
+    }
+  }
+  tt::undo(game.board);
+  Rendered board;
+  build(board, modelOf(game, tt::Level::Medium));
+  CHECK(board.tap(120, edgeY).action == traintracksui::ActionUndo);
+  CHECK(board.tap(360, edgeY).action == traintracksui::ActionRedo);
+
+  traintracksui::BoardModel solvedModel = modelOf(game, tt::Level::Medium);
+  solvedModel.solved = true;
+  Rendered solved;
+  build(solved, solvedModel);
+  CHECK(solved.tap(240, edgeY).action == traintracksui::ActionNewGame);
+
+  tt::Game saved = asGame(game, tt::Level::Medium);
+  traintracksui::MenuModel menu;
+  menu.game = &saved;
+  Rendered door;
+  buildMenu(door, menu);
+  CHECK(door.tap(240, edgeY).action == traintracksui::ActionNewGame);
+
+  traintracksui::NewGameModel deal;
+  deal.selected = tt::Level::Medium;
+  deal.preview = &saved;
+  Rendered dealt;
+  buildNewGame(dealt, deal);
+  CHECK(dealt.tap(240, edgeY).action == traintracksui::ActionHowTo);
+  // PLAY PUZZLE, just above, keeps its own taps.
+  CHECK(dealt.tap(240, 700).action == traintracksui::ActionPlayPreview);
+
+  for (int page = 0; page < traintracksui::howToPages(); ++page) {
+    traintracksui::HowToModel how;
+    how.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, how);
+    }
+    CHECK(out.tap(240, edgeY).action == traintracksui::ActionHowToNext);
+  }
+}
+
+// --- how to play ---
+
+void everyHowToPageFitsAndMovesOn() {
+  const int pages = traintracksui::howToPages();
+  CHECK(pages >= 2 && pages <= 4);
+  for (int page = 0; page < pages; ++page) {
+    traintracksui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      traintracksui::buildHowTo(screen, model);
+    }
+    CHECK(!out.interactions.overflowed());
+    CHECK(drewLabelWhole(out, page + 1 < pages ? "NEXT" : "GOT IT"));
+    const std::vector<int> actions = reachable(out);
+    CHECK(actions.size() == 1);
+    CHECK(contains(actions, traintracksui::ActionHowToNext));
+    // A real board, drawn by the play screen's own code: its clues are there.
+    CHECK(drewText(out, "3"));
+    // Every sentence whole: none may be cut on the panel.
+    for (const auto& run : out.target.texts) {
+      if (run.style.maxLines == 1 && run.text.size() > 1) {
+        CHECK(out.target.measureText(run.style.font, run.text.c_str(), run.style).width <= run.rect.width);
+      }
+    }
+  }
+}
+
+}  // namespace traintrackstest
+
 // A control that cannot act dims. It does not disappear, because a button that
 // vanishes takes its space with it and the layout jumps.
 void testTheSudokuUndoDimsRatherThanVanishing() {
@@ -18236,6 +18949,24 @@ int main() {
   testSudokuBoxRulesStandOutFromCellLines();
   testTheSudokuPadAndItsHitTestAreExactInverses();
   testTheSudokuBoardSpendsThreeInteractions();
+  traintrackstest::gridAndHitTestAreExactInverses();
+  traintrackstest::eachLevelFitsThePanel();
+  traintrackstest::theBoardSpendsFiveControls();
+  traintrackstest::everyClueIsWhole();
+  traintrackstest::aFreshBoardOffersNoHistory();
+  traintrackstest::aSolvedBoardStopsOfferingHelp();
+  traintrackstest::theStatusIsQuietWhileSolving();
+  traintrackstest::checkAndHintMarkTheSquareNotThePiece();
+  traintrackstest::theCheckNotchClearsACornerCurve();
+  traintrackstest::theHowToBoardStandsStill();
+  traintrackstest::theBoardButtonsKeepThePageMargin();
+  traintrackstest::theStationsAreTwoMatchingDots();
+  traintrackstest::theSolvedBoardIsTheResult();
+  traintrackstest::theFrontDoorIsContinueOrNew();
+  traintrackstest::theNewPuzzleScreenShowsWhatItDeals();
+  traintrackstest::everyHowToPageFitsAndMovesOn();
+  traintrackstest::theBottomRowReachesTheEdge();
+  traintrackstest::aHoldIsDrawnBeforeItFires();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
   testTheSudokuDoorAgreesWithItsCaption();

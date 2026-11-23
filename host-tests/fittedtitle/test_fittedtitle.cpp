@@ -37,6 +37,7 @@
 #include "ToyBattleScreens.h"
 #include "ToyboxScreen.h"
 #include "ToyboxText.h"
+#include "TrainTracksScreens.h"
 #include "Utf8.h"
 #include "XkcdScreens.h"
 #include "corpus.generated.h"
@@ -849,6 +850,53 @@ void xkcdReaderBar() {
 
 }  // namespace
 
+// --- Train Tracks -----------------------------------------------------------
+//
+// Every header's title at the display cut, on every screen and at every level.
+// "TRAIN TRACKS" beside "MEDIUM" did not fit it, and the band stepped that one
+// title down a cut: the board's header looked unlike every other screen's, and
+// only at one difficulty of three.
+void trainTracksHeaders() {
+  namespace tt = traintracks;
+  Tally tally{"train tracks: every header title"};
+  static tt::GenWork work;
+  auto paint = [&](auto&& build, const char* title) {
+    Paint p("toyboxFaces");
+    toybox::Frame frame(p.target, panel(), fui::InputSnapshot{}, p.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    build(screen);
+    expectAtCut(tally, p.target, title, toybox::kDisplayFont);
+  };
+  for (const tt::Level level : {tt::Level::Easy, tt::Level::Medium, tt::Level::Hard}) {
+    tt::Game game;
+    game.level = level;
+    tt::Generated made;
+    ok(tt::generate(level, 0x7A1A0000u + static_cast<uint32_t>(level), 400, made, work), "a puzzle to draw");
+    game.puzzle = made.puzzle;
+    tt::resetBoard(game.board, game.puzzle);
+    traintracksui::BoardModel board;
+    board.puzzle = &game.puzzle;
+    board.board = &game.board;
+    board.level = level;
+    paint([&](toybox::Screen& s) { traintracksui::buildBoard(s, board); }, "TRAIN TRACKS");
+    board.solved = true;
+    paint([&](toybox::Screen& s) { traintracksui::buildBoard(s, board); }, "SOLVED");
+    traintracksui::MenuModel menu;
+    menu.game = &game;
+    paint([&](toybox::Screen& s) { traintracksui::buildMenu(s, menu); }, "TRAIN TRACKS");
+    traintracksui::NewGameModel fresh;
+    fresh.selected = level;
+    fresh.preview = &game;
+    paint([&](toybox::Screen& s) { traintracksui::buildNewGame(s, fresh); }, "NEW PUZZLE");
+  }
+  for (int page = 0; page < traintracksui::howToPages(); ++page) {
+    traintracksui::HowToModel model;
+    model.page = page;
+    paint([&](toybox::Screen& s) { traintracksui::buildHowTo(s, model); }, "HOW TO PLAY");
+  }
+  report(tally);
+}
+
 int main() {
   std::printf("--- every title, every real string ---\n");
   theLadderItself();
@@ -865,6 +913,7 @@ int main() {
   toyBattleHowTo();
   hackerNewsReader();
   xkcdReaderBar();
+  trainTracksHeaders();
   std::printf("\n%d real strings walked, %d of them shown short because no bound cut could take them\n", walked,
               residual);
   std::printf("%d checks, %d failed\n", checks, failed);

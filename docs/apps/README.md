@@ -37,6 +37,7 @@ them. These are the ones worth a stranger's time.
 | [`knucklebones.md`](knucklebones.md) | The dice duel, and what the critic agents found after "finished". |
 | [`minesweeper.md`](minesweeper.md) | Flagging without a right button. |
 | [`sudoku.md`](sudoku.md) | Difficulty proved by a grader rather than estimated. |
+| [`traintracks.md`](traintracks.md) | Built; device pass to come. One track from gate to gate, rated by a tiered solver. |
 | [`jaipur.md`](jaipur.md) | The two-player trading game, solo or nearby. |
 | [`seasalt.md`](seasalt.md) | Sea Salt & Paper, and the rulebook contradiction Mario settled. |
 | [`hearts.md`](hearts.md) | The shelf's first trick-taking game, and the shared deck it created. |
