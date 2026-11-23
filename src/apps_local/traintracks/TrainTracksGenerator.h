@@ -90,10 +90,6 @@ inline uint32_t attemptSeed(const uint32_t seed, const uint32_t attempt) {
   return mix.next();
 }
 
-inline bool onEdge(const int size, const int r, const int c) {
-  return r == 0 || c == 0 || r == size - 1 || c == size - 1;
-}
-
 // A random edge square and an outward side for it.
 inline Gate randomGate(const int size, Rng& rng) {
   // Walk the perimeter: 4 * (size - 1) squares, each corner once.

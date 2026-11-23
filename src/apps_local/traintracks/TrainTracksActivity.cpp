@@ -80,6 +80,19 @@ bool TrainTracksActivity::handleHomeGesture() {
 // and every new preview earns a full refresh; a move on the board, which
 // changes a square or two, stays fast.
 void TrainTracksActivity::goTo(const tt::Screen next) {
+  // A deal belongs to the new-puzzle screen. The how-to is opened over it and
+  // returns to it, so a deal pauses there, its time budget restarting on the
+  // way back; any other screen drops it.
+  if (next == tt::Screen::NewGame && screen == tt::Screen::HowTo && generating) {
+    generateStartMs = millis();
+  } else if (next != tt::Screen::NewGame && next != tt::Screen::HowTo) {
+    cancelGeneration();
+    dealLanded = false;
+  }
+  // A hold belongs to the board it began on.
+  heldCell = -1;
+  holdFired = false;
+  holdShown = false;
   screen = next;
   notice = nullptr;
   flashOnNextPaint = true;
@@ -179,7 +192,6 @@ void TrainTracksActivity::playPreview() {
   game = preview;
   hasGame = true;
   previewReady = false;
-  showWrong = false;
   hintCell = -1;
   lastTickMs = millis();
   flashOnNextPaint = true;
@@ -208,7 +220,9 @@ void TrainTracksActivity::afterMove() {
   if (tt::isSolved(game.puzzle, game.board, work->solver)) {
     tt::tidySolved(game.board, game.puzzle);
     game.solved = true;
-    showWrong = false;
+    for (uint8_t& flag : game.marked) flag = 0;
+    heldCell = -1;
+    holdShown = false;
     flashOnNextPaint = true;
     saveState();
   }
@@ -219,8 +233,7 @@ void TrainTracksActivity::check() {
   if (game.checks < 0xFFFF) ++game.checks;
   touchSave();
   hintCell = -1;
-  const int count = tt::checkBoard(game.puzzle, game.board, wrong);
-  showWrong = count > 0;
+  const int count = tt::checkBoard(game.puzzle, game.board, game.marked);
   if (count == 0) {
     std::snprintf(noticeText, sizeof(noticeText), "NOTHING WRONG SO FAR");
   } else {
@@ -232,7 +245,7 @@ void TrainTracksActivity::check() {
 
 void TrainTracksActivity::hint() {
   const tt::Hint found = tt::findHint(game.puzzle, game.board, work->solver);
-  if (tt::hintSolves(game, found, work->solver)) {
+  if (tt::hintSolves(game, found, hintProbe, work->solver)) {
     // The last move is the player's. Not counted: no help was given, and
     // nothing on the board changed, so CHECK's marks stay where they are.
     hintCell = -1;
@@ -243,7 +256,7 @@ void TrainTracksActivity::hint() {
   if (!tt::applyHint(game, found)) return;
   if (game.hints < 0xFFFF) ++game.hints;
   // The hinted square is right now, so its CHECK flag has nothing left to say.
-  wrong[found.cell] = 0;
+  game.marked[found.cell] = 0;
   afterMove();
   if (game.solved) return;
   hintCell = found.cell;
@@ -297,7 +310,7 @@ void TrainTracksActivity::saveState() {
     LOG_ERR("TRACKS", "Save did not fit %d bytes", tt::kSaveBytes);
     return;
   }
-  Storage.writeFile(kStatePath, String(buffer.get()));
+  if (!Storage.writeFile(kStatePath, String(buffer.get()))) LOG_ERR("TRACKS", "Save failed: %s", kStatePath);
 #endif
 }
 
@@ -332,7 +345,7 @@ void TrainTracksActivity::loop() {
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (tt::leavesApp(screen, unfinished())) {
-      saveState();
+      // onExit saves.
       shelf::leave(renderer, mappedInput);
       return;
     }
@@ -557,7 +570,7 @@ void TrainTracksActivity::render(RenderLock&&) {
       model.hints = game.hints;
       model.checks = game.checks;
       model.notice = notice;
-      model.wrong = showWrong ? wrong : nullptr;
+      model.wrong = game.marked;
       model.hintCell = hintCell;
       model.holdCell = holdShown ? heldCell : -1;
       traintracksui::buildBoard(surface, model);

@@ -230,31 +230,23 @@ void testTapCycleAndGivens() {
   // First tap: track, still automatic.
   const int i = cellIndex(1, 1);
   CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == 0);
-  // Each further tap is a different piece that fits, then track left
-  // undecided, then empty again.
-  uint8_t seen[8] = {};
-  int pieces = 0;
-  uint8_t shapes[kMaxCells];
-  inferShapes(b, p, shapes);
-  seen[pieces++] = shapes[i];
+  // The next tap leaves it undecided, each further tap is the next piece in
+  // kPieces order, and after the last it is undecided again: a tap never
+  // clears a square.
+  CHECK(tapCell(b, p, 1, 1) && b.cell[i] == kTrack && b.pin[i] == kPinUnknown);
   int taps = 0;
-  while (b.cell[i] == kTrack && taps < 10) {
+  while (taps < 10) {
     CHECK(tapCell(b, p, 1, 1));
     ++taps;
-    if (b.pin[i] == kPinUnknown) {
-      CHECK(b.cell[i] == kTrack);
-      CHECK(tapCell(b, p, 1, 1));
-      ++taps;
-    }
-    if (b.cell[i] != kTrack) break;
-    CHECK(b.pin[i] != 0 && popcount4(b.pin[i]) == 2);
-    for (int k = 0; k < pieces; ++k) CHECK(seen[k] != b.pin[i]);
-    seen[pieces++] = b.pin[i];
+    CHECK(b.cell[i] == kTrack);
+    if (b.pin[i] == kPinUnknown) break;
+    CHECK(b.pin[i] == kPieces[taps - 1]);
   }
-  CHECK(b.cell[i] == kEmpty && b.pin[i] == 0);
-  CHECK(taps >= 3 && taps <= 7);
+  CHECK(b.cell[i] == kTrack && b.pin[i] == kPinUnknown);
+  CHECK(taps == 7);
 
-  // A hold crosses an empty square, and clears a cross or track.
+  // A hold clears track or a cross, and crosses an empty square.
+  CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty && b.pin[i] == 0);
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kCross);
   CHECK(holdCell(b, p, 1, 1) && b.cell[i] == kEmpty);
   CHECK(tapCell(b, p, 1, 1) && tapCell(b, p, 1, 1) && b.pin[i] != 0);
@@ -542,17 +534,15 @@ void testInferShapes() {
       for (int k = 0; k < size * size; ++k) {
         const int i = cellIndex(k / size, k % size);
         if (rb.cell[i] != kTrack || rp.given[i] || rng.below(3) != 0) continue;
-        uint8_t options[6];
-        const int count = piecesFor(rb, rp, i, options);
-        if (count > 0) rb.pin[i] = options[rng.below(count)];
+        rb.pin[i] = kPieces[rng.below(6)];
       }
     }
     checkShapes(rb, rp, !pins);
   }
 }
 
-// Tapping a track square visits each piece that fits once, then empties it,
-// whatever surrounds it.
+// Tapping a track square steps through the six pieces in kPieces order,
+// whatever surrounds it, then back to undecided.
 void testTapVisitsEveryPiece() {
   Rng rng{77};
   for (int t = 0; t < 400; ++t) {
@@ -573,35 +563,10 @@ void testTapVisitsEveryPiece() {
     const int i = cellIndex(r, c);
     if (p.given[i]) continue;
     b.cell[i] = kEmpty;
-    CHECK(tapCell(b, p, r, c));
-    uint8_t options[6];
-    const int count = piecesFor(b, p, i, options);
-    // Every piece that fits is shown once: first the automatic one, then each
-    // chosen one; then the square is empty.
-    uint8_t shapes[kMaxCells];
-    inferShapes(b, p, shapes);
-    uint8_t shown[8] = {shapes[i]};
-    int seen = 1;
-    int taps = 0;
-    while (b.cell[i] == kTrack && taps <= 9) {
-      tapCell(b, p, r, c);
-      ++taps;
-      if (b.cell[i] == kTrack && b.pin[i] == kPinUnknown) {
-        tapCell(b, p, r, c);  // undecided, then empty
-        ++taps;
-      }
-      if (b.cell[i] == kTrack) {
-        for (int k = 0; k < seen; ++k) CHECK(shown[k] != b.pin[i]);
-        shown[seen++] = b.pin[i];
-      }
-    }
-    CHECK(b.cell[i] == kEmpty);
-    CHECK(taps <= count + 2);
-    for (int k = 0; k < count; ++k) {
-      bool reached = false;
-      for (int m = 0; m < seen; ++m) reached |= shown[m] == options[k];
-      CHECK(reached);
-    }
+    CHECK(tapCell(b, p, r, c) && b.pin[i] == 0);
+    CHECK(tapCell(b, p, r, c) && b.pin[i] == kPinUnknown);
+    for (int k = 0; k < 6; ++k) CHECK(tapCell(b, p, r, c) && b.cell[i] == kTrack && b.pin[i] == kPieces[k]);
+    CHECK(tapCell(b, p, r, c) && b.cell[i] == kTrack && b.pin[i] == kPinUnknown);
   }
 }
 

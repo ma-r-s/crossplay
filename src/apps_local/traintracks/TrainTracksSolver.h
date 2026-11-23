@@ -120,21 +120,7 @@ class Solver {
     return true;
   }
 
-  // Fixes only the squares the player has decided: track is track, a cross is
-  // not, and an empty square stays open. For hints, which reason forward from
-  // what the player already knows rather than from a finished board.
-  bool applyMarks(const Board& board) {
-    for (int r = 0; r < n; ++r) {
-      for (int c = 0; c < n; ++c) {
-        const int i = cellIndex(r, c);
-        if (board.cell[i] == kEmpty) continue;
-        if (!set(i, board.cell[i] == kTrack ? kYes : kNo)) return false;
-      }
-    }
-    return true;
-  }
-
-  // As applyMarks, but only the marks that agree with the answer: track on a
+  // Fixes the squares the player has decided and got right: track on a
   // route square, a cross off it. For hints, which never touch a wrong mark
   // and must not reason from one.
   bool applyRightMarks(const Board& board) {
@@ -210,7 +196,6 @@ class Solver {
   // Square and edge state after load / deduce, for tests and hints.
   uint8_t square(const int row, const int col) const { return v[cellIndex(row, col)]; }
   uint8_t edge(const int row, const int col, const int dir) const { return v[edgeAt[cellIndex(row, col)][dir]]; }
-  int mark() const { return trailLen; }
   void unwind(const int to) {
     while (trailLen > to) {
       --trailLen;

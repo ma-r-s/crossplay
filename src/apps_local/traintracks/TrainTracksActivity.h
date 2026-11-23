@@ -30,7 +30,9 @@ class TrainTracksActivity final : public Activity {
   // Generating is work, not idleness: without this the loop's idle timer drops
   // the CPU to its low-power clock part-way through a Hard deal, which on the
   // Picco stretched a five-attempt deal past four seconds.
-  bool skipLoopDelay() override { return generating || dealLanded; }
+  // Only while a deal is in hand on the screen that shows it: generation is
+  // paused anywhere else, and a stale flag would spin the loop at full power.
+  bool skipLoopDelay() override { return screen == traintracks::Screen::NewGame && (generating || dealLanded); }
 
  private:
   void goTo(traintracks::Screen next);
@@ -87,10 +89,11 @@ class TrainTracksActivity final : public Activity {
   bool holdFired = false;
   bool holdShown = false;
 
-  // CHECK's flags, one per square, shown until the next CHECK or the solve.
-  // HINT's mark lasts until the next move.
-  uint8_t wrong[traintracks::kMaxCells] = {};
-  bool showWrong = false;
+  // Where HINT tries a hint before giving it: a copy of the board, so the one
+  // on screen is never changed and changed back under the render task.
+  traintracks::Board hintProbe{};
+  // HINT's mark lasts until the next move. CHECK's flags are the game's own
+  // (Game::marked), since they are saved with it.
   int hintCell = -1;
   const char* notice = nullptr;
   char noticeText[24] = {};

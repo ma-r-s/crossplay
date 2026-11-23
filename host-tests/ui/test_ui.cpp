@@ -9844,8 +9844,9 @@ void theSolvedBoardIsTheResult() {
   CHECK(drewLabelWhole(worst, "65535 HINTS, 65535 CHECKS"));
 }
 
-// A finger resting on a square long enough to mean a cross is drawn as a
-// frame inside it, so the hold is visibly registering before it fires.
+// A finger resting on a square long enough to mean a cross draws the square's
+// four grid lines heavy and a ring outside the board's frame, so the hold is
+// visibly registering before it fires.
 void aHoldIsDrawnBeforeItFires() {
   Game game = aGame(tt::Level::Easy);
   traintracksui::BoardModel model = modelOf(game, tt::Level::Easy);
@@ -9854,14 +9855,14 @@ void aHoldIsDrawnBeforeItFires() {
   model.holdCell = tt::cellIndex(2, 2);
   Rendered held;
   build(held, model);
-  CHECK(held.target.strokes.size() == plain.target.strokes.size() + 1);
+  CHECK(held.target.fills.size() == plain.target.fills.size() + 8);
   model.solved = true;
   Rendered done;
   build(done, model);
   model.holdCell = -1;
   Rendered doneBare;
   build(doneBare, model);
-  CHECK(done.target.strokes.size() == doneBare.target.strokes.size());
+  CHECK(done.target.fills.size() == doneBare.target.fills.size());
 }
 
 // --- the front door ---

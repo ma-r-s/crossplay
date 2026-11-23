@@ -201,14 +201,6 @@ struct Board {
   // laid later joins a line's open ends instead of rerouting the line.
   uint8_t shape[kMaxCells];
   History history;
-  // The square whose pieces taps are stepping through, and the automatic
-  // piece it showed when the steps began, which they skip. Remembered because
-  // once a piece is chosen the neighbours settle around it, and the piece
-  // inference would give the square now is no longer the one that was shown.
-  // 0 when none was shown: the steps began at an undecided piece. Not saved:
-  // after a reload the cycle infers it again.
-  uint8_t cycleCell = 0xFF;
-  uint8_t cycleAuto = 0;
 };
 
 inline void resetBoard(Board& b, const Puzzle& p) {
@@ -323,7 +315,9 @@ inline bool allCluesMet(const Board& b, const Puzzle& p) {
 // An automatic join never leaves the board except through a gate, and never
 // runs into a cross or into a fixed piece that does not point back.
 
-// The six pieces, in the order an isolated square tries them.
+// The six pieces, in the order an isolated square tries them and a tap steps
+// through them: across, up and down, then the corners clockwise from
+// north-east.
 constexpr uint8_t kPieces[6] = {
     (1u << kEast) | (1u << kWest),  (1u << kNorth) | (1u << kSouth), (1u << kNorth) | (1u << kEast),
     (1u << kEast) | (1u << kSouth), (1u << kSouth) | (1u << kWest),  (1u << kWest) | (1u << kNorth),
@@ -567,89 +561,33 @@ inline void settle(Board& b, const Puzzle& p) {
   for (int i = 0; i < kMaxCells; ++i) b.shape[i] = next[i];
 }
 
-// All six pieces, most likely first: a piece scores for each end that meets
-// track that would join it, and loses for each end that cannot connect (off
-// the board, into a cross, into a piece that does not point back) and, on a
-// gate square, for not using the gate. Pieces that cannot be right are still
-// offered, last: the player may lay what they like, and CHECK judges it.
-inline int piecesFor(const Board& b, const Puzzle& p, const int i, uint8_t* out /* 6 */) {
-  const int side = gateSide(p, rowOf(i), colOf(i));
-  constexpr int kMisfit = 8;
-  int scores[6] = {};
-  int count = 0;
-  for (const uint8_t piece : kPieces) {
-    int score = side >= 0 && !(piece & dirBit(side)) ? -kMisfit : 0;
-    for (int d = 0; d < 4; ++d) {
-      if (!(piece & dirBit(d))) continue;
-      if (!detail::mayConnect(b, p, i, d)) {
-        score -= kMisfit;
-        continue;
-      }
-      const int r2 = rowOf(i) + kDRow[d];
-      const int c2 = colOf(i) + kDCol[d];
-      if (!isTrack(b, p, r2, c2)) continue;
-      score += fixedPiece(b, p, cellIndex(r2, c2)) ? 2 : 1;
-    }
-    // Insertion by score, stable in kPieces order.
-    int at = count;
-    while (at > 0 && scores[at - 1] < score) {
-      scores[at] = scores[at - 1];
-      out[at] = out[at - 1];
-      --at;
-    }
-    scores[at] = score;
-    out[at] = piece;
-    ++count;
+// A piece's place in kPieces, the order a tap steps through, or -1 for
+// anything that is not a piece.
+inline int pieceIndex(const uint8_t piece) {
+  for (int k = 0; k < 6; ++k) {
+    if (kPieces[k] == piece) return k;
   }
-  return count;
+  return -1;
 }
 
 // A tap. An empty square becomes track with an automatic piece; the next tap
-// leaves its piece undecided, and each tap after that chooses the next of the
-// six pieces, most likely first, skipping the one the automatic piece already
-// showed, so every piece is reached once; after the last, the square is empty
-// again. A tap on a cross goes straight to undecided track, the quick way to
-// say "track here" about a square once ruled out, and since no automatic piece
-// was shown, all six pieces follow. Givens are refused.
+// leaves its piece undecided, and each tap after that steps through the six
+// pieces in kPieces order, always the same whatever is around the square, so
+// a piece is always the same number of taps from the question mark. After
+// the last piece the square is undecided again. A tap never clears a square:
+// that is the hold's job. A tap on a cross goes straight to undecided track,
+// the quick way to say "track here" about a square once ruled out. Givens are
+// refused.
 inline bool tapCell(Board& b, const Puzzle& p, const int row, const int col) {
   if (!inside(p, row, col)) return false;
   const int i = cellIndex(row, col);
   if (p.given[i]) return false;
   if (b.cell[i] == kEmpty) return setCell(b, p, row, col, kTrack, 0);
-  if (b.cell[i] == kCross) {
-    b.cycleCell = static_cast<uint8_t>(i);
-    b.cycleAuto = 0;
-    return setCell(b, p, row, col, kTrack, kPinUnknown);
-  }
+  if (b.cell[i] == kCross) return setCell(b, p, row, col, kTrack, kPinUnknown);
   const uint8_t chosen = b.pin[i];
-  // The piece this square showed while automatic, remembered when the steps
-  // begin: once a piece is chosen the neighbours settle around it, and
-  // inference would no longer give the piece that was shown.
-  if (chosen == 0 || b.cycleCell != i) {
-    uint8_t automatic = 0;
-    if (chosen != kPinUnknown) {
-      b.pin[i] = 0;
-      uint8_t shapes[kMaxCells];
-      inferShapes(b, p, shapes);
-      b.pin[i] = chosen;
-      automatic = shapes[i];
-    }
-    b.cycleCell = static_cast<uint8_t>(i);
-    b.cycleAuto = automatic;
-  }
   if (chosen == 0) return setCell(b, p, row, col, kTrack, kPinUnknown);
-  uint8_t pieces[6];
-  const int count = piecesFor(b, p, i, pieces);
-  // Where the cycle stands: before the first piece while undecided, else at
-  // the chosen piece.
-  int at = -1;
-  for (int k = 0; k < count && chosen != kPinUnknown; ++k) {
-    if (pieces[k] == chosen) at = k;
-  }
-  for (int k = at + 1; k < count; ++k) {
-    if (pieces[k] != b.cycleAuto) return setCell(b, p, row, col, kTrack, pieces[k]);
-  }
-  return setCell(b, p, row, col, kEmpty);
+  const int next = chosen == kPinUnknown ? 0 : pieceIndex(chosen) + 1;
+  return setCell(b, p, row, col, kTrack, next >= 0 && next < 6 ? kPieces[next] : kPinUnknown);
 }
 
 // A hold takes a square back a step: track or a cross to empty, and an empty

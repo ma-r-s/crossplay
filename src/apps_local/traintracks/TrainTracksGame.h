@@ -27,6 +27,10 @@ struct Game {
   uint16_t hints = 0;
   uint16_t checks = 0;
   bool solved = false;
+  // CHECK's flags, one per square: set by CHECK, kept through every move until
+  // the next one, cleared on a square HINT puts right and all at once on the
+  // solve. Saved, so they are still there when the game is picked up again.
+  uint8_t marked[kMaxCells] = {};
 
   bool assisted() const { return hints != 0 || checks != 0; }
 };
@@ -224,40 +228,22 @@ inline void tidySolved(Board& b, const Puzzle& p) {
 }
 
 // Whether a hint would finish the puzzle. The last move is the player's: a
-// hint that solves it is refused. Tried on the board itself and taken back,
-// redo entry and all, so the board and its history are left exactly as they
-// were and no copy of either is made.
-inline bool hintSolves(Game& game, const Hint& hint, Solver& scratch) {
-  // A move writes one history slot and drops the redo branch, so that slot and
-  // the counters are what to put back; a player who had just undone something
-  // keeps their redo.
-  History& h = game.board.history;
-  const uint8_t first = h.first;
-  const uint8_t count = h.count;
-  const uint8_t cursor = h.cursor;
-  const int slot = (first + cursor) % kHistoryDepth;
-  const Move overwritten = h.moves[slot];
-  if (!applyHint(game, hint)) return false;
-  const bool solves = isSolved(game.puzzle, game.board, scratch);
-  undo(game.board);
-  h.moves[slot] = overwritten;
-  h.first = first;
-  h.count = count;
-  h.cursor = cursor;
-  return solves;
+// hint that solves it is refused. Tried on `probe`, a copy of the board the
+// caller keeps (a Board is too big for the stack), so the board on screen,
+// which another task may be drawing, is never touched.
+inline bool hintSolves(const Game& game, const Hint& hint, Board& probe, Solver& scratch) {
+  if (hint.cell < 0) return false;
+  probe = game.board;
+  const uint8_t pin = hint.state == kTrack ? game.puzzle.solution[hint.cell] : 0;
+  if (!setCell(probe, game.puzzle, rowOf(hint.cell), colOf(hint.cell), hint.state, pin)) return false;
+  settle(probe, game.puzzle);
+  return isSolved(game.puzzle, probe, scratch);
 }
 
 // "ST", "ND", "RD" or "TH" for a count: 1ST, 2ND, 3RD, 4TH, 11TH, 12TH, 13TH,
 // 21ST, 112TH.
 constexpr const char* ordinalSuffix(const unsigned n) {
   return (n % 100 >= 11 && n % 100 <= 13) ? "TH" : n % 10 == 1 ? "ST" : n % 10 == 2 ? "ND" : n % 10 == 3 ? "RD" : "TH";
-}
-
-// Squares of track the player has laid, givens included.
-inline int laidTrack(const Board& b) {
-  int laid = 0;
-  for (int i = 0; i < kMaxCells; ++i) laid += b.cell[i] == kTrack;
-  return laid;
 }
 
 }  // namespace traintracks

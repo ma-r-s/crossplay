@@ -180,8 +180,9 @@ void drawCross(toybox::Screen& screen, const fui::Rect& box) {
 }
 
 // Track whose piece the player has left undecided: a question mark at the
-// clue size, which reads at Hard's 40px squares and leaves the corner where
-// CHECK's notch goes clear.
+// clue size on every board, which reads at Hard's 40px squares and leaves the
+// corner where CHECK's notch goes clear. The display cut on Easy's 64px
+// squares outweighed the cross beside it.
 void drawUnknown(toybox::Screen& screen, const fui::Rect& box) {
   fui::TextStyle mark;
   mark.align = fui::TextAlign::Center;
@@ -265,14 +266,46 @@ void drawWrong(toybox::Screen& screen, const fui::Rect& box) {
                            fui::Point{right, static_cast<int16_t>(box.y + 1 + k)}, black());
 }
 
-// HINT's mark: corner brackets just inside the square, around what it placed.
+// A run along one of the square's grid lines, `from` to `to` along it (0 at
+// the top or left corner), drawn kRule thick and centred on the line.
+void edgeRun(toybox::Screen& screen, const fui::Rect& box, const int side, const int16_t from, const int16_t to) {
+  const int16_t half = toybox::kRule / 2;
+  const int16_t length = static_cast<int16_t>(to - from);
+  switch (side) {
+    case tt::kNorth:
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(box.x + from), static_cast<int16_t>(box.y - half), length, toybox::kRule),
+          black());
+      break;
+    case tt::kSouth:
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + from),
+                                         static_cast<int16_t>(box.y + box.height - half), length, toybox::kRule),
+                           black());
+      break;
+    case tt::kWest:
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(box.x - half), static_cast<int16_t>(box.y + from), toybox::kRule, length),
+          black());
+      break;
+    default:
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + box.width - half),
+                                         static_cast<int16_t>(box.y + from), toybox::kRule, length),
+                           black());
+      break;
+  }
+}
+
+// HINT's mark: corner brackets on the square's own grid lines. Track only ever meets
+// those lines at the middle of a side, so a mark kept off the midpoints never
+// touches the piece it marks; a curve's sleepers come no nearer a corner than
+// about a quarter of the square.
 void drawHintMark(toybox::Screen& screen, const fui::Rect& box) {
-  const int16_t inset = 4;
-  toybox::bracket(
-      screen,
-      fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
-                    static_cast<int16_t>(box.width - 2 * inset), static_cast<int16_t>(box.height - 2 * inset)),
-      static_cast<int16_t>(box.width / 4), toybox::kRule);
+  const int16_t w = box.width;
+  const int16_t arm = static_cast<int16_t>(w / 5);
+  for (int side = 0; side < 4; ++side) {
+    edgeRun(screen, box, side, -1, arm);
+    edgeRun(screen, box, side, static_cast<int16_t>(w - arm), static_cast<int16_t>(w + 2));
+  }
 }
 
 struct Marks {
@@ -308,9 +341,26 @@ void drawHairlines(toybox::Screen& screen, const Geometry& g) {
   }
 }
 
+// While a hold is deciding, the board's frame changes too, since the square
+// itself is under the thumb.
+void drawHoldFrame(toybox::Screen& screen, const Geometry& g) {
+  // A ring kRule thick, 3px outside the frame, in the station band where the
+  // thumb does not cover it.
+  const int16_t out = static_cast<int16_t>(kFrameW + 3 + toybox::kRule);
+  const int16_t span = static_cast<int16_t>(gridSide(g) + 2 * out);
+  const int16_t left = static_cast<int16_t>(g.gridX - out);
+  const int16_t top = static_cast<int16_t>(g.gridY - out);
+  const int16_t far = static_cast<int16_t>(span - toybox::kRule);
+  screen.target().fill(fui::makeRect(left, top, span, toybox::kRule), black());
+  screen.target().fill(fui::makeRect(left, static_cast<int16_t>(top + far), span, toybox::kRule), black());
+  screen.target().fill(fui::makeRect(left, top, toybox::kRule, span), black());
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(left + far), top, toybox::kRule, span), black());
+}
+
 void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p, const tt::Board& b,
                  const Marks& marks) {
   drawFrame(screen, g);
+  if (marks.holdCell >= 0) drawHoldFrame(screen, g);
 
   uint8_t shapes[tt::kMaxCells];
   if (marks.solved) {
@@ -335,14 +385,10 @@ void drawSurface(toybox::Screen& screen, const Geometry& g, const tt::Puzzle& p,
       }
       if (marks.wrong != nullptr && marks.wrong[i]) drawWrong(screen, box);
       if (marks.hintCell == i) drawHintMark(screen, box);
+      // A held square: its own grid lines drawn at the hint's weight all the
+      // way round, while the hold is still deciding.
       if (marks.holdCell == i) {
-        // A held square: a frame just inside it, heavier than the hint's
-        // corners, while the hold is still deciding.
-        const int16_t inset = 3;
-        screen.target().stroke(
-            fui::makeRect(static_cast<int16_t>(box.x + inset), static_cast<int16_t>(box.y + inset),
-                          static_cast<int16_t>(box.width - 2 * inset), static_cast<int16_t>(box.height - 2 * inset)),
-            black(), toybox::kRule);
+        for (int side = 0; side < 4; ++side) edgeRun(screen, box, side, -1, static_cast<int16_t>(box.width + 2));
       }
     }
   }

@@ -32,6 +32,8 @@ namespace {
 GenWork work;
 Solver scratch;
 Solver checker;
+// Where hintSolves tries a hint: a copy of the board, as the activity keeps one.
+Board probe;
 
 constexpr Level kLevels3[] = {Level::Easy, Level::Medium, Level::Hard};
 
@@ -64,9 +66,7 @@ void testCheckFlagsWrongMarksAndShapes() {
           if (g.puzzle.given[i]) continue;
           g.board.cell[i] = static_cast<uint8_t>(rng.below(3));
           if (g.board.cell[i] == kTrack && rng.below(3) == 0) {
-            uint8_t options[6];
-            const int count = piecesFor(g.board, g.puzzle, i, options);
-            if (count > 0) g.board.pin[i] = options[rng.below(count)];
+            g.board.pin[i] = kPieces[rng.below(6)];
           }
         }
       }
@@ -250,14 +250,13 @@ void testHintsFinishAroundWrongTrack() {
         const Hint h = findHint(p, g.board, scratch);
         CHECK(h.cell >= 0 && h.state == kTrack && p.solution[h.cell] != 0);
         if (h.cell < 0) break;
-        if (hintSolves(g, h, checker)) {
+        if (hintSolves(g, h, probe, checker)) {
           done = true;  // the last move is the player's
           break;
         }
-        const int before = laidTrack(g.board);
         CHECK(applyHint(g, h));
         settle(g.board, p);
-        CHECK(laidTrack(g.board) >= before);
+        CHECK(g.board.cell[h.cell] == kTrack);
         CHECK(g.board.pin[h.cell] == p.solution[h.cell]);
         done = isSolved(p, g.board, checker);
       }
@@ -307,7 +306,7 @@ void testTheLastMoveIsThePlayers() {
   const Board before = g.board;
   const Hint h = findHint(g.puzzle, g.board, scratch);
   CHECK(h.cell >= 0);
-  CHECK(hintSolves(g, h, scratch));
+  CHECK(hintSolves(g, h, probe, scratch));
   // Untouched, including the redo that undo just made available.
   CHECK(std::memcmp(before.cell, g.board.cell, sizeof(before.cell)) == 0);
   CHECK(std::memcmp(before.pin, g.board.pin, sizeof(before.pin)) == 0);
@@ -318,7 +317,7 @@ void testTheLastMoveIsThePlayers() {
   // Two moves from the end, the hint is allowed.
   CHECK(undo(g.board) >= 0);
   const Hint early = findHint(g.puzzle, g.board, scratch);
-  CHECK(!hintSolves(g, early, scratch));
+  CHECK(!hintSolves(g, early, probe, scratch));
   (void)last;
 }
 
@@ -409,6 +408,7 @@ void testSaveRoundTrip() {
       undo(s.game.board);
       undo(s.game.board);
       settle(s.game.board, s.game.puzzle);
+      checkBoard(s.game.puzzle, s.game.board, s.game.marked);
 
       char buffer[kSaveBytes];
       const int used = writeSave(s, buffer, kSaveBytes);
@@ -426,6 +426,7 @@ void testSaveRoundTrip() {
       CHECK(back.game.checks == s.game.checks);
       CHECK(std::memcmp(&back.game.puzzle, &s.game.puzzle, sizeof(Puzzle)) == 0);
       CHECK(sameBoard(back.game.board, s.game.board));
+      CHECK(std::memcmp(back.game.marked, s.game.marked, sizeof(s.game.marked)) == 0);
       // The board draws exactly as it did, so a line is not rerouted by a reload.
       uint8_t before[kMaxCells];
       uint8_t after[kMaxCells];
@@ -580,8 +581,8 @@ void testAnOpenEndLooksForRoom() {
 }
 
 // With the board settling after every tap, as it does in play, a cycle still
-// reaches each of the six pieces once and then empty: the neighbours fitting
-// around a chosen piece must not change which piece counts as already shown.
+// steps through the six pieces in their fixed order and comes back round to
+// undecided: the neighbours fitting around a chosen piece never change it.
 void testACycleSurvivesSettling() {
   int cycles = 0;
   for (const Level level : kLevels3) {
@@ -603,31 +604,20 @@ void testACycleSurvivesSettling() {
           tapCell(g.board, p, r, c);
           settle(g.board, p);
         }
-        uint8_t shown[kMaxCells];
-        inferShapes(g.board, p, shown);
-        uint8_t seen = 0;
-        int pieces = 0;
-        auto mark = [&](const uint8_t piece) {
-          for (int k = 0; k < 6; ++k) {
-            if (kPieces[k] == piece) {
-              if (seen & (1u << k)) CHECK(false);
-              seen = static_cast<uint8_t>(seen | (1u << k));
-            }
-          }
-          ++pieces;
-        };
-        mark(shown[i]);
-        int taps = 0;
-        while (taps < 10) {
-          tapCell(g.board, p, r, c);
-          settle(g.board, p);
-          ++taps;
-          if (g.board.cell[i] != kTrack) break;
-          if (g.board.pin[i] == kPinUnknown) continue;
-          mark(g.board.pin[i]);
+        if (g.board.pin[i] != 0) {
+          g.board = before;
+          continue;
         }
-        CHECK(taps == 7);
-        CHECK(pieces == 6 && seen == 0x3F);
+        CHECK(tapCell(g.board, p, r, c));
+        settle(g.board, p);
+        CHECK(g.board.pin[i] == kPinUnknown);
+        for (int k = 0; k < 6; ++k) {
+          CHECK(tapCell(g.board, p, r, c));
+          settle(g.board, p);
+          CHECK(g.board.cell[i] == kTrack && g.board.pin[i] == kPieces[k]);
+        }
+        CHECK(tapCell(g.board, p, r, c));
+        CHECK(g.board.cell[i] == kTrack && g.board.pin[i] == kPinUnknown);
         ++cycles;
         g.board = before;
       }
@@ -665,7 +655,7 @@ void testCyclingBesideALineLeavesItWhole() {
         }
         if (!beside) continue;
         const Board saved = g.board;
-        for (int t = 0; t < 10 && !(t > 0 && g.board.cell[e] == kEmpty); ++t) {
+        for (int t = 0; t < 10 && !(t > 1 && g.board.pin[e] == kPinUnknown); ++t) {
           tapCell(g.board, p, rowOf(e), colOf(e));
           settle(g.board, p);
           uint8_t now[kMaxCells];
@@ -679,7 +669,7 @@ void testCyclingBesideALineLeavesItWhole() {
             }
           }
         }
-        CHECK(g.board.cell[e] == kEmpty);
+        CHECK(g.board.cell[e] == kTrack && g.board.pin[e] == kPinUnknown);
         ++probes;
         g.board = saved;
       }
@@ -688,8 +678,9 @@ void testCyclingBesideALineLeavesItWhole() {
   CHECK(probes > 100);
 }
 
-// A tap walks a square through all six pieces, those that cannot fit
-// included, and then back to empty: here a corner, where only one fits.
+// A tap walks a square through all six pieces in the same order everywhere,
+// those that cannot fit included, and then back round to undecided, never to
+// empty: here a corner, where only one fits, and from a cross.
 void testATapReachesEverySixPieces() {
   for (uint32_t seed = 600; seed < 620; ++seed) {
     Game g = newGame(Level::Easy, seed);
@@ -703,53 +694,90 @@ void testATapReachesEverySixPieces() {
     const int r = rowOf(corner);
     const int c = colOf(corner);
     CHECK(tapCell(g.board, p, r, c));
-    uint8_t shapes[kMaxCells];
-    inferShapes(g.board, p, shapes);
-    uint8_t seen = 0;  // one bit per piece in kPieces
-    auto mark = [&](const uint8_t piece) {
+    CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == 0);
+    for (int round = 0; round < 2; ++round) {
+      CHECK(tapCell(g.board, p, r, c));
+      CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPinUnknown);
       for (int k = 0; k < 6; ++k) {
-        if (kPieces[k] == piece) {
-          CHECK(!(seen & (1u << k)));
-          seen = static_cast<uint8_t>(seen | (1u << k));
-        }
+        CHECK(tapCell(g.board, p, r, c));
+        CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPieces[k]);
       }
-    };
-    mark(shapes[corner]);
+      // The second round starts from the question mark the first ends on.
+      if (round == 0) {
+        CHECK(holdCell(g.board, p, r, c) && g.board.cell[corner] == kEmpty);
+        CHECK(holdCell(g.board, p, r, c) && g.board.cell[corner] == kCross);
+      }
+    }
     CHECK(tapCell(g.board, p, r, c));
     CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPinUnknown);
-    for (int k = 0; k < 5; ++k) {
-      CHECK(tapCell(g.board, p, r, c));
-      CHECK(g.board.cell[corner] == kTrack);
-      mark(g.board.pin[corner]);
-    }
-    CHECK(seen == 0x3F);
-    CHECK(tapCell(g.board, p, r, c));
-    CHECK(g.board.cell[corner] == kEmpty);
-
-    // From a cross: undecided first, then all six pieces, since no automatic
-    // piece was shown, then empty.
-    CHECK(holdCell(g.board, p, r, c) && g.board.cell[corner] == kCross);
-    CHECK(tapCell(g.board, p, r, c));
-    CHECK(g.board.cell[corner] == kTrack && g.board.pin[corner] == kPinUnknown);
-    // And so it is when the steps resume at an undecided piece later on, as
-    // after a reload or a tap somewhere else.
-    g.board.cycleCell = 0xFF;
-    seen = 0;
-    for (int k = 0; k < 6; ++k) {
-      CHECK(tapCell(g.board, p, r, c));
-      CHECK(g.board.cell[corner] == kTrack);
-      mark(g.board.pin[corner]);
-    }
-    CHECK(seen == 0x3F);
-    CHECK(tapCell(g.board, p, r, c));
-    CHECK(g.board.cell[corner] == kEmpty);
   }
+}
+
+// A cycle is the same whatever happens between taps: a neighbour turned into
+// track, another square's cycle, an undo, or a piece set from outside, as
+// HINT sets one. The next tap always gives the piece after the one on show.
+void testAnInterruptedCycleReachesEveryPieceOnce() {
+  int cycles = 0;
+  for (uint32_t seed = 100; seed < 160; ++seed) {
+    const Game base = newGame(Level::Easy, seed);
+    const Puzzle& p = base.puzzle;
+    for (int i = 0; i < kMaxCells; ++i) {
+      const int r = rowOf(i);
+      const int c = colOf(i);
+      if (!inside(p, r, c) || p.given[i]) continue;
+      Game g = base;
+      int neighbour = -1;
+      int other = -1;
+      for (int d = 0; d < 4 && neighbour < 0; ++d) {
+        const int r2 = r + kDRow[d];
+        const int c2 = c + kDCol[d];
+        if (inside(p, r2, c2) && !p.given[cellIndex(r2, c2)]) neighbour = cellIndex(r2, c2);
+      }
+      for (int j = kMaxCells - 1; j >= 0 && other < 0; --j) {
+        if (inside(p, rowOf(j), colOf(j)) && !p.given[j] && j != i && j != neighbour) other = j;
+      }
+      if (neighbour < 0 || other < 0) continue;
+      CHECK(tapCell(g.board, p, r, c));
+      CHECK(tapCell(g.board, p, r, c));
+      settle(g.board, p);
+      CHECK(g.board.pin[i] == kPinUnknown);
+      for (int k = 0; k < 6; ++k) {
+        if (k % 3 == 0) {
+          tapCell(g.board, p, rowOf(neighbour), colOf(neighbour));
+        } else if (k % 3 == 1) {
+          tapCell(g.board, p, rowOf(other), colOf(other));
+          tapCell(g.board, p, rowOf(other), colOf(other));
+        } else {
+          // Tap on, then undo back.
+          tapCell(g.board, p, r, c);
+          undo(g.board);
+        }
+        settle(g.board, p);
+        CHECK(tapCell(g.board, p, r, c));
+        settle(g.board, p);
+        CHECK(g.board.cell[i] == kTrack && g.board.pin[i] == kPieces[k]);
+      }
+      CHECK(tapCell(g.board, p, r, c));
+      CHECK(g.board.pin[i] == kPinUnknown);
+
+      // A piece set from outside: the tap gives the one after it.
+      for (int k = 0; k < 6; ++k) {
+        setCell(g.board, p, r, c, kTrack, kPieces[k]);  // no change when already shown
+        settle(g.board, p);
+        CHECK(tapCell(g.board, p, r, c));
+        CHECK(g.board.pin[i] == (k < 5 ? kPieces[k + 1] : kPinUnknown));
+      }
+      ++cycles;
+    }
+  }
+  CHECK(cycles > 500);
 }
 
 // A piece left undecided is still track: it counts toward its line and the
 // win, and the neighbours draw just as they would beside an automatic piece.
 // CHECK calls it wrong on the route (its piece is not set), HINT sets it, and
 // a save and undo both keep it.
+
 void testAnUndecidedPieceIsTrack() {
   int tried = 0;
   for (uint32_t seed = 500; seed < 540; ++seed) {
@@ -793,7 +821,7 @@ void testAnUndecidedPieceIsTrack() {
     const Hint h = findHint(p, g.board, scratch);
     CHECK(h.kind == HintKind::Fixed && h.cell == target && h.pin == p.solution[target]);
     // Setting it is the winning move, so HINT will not make it.
-    CHECK(hintSolves(g, h, scratch));
+    CHECK(hintSolves(g, h, probe, scratch));
     {
       Board set = g.board;
       CHECK(setCell(set, p, r, c, kTrack, p.solution[target]));
@@ -977,6 +1005,98 @@ void testBadSavesAreDiscarded() {
   CHECK(back.menuLevel == Level::Hard);
 }
 
+// What a save carries beyond the squares has to hold together too: CHECK's
+// flags only on real, non-given squares; a shape that is a piece; a history
+// that replays against the squares saved with it, or none at all. A version 5
+// save, from before the flags were kept, still opens its game.
+void testASaveHoldsTogether() {
+  SaveState s;
+  s.hasGame = true;
+  s.game = newGame(Level::Easy, 410);
+  const Puzzle& p = s.game.puzzle;
+  const int n = p.size;
+  int last = -1;
+  for (int i = 0; i < kMaxCells && last < 0; ++i) {
+    if (inside(p, rowOf(i), colOf(i)) && !p.given[i] && !p.solution[i]) last = i;
+  }
+  CHECK(last >= 0);
+  CHECK(tapCell(s.game.board, p, rowOf(last), colOf(last)));  // stray track
+  settle(s.game.board, p);
+  CHECK(checkBoard(p, s.game.board, s.game.marked) > 0);
+  CHECK(s.game.marked[last]);
+  char good[kSaveBytes];
+  CHECK(writeSave(s, good, kSaveBytes) > 0);
+  const std::string text(good);
+  const size_t squares = text.find('\n') + 1;
+  const size_t history = text.find('\n', squares) + 1;
+  const size_t flags = text.find('\n', history) + 1;
+  const int at = 3 * (rowOf(last) * n + colOf(last));  // the square's three characters
+
+  {
+    SaveState back;
+    CHECK(readSave(text.c_str(), back, work));
+    CHECK(back.game.marked[last]);
+    CHECK(back.game.board.history.count == 1);
+  }
+  // Version 5: no flags line. The game opens, unflagged.
+  {
+    std::string old = "5" + text.substr(1, flags - 1);
+    SaveState back;
+    CHECK(readSave(old.c_str(), back, work));
+    CHECK(back.hasGame);
+    CHECK(sameBoard(back.game.board, s.game.board));
+    for (const uint8_t flag : back.game.marked) CHECK(flag == 0);
+  }
+  // A square the history does not lead to: the move laid track there, the
+  // file says empty. The game opens, without its history.
+  {
+    std::string bad = text;
+    bad[squares + at] = '0';
+    bad[squares + at + 1] = '0';
+    bad[squares + at + 2] = '0';
+    SaveState back;
+    CHECK(readSave(bad.c_str(), back, work));
+    CHECK(back.game.board.cell[last] == kEmpty);
+    CHECK(back.game.board.history.count == 0);
+    CHECK(undo(back.game.board) < 0);
+  }
+  // A shape that is not a piece.
+  {
+    std::string bad = text;
+    bad[squares + at + 2] = '7';
+    SaveState back;
+    CHECK(!readSave(bad.c_str(), back, work));
+  }
+  // A flag past the last square, and a flag on a given.
+  {
+    std::string bad = text;
+    const int digits = (n * n + 3) / 4;
+    if ((n * n) % 4 != 0) {
+      bad[flags + digits - 1] = 'F';
+      SaveState back;
+      CHECK(!readSave(bad.c_str(), back, work));
+    }
+    int given = -1;
+    for (int k = 0; k < n * n && given < 0; ++k) {
+      if (p.given[cellIndex(k / n, k % n)]) given = k;
+    }
+    CHECK(given >= 0);
+    bad = text;
+    bad[flags + given / 4] = hexDigit(hexValue(bad[flags + given / 4]) | (8 >> (given % 4)));
+    SaveState back;
+    CHECK(!readSave(bad.c_str(), back, work));
+  }
+  // A clock far past 32 bits.
+  {
+    std::string bad = text;
+    size_t pos = 0;
+    for (int field = 0; field < 11; ++field) pos = bad.find(' ', pos) + 1;
+    bad.replace(pos, bad.find(' ', pos) - pos, "99999999999");
+    SaveState back;
+    CHECK(!readSave(bad.c_str(), back, work));
+  }
+}
+
 // A given is track whatever the file says, and history that names a given is
 // thrown away rather than allowed to unlock it.
 void testASaveCannotUnlockAGiven() {
@@ -1018,12 +1138,14 @@ int main() {
   testSaveRoundTrip();
   testALineIsNotRerouted();
   testATapReachesEverySixPieces();
+  testAnInterruptedCycleReachesEveryPieceOnce();
   testACycleSurvivesSettling();
   testAnOpenEndLooksForRoom();
   testCyclingBesideALineLeavesItWhole();
   testStrayTrackDoesNotBlockTheWin();
   testAnUndecidedPieceIsTrack();
   testBadSavesAreDiscarded();
+  testASaveHoldsTogether();
   testASaveCannotUnlockAGiven();
   std::printf("traintracks game: %d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;

@@ -3,13 +3,14 @@
 // Puzzles New Game can always fall back on when generation runs out of time.
 //
 // Each entry is a (seed, attempt) pair whose attempt is known to succeed, so
-// regenerating it costs exactly one attempt and the bank costs 36 bytes of
-// flash instead of six stored grids per level. host-tests/traintracks proves
+// regenerating it costs exactly one attempt and the bank costs 144 bytes of
+// flash instead of eighteen stored puzzles. host-tests/traintracks proves
 // every entry still regenerates; a generator change that breaks one fails
 // there, not on a device.
 //
-// The seeds sit in their own range (0xF...) so a save can never mistake a
-// fallback for a generated game with the same seed.
+// A game is rebuilt from (level, seed, attempt) alone, so a fallback is saved
+// and restored exactly as a generated game is, and nothing needs to tell the
+// two apart.
 
 #include <cstdint>
 

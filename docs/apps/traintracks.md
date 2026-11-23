@@ -65,10 +65,11 @@ shows a piece, a straight or a curve, and the player can choose it.
 
 - **A tap** lays track with an automatic piece, which follows its neighbours
   until touched again. The next tap leaves the piece undecided, drawn as a
-  question mark; each tap after that chooses the next of all six pieces, most
-  likely first, skipping the one the automatic piece already showed, so every
-  piece is reached once; after the last, the square is empty again. A tap on a
-  cross goes straight to the question mark, and then all six pieces follow.
+  question mark; each tap after that gives the next of the six pieces in a
+  fixed order (across, up and down, then the corners clockwise from
+  north-east), the same on every square whatever is around it; after the
+  last, it is a question mark again and the round starts over. A tap never clears a square. A tap on a cross goes
+  straight to the question mark, and then all six pieces follow.
 - **A hold** takes a square back a step: track or a cross to empty, and an
   empty square to a cross.
 - **Every track square draws a whole piece.** Automatic pieces
@@ -226,7 +227,12 @@ Attempts are capped by **count**, never by time, so a seed means the same
 puzzle on every device. The activity adds its own wall-clock budget. If that
 runs out, it falls back to `TrainTracksFallback.h`: six `(seed, attempt)`
 pairs per level that are known to succeed, so a fallback costs one attempt. A
-host test regenerates every entry.
+host test regenerates every entry. A deal belongs to the new-puzzle screen:
+it pauses while how to play is open over it, its budget restarting on the way
+back, and any other screen drops it. (It used to carry on, unstepped, after
+Back left the screen mid-deal, and the flag that keeps the loop from idling
+during a deal kept the CPU at full speed for the rest of the session; a code
+review found it.)
 
 All generator state other than the output lives in `GenWork` (about 9 KB:
 the solver plus the path search's arrays), which the activity allocates once.
@@ -436,19 +442,24 @@ to inference shows open blocks even when it is complete and correct.
 
 **Input.** A tap lays track: an empty square becomes track with an automatic
 piece, which keeps following its neighbours until touched again. The next tap
-leaves the piece undecided, and further taps step it through all six pieces, most likely first (`piecesFor`:
-ranked by how many ends meet track that would join them, with pieces that
-cannot fit, off the board or into a cross or away from a gate, offered last),
-skipping the one the automatic piece already showed, and after the last back
-to empty. A tap on a cross gives an undecided piece straight away, and since
-no automatic piece was shown, all six follow (`cycleAuto` is 0). That piece is remembered when the cycle starts (`Board::cycleAuto`):
-once a piece is chosen the neighbours settle around it, and asking inference
-again mid-cycle gave a different answer, so a cycle could repeat or skip a
-piece; a cold rules critic found it in 2,305 of 38,460 cycles. Offering only the pieces that fit made a corner, where one curve
-fits, look broken on the Picco: the tap went straight back to empty. (The first version stepped
-on from the automatic piece's place in that list, so pieces ranked above it
-could never be reached, sometimes the answer's own; a cold rules critic found
-it.) Each
+leaves the piece undecided, and further taps step it through all six pieces
+in `kPieces` order: across, up and down, then the corners clockwise from
+north-east. After the last the square is the question mark again, and the
+round starts over. The next piece depends only on the one on show, so undo,
+a hint or a reload never lose a place in the cycle, and nothing about it is
+saved. The automatic piece is not skipped, so it can come round a second
+time: that costs a tap, and keeps every piece the same number of taps from
+the question mark on every square. Clearing is the hold's alone: on the
+Picco, a cycle that ended on empty threw away track the player had meant
+only to turn. A tap on a cross gives an undecided piece straight away.
+
+The cycle used to offer pieces most likely first, ranked by how many ends
+met track that would join them. The ranking changed with the neighbours, and
+the neighbours re-fit around each piece chosen, so the order differed from
+square to square and from one tap to the next. On the Picco that read as
+hammering at a square that behaved differently every time, and keeping it
+from repeating or skipping a piece took a set of shown pieces per square
+that two critic rounds each found broken. Each
 chosen piece is pinned (`Board::pin`) and the neighbours fit around it.
 
 An undecided piece (`kPinUnknown`) is for a square the player believes is
@@ -457,18 +468,20 @@ judges the board: the clues count it and CHECK judges it, though while one
 stands on the route the puzzle is not yet solved (see "What wins"). Inference treats it as an
 automatic piece and works out a shape for it, which is simply not drawn, so
 neighbours join it exactly as they would join automatic track; only the
-drawing shows a question mark. It sits right after the automatic piece, and
+drawing shows a question mark, at the clue size on every board. The display
+size on Easy's and the how-to's 64px squares was tried, to keep the mark in
+proportion to the square, and on the Picco it outweighed the cross beside it. It sits right after the automatic piece, and
 a tap on a cross reaches it in one, since a square once ruled out and now
 believed to be track is when the player most often knows the square but not
-the piece. At the end of the cycle it took seven taps on the Picco; there,
-choosing a piece costs one tap more, which matters less because the
-automatic piece is usually the one wanted. A hold
+the piece. A hold
 of 400ms, as Sudoku's pencil and Minesweeper's flag, takes a square back a
 step: track or a cross to empty, an empty square to a cross. A cross therefore
 only goes on an empty square, and clearing track is one hold. (The first
 version had a hold cross out track; on the Picco the player found themselves
-crossing squares only to clear them.) a frame is drawn inside the square from 250ms so
-the hold is visibly registering (taps took 140 to 250ms on the Picco, so a
+crossing squares only to clear them.) From 250ms the held square's own grid
+lines are drawn heavy all the way round, as HINT's brackets are at the
+corners, and a second ring appears just outside the board's frame, since the
+square itself is under the thumb. Both show the hold is registering (taps took 140 to 250ms on the Picco, so a
 sooner frame would repaint for most taps). Winning reads only which squares are
 track, so a chosen piece never blocks a solve (an undecided one on the route
 does); CHECK and HINT also judge
@@ -481,11 +494,14 @@ board and turn pages in how to play.
 ### CHECK and HINT
 
 Both mark the square, never the piece (`docs/design-language.md`). HINT's
-bracket clears on the next move. CHECK's notches stay through every move,
+brackets clear on the next move. CHECK's notches stay through every move,
 undo included, until the next CHECK redraws them or the puzzle is solved
 (or a HINT puts that square right, which clears its notch and no other), so
 one CHECK serves for as many moves as it takes to put its flags right; the
-player finds out a flag is fixed by checking again.
+player finds out a flag is fixed by checking again. They are the game's own
+(`Game::marked`) and saved with it, so leaving the board and coming back, or
+reopening the app, keeps them; they used to live in the activity and were
+lost on the way out, which a play critic found.
 
 - **CHECK** puts a solid notch, a quarter of the square on a side, in the
   top-right corner of every square that
@@ -501,7 +517,11 @@ player finds out a flag is fixed by checking again.
   third of the square at first; on a curve turning through that corner it
   covered the sleepers, which is marking the piece rather than the square.)
 - **HINT** places one correct square, as an ordinary move that undo takes
-  back, brackets it, and says how many hints so far ("1ST HINT", "2ND HINT").
+  back, brackets it (four corner brackets drawn on the square's own grid
+  lines, a fifth of the square to an arm: track only meets those lines at the
+  middle of a side, and a curve's sleepers come no nearer a corner than about
+  a quarter of the square, so the brackets never touch the piece. They were
+  drawn just inside the square at first, and a curve ran through one), and says how many hints so far ("1ST HINT", "2ND HINT").
   It only ever lays track or turns track already laid to the answer's piece:
   revealing track is what the player presses HINT for. It never lays a cross
   and never takes track away; track laid off the route is left for the player,
@@ -514,8 +534,9 @@ player finds out a flag is fixed by checking again.
   track. (The first version offered crosses, which tell the player little,
   and then cleared wrong track, which left a bracket around an empty square.) A hint that would finish the puzzle is
   refused ("LAST MOVE IS YOURS") and not counted, and CHECK's marks stay: the
-  last move is the player's, and nothing on the board changed. It is tried on the board and taken back, history and redo
-  included (`hintSolves`).
+  last move is the player's, and nothing on the board changed. It is tried on a copy of the board the activity
+  keeps (`hintSolves`), so the board on screen, which the render task may be
+  drawing, never shows a hint that is then taken back.
 
 The game counts both. The solved board shows the time and the tally:
 "CLEAN WIN" (no hints and no checks), "1 HINT", "3 CHECKS" or "2 HINTS, 1 CHECK", stepping down to the
@@ -584,15 +605,23 @@ difficulty, whether a game is saved and whether the board was on screen,
 level, seed, attempt, puzzle hash, solved, hints, checks, elapsed time and the
 history ring's cursors), then the squares (state, chosen piece and the shape
 last drawn, so a reload draws every line exactly as it was), then the 64 undo
-moves. Every header number is range-checked for the field it is read into,
-and a game marked solved has to be solved.
+moves, then CHECK's flags, four squares to a hex digit. Every header number
+is read as 64-bit and range-checked for the field it is read into (the
+device's `strtoul` is 32-bit and capped an overflow instead of reporting it),
+and a game marked solved has to be solved. A version 5 save, which is the
+same without the flags, still opens its game.
 
 The puzzle is not stored. It is regenerated from `(level, seed, attempt)` and
 must hash to the stored value, so a save from a generator that has since
 changed is discarded rather than laid over a different puzzle. Anything that
 does not hold together opens the front door without a word, keeping the
 remembered difficulty if it can. A given is track whatever the file says, and
-a history that names a given is dropped rather than allowed to unlock it.
+a history that names a given is dropped rather than allowed to unlock it, as
+is one that does not replay against the saved squares (each applied move,
+undone newest first, has to find its square as it left it), since undo would
+otherwise write a move's old state over whatever is there. A shape that is
+not one of the six pieces, and a flag on a given or past the last square,
+reject the game.
 
 Wake from deep sleep is a chip reset. The shelf reopens the app
 (`shelf::resumeFromWake`), and if the board was on screen when the device
