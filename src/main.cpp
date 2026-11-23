@@ -93,7 +93,7 @@ static constexpr uint64_t kTimerWakeMicros = static_cast<uint64_t>(CROSSPLAY_TIM
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/DeviceReport.h"
-#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
 #include "network/WolfsslPsramAllocators.h"
 #endif
 #include "nvs.h"
@@ -800,7 +800,7 @@ void setup() {
 
   powerManager.begin();
 
-#if FREEINK_DEVICE_PICCO && !defined(SIMULATOR)
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
   useWolfsslPsramAllocators();
 #endif
 

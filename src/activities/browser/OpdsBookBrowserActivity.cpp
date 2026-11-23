@@ -31,6 +31,7 @@
 #include "components/icons/opdsIcons.h"
 #include "network/HttpDownloader.h"
 #include "network/LcpDevice.h"
+#include "network/PsramMallocScope.h"
 #include "util/BookCacheUtils.h"
 #include "util/OpdsFeedError.h"
 #include "util/OpdsFilename.h"
@@ -323,6 +324,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
 
   const std::string url = UrlUtils::buildUrl(server.url, path);
   OpdsFeedParser parser;
+  const PsramMallocScope psramMalloc;
   const auto status = opdsClient.fetchFeed(url, parser);
   // The token state may have changed (renewed, or cleared on failure); persist
   // only when an auth handshake actually ran.
@@ -945,7 +947,7 @@ void OpdsBookBrowserActivity::loadDetailCover(const std::string& docUrl, const s
   std::string tmp = "/.crosspoint/opds_cover";
   tmp += isPng ? ".png" : ".jpg";
 
-  if (ESP.getFreeHeap() < HttpDownloader::MIN_TLS_FREE_HEAP) {
+  if (ESP.getFreeHeap() < HttpDownloader::MIN_COVER_FREE_HEAP) {
     LOG_INF("OPDS", "Skipping cover: low heap");
     return;
   }

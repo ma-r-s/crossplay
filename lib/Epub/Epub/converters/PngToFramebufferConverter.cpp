@@ -84,7 +84,17 @@ int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
 // is only consumed while actually decoding/querying PNG images. This is critical on
 // the ESP32-C3 where total RAM is ~320 KB.
 constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;                          // ~42 KB + overhead
+#if __has_include(<sdkconfig.h>)
+#include <sdkconfig.h>
+#endif
+// With PSRAM behind malloc the decoder object (above malloc's internal-DRAM limit) lands in PSRAM, so only the
+// working buffers need internal DRAM.
+#if defined(CONFIG_SPIRAM_USE_MALLOC) && defined(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)
+static_assert(PNG_DECODER_APPROX_SIZE > CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL, "decoder would stay in internal DRAM");
+constexpr size_t MIN_FREE_HEAP_FOR_PNG = 16 * 1024;
+#else
 constexpr size_t MIN_FREE_HEAP_FOR_PNG = PNG_DECODER_APPROX_SIZE + 16 * 1024;  // decoder + 16 KB headroom
+#endif
 
 // PNGdec keeps TWO scanlines in its internal ucPixels buffer (current + previous)
 // and each scanline includes a leading filter byte.

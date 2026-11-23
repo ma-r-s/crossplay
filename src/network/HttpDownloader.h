@@ -31,8 +31,23 @@ class HttpDownloader {
   // its ~17KB record buffer fails mid-stream (wolfSSL MEMORY_E) -- or an
   // interior allocation abort()s the device. Callers should check before
   // downloadToFile() and fail into their error UI instead.
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
+  // wolfSSL's session and record buffers live in PSRAM here (useWolfsslPsramAllocators), so the transfer
+  // needs only a small share of internal DRAM, which Wi-Fi and TLS leave at about 26 KB.
+  static constexpr uint32_t MIN_TLS_FREE_HEAP = 16000;
+  static constexpr uint32_t MIN_TLS_MAX_ALLOC = 8000;
+#else
   static constexpr uint32_t MIN_TLS_FREE_HEAP = 40000;
   static constexpr uint32_t MIN_TLS_MAX_ALLOC = 20000;
+#endif
+
+  // Free heap a cover needs on top of the transfer: the JPEG/PNG decoder allocates about 37 KB from internal DRAM,
+  // so below this the download would only be thrown away.
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
+  static constexpr uint32_t MIN_COVER_FREE_HEAP = 20000;  // the decoder object itself is in PSRAM here
+#else
+  static constexpr uint32_t MIN_COVER_FREE_HEAP = 40000;
+#endif
 
   using Header = std::pair<std::string, std::string>;
 
