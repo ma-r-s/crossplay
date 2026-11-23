@@ -83,7 +83,7 @@ int32_t pngSeekWithHandle(PNGFILE* pFile, int32_t pos) {
 // We heap-allocate it on demand rather than using a static instance, so this memory
 // is only consumed while actually decoding/querying PNG images. This is critical on
 // the ESP32-C3 where total RAM is ~320 KB.
-constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;                          // ~42 KB + overhead
+constexpr size_t PNG_DECODER_APPROX_SIZE = 44 * 1024;  // ~42 KB + overhead
 #if __has_include(<sdkconfig.h>)
 #include <sdkconfig.h>
 #endif
