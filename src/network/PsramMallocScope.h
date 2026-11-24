@@ -4,16 +4,28 @@
 #include <esp_heap_caps.h>
 #include <sdkconfig.h>
 
+#include <atomic>
+
 // While alive, malloc sends blocks of 16 bytes and up to PSRAM instead of only those above
 // CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL. Internal DRAM is down to a few KB once Wi-Fi and TLS are up, and a feed's
 // many small strings or a bulk transfer's network buffers would otherwise exhaust it and stall the connection.
-// The limit is process-wide, so keep the scope to one network operation.
+// The limit is process-wide, so scopes nest: the outermost one lowers it and the last one to end restores it.
 class PsramMallocScope {
  public:
-  PsramMallocScope() { heap_caps_malloc_extmem_enable(16); }
-  ~PsramMallocScope() { heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL); }
+  PsramMallocScope() {
+    if (depth().fetch_add(1) == 0) heap_caps_malloc_extmem_enable(16);
+  }
+  ~PsramMallocScope() {
+    if (depth().fetch_sub(1) == 1) heap_caps_malloc_extmem_enable(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+  }
   PsramMallocScope(const PsramMallocScope&) = delete;
   PsramMallocScope& operator=(const PsramMallocScope&) = delete;
+
+ private:
+  static std::atomic<int>& depth() {
+    static std::atomic<int> count{0};
+    return count;
+  }
 };
 #else
 class PsramMallocScope {

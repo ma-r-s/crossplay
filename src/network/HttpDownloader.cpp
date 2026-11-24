@@ -280,6 +280,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
 bool HttpDownloader::postForm(const std::string& url, const std::string& formBody, std::string& outResponse,
                               int* statusOut) {
   outResponse.clear();
+  const PsramMallocScope psramMalloc;
   if (!openRequest("POST", url)) {
     if (statusOut) *statusOut = 0;
     return false;

@@ -105,9 +105,10 @@ constexpr size_t JPEG_DECODER_APPROX_SIZE = 20 * 1024;
 #if __has_include(<sdkconfig.h>)
 #include <sdkconfig.h>
 #endif
-// With PSRAM behind malloc the decoder object (above malloc's internal-DRAM limit) lands in PSRAM, so only the
-// working buffers need internal DRAM.
-#if defined(CONFIG_SPIRAM_USE_MALLOC) && defined(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)
+// On the boards that run network transfers with PSRAM malloc, the decoder object (above malloc's internal-DRAM
+// limit) lands in PSRAM, so only the working buffers need internal DRAM.
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR) && defined(CONFIG_SPIRAM_USE_MALLOC) && \
+    defined(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)
 static_assert(JPEG_DECODER_APPROX_SIZE > CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL, "decoder would stay in internal DRAM");
 constexpr size_t MIN_FREE_HEAP_FOR_JPEG = 16 * 1024;
 #else
