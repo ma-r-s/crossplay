@@ -842,6 +842,8 @@ bool OpdsBookBrowserActivity::parseUnlockResponse(const std::string& response, L
 // catalog list and SD font caches are released first (rebuilt on Back) to keep
 // the most heap free for the TLS fetch, exactly like a download.
 void OpdsBookBrowserActivity::openPublicationDetail(const OpdsEntry& entry) {
+  // The description is copied several times on the way to the page and can run to a few KB.
+  const PsramMallocScope psramMalloc;
   detailBook = entry;
   OpdsPublication publication;
 

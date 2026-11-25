@@ -15,6 +15,7 @@
 #include "activities/reader/DictionaryDefinitionActivity.h"
 #include "components/CatalogScreens.h"
 #include "components/UITheme.h"
+#include "network/PsramMallocScope.h"
 #include "util/DictHtmlPages.h"
 #include "util/HtmlToPlainText.h"
 
@@ -102,8 +103,13 @@ void DetailsActivity::cancel() { finish(); }
 void DetailsActivity::openMore() {
   if (spec.description.empty()) return;
   // The viewer consumes its copy; this page keeps the original for repaints.
-  auto viewer = makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, spec.title, spec.description,
-                                                                spec.descriptionHtml);
+  std::string description;
+  {
+    const PsramMallocScope psramMalloc;
+    description = spec.description;
+  }
+  auto viewer = makeUniqueNoThrow<DictionaryDefinitionActivity>(renderer, mappedInput, spec.title,
+                                                                std::move(description), spec.descriptionHtml);
   if (!viewer) {
     LOG_ERR("DETAILS", "OOM: description viewer");
     return;

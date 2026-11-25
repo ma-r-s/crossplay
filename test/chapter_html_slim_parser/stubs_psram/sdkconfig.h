@@ -1,0 +1,3 @@
+#pragma once
+
+#define CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL 4096

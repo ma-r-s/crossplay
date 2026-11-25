@@ -6,9 +6,9 @@
 
 #include <atomic>
 
-// While alive, malloc sends blocks of 16 bytes and up to PSRAM instead of only those above
-// CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL. Internal DRAM is down to a few KB once Wi-Fi and TLS are up, and a feed's
-// many small strings or a bulk transfer's network buffers would otherwise exhaust it and stall the connection.
+// While alive, malloc sends blocks above 16 bytes to PSRAM instead of only those above
+// CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL. Internal DRAM is down to a few KB once Wi-Fi and TLS are up, and many small
+// allocations (feed strings, network buffers, text layout) would otherwise exhaust it and stall the connection.
 // The limit is process-wide, so scopes nest: the outermost one lowers it and the last one to end restores it.
 class PsramMallocScope {
  public:
