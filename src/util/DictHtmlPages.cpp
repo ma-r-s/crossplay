@@ -1,6 +1,7 @@
 #include "DictHtmlPages.h"
 
 #include <Arduino.h>
+#include <Epub/htmlEntities.h>
 #include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -11,6 +12,10 @@
 #include <cstring>
 
 #include "CrossPointSettings.h"
+#include "network/PsramMallocScope.h"
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
+#include <HalMemory.h>
+#endif
 
 namespace {
 
@@ -31,6 +36,22 @@ constexpr size_t MIN_STYLED_RETAIN_ALLOC = 32 * 1024;
 // far more objects than its source size suggests.
 constexpr size_t MAX_STYLED_PAGES = 64;
 constexpr size_t MAX_STYLED_PAGE_ELEMENTS = 512;
+
+struct LayoutHeap {
+  unsigned freeBytes;
+  unsigned largestBlockBytes;
+};
+
+// The heap the layout allocates from, which the floors above apply to. Where PsramMallocScope is live that includes
+// PSRAM, and the few tens of KB of internal heap left with Wi-Fi up say nothing about whether the layout fits.
+LayoutHeap layoutHeap() {
+#if (FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO) && !defined(SIMULATOR)
+  const auto heap = HalMemory::getDefaultHeap();
+  return {static_cast<unsigned>(heap.freeBytes), static_cast<unsigned>(heap.largestBlockBytes)};
+#else
+  return {ESP.getFreeHeap(), ESP.getMaxAllocHeap()};
+#endif
+}
 
 class BufferedFileWriter {
  public:
@@ -97,6 +118,40 @@ bool isEntityRef(const std::string& html, const size_t pos, size_t* end) {
   return true;
 }
 
+// Writes a well-formed reference found by isEntityRef().
+bool appendEntityRef(BufferedFileWriter& out, const char* ref, const size_t len) {
+#if FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO
+  // Without a DTD expat knows only the XML names and rejects the whole document over any other, so HTML names
+  // become their characters and unknown ones literal text.
+  static constexpr const char* XML_ENTITIES[] = {"&amp;", "&apos;", "&gt;", "&lt;", "&quot;"};
+  const bool isXml =
+      ref[1] == '#' || std::any_of(std::begin(XML_ENTITIES), std::end(XML_ENTITIES),
+                                   [ref, len](const char* e) { return strlen(e) == len && strncmp(e, ref, len) == 0; });
+  if (!isXml) {
+    // Only the XML names stand for markup characters or quotes, so a value needs no escaping.
+    if (const char* value = lookupHtmlEntity(ref, len)) return out.append(value);
+    return out.append("&amp;") && out.append(ref + 1, len - 1);
+  }
+#endif
+  return out.append(ref, len);
+}
+
+// Copies a tag's attribute bytes [pos, end). expat checks references there too, and rejects a bare '&' or '<'.
+bool appendAttributes(BufferedFileWriter& out, const std::string& html, size_t pos, const size_t end) {
+  while (pos < end) {
+    size_t entityEnd = 0;
+    if (html[pos] == '&' && isEntityRef(html, pos, &entityEnd) && entityEnd < end) {
+      if (!appendEntityRef(out, html.data() + pos, entityEnd - pos + 1)) return false;
+      pos = entityEnd + 1;
+    } else {
+      const char c = html[pos++];
+      const bool ok = c == '&' ? out.append("&amp;") : c == '<' ? out.append("&lt;") : out.append(c);
+      if (!ok) return false;
+    }
+  }
+  return true;
+}
+
 // StarDict HTML is tag soup; expat is a strict XML parser. Produce a
 // well-formed XHTML document from the fragment: wrap it in a root element,
 // lowercase tag names (XML is case-sensitive and the parser matches
@@ -160,7 +215,7 @@ bool writeNormalizedXhtml(const std::string& html, HalFile& file) {
       if (!out.append('<')) return false;
       if (closing && !out.append('/')) return false;
       if (!out.append(nameBuf, nameLen)) return false;
-      if (!out.append(html.data() + nameEnd, j - nameEnd)) return false;  // attributes verbatim
+      if (!appendAttributes(out, html, nameEnd, j)) return false;
       if (!closing && isVoid && html[j - 1] != '/' && !out.append('/')) return false;
       if (!out.append('>')) return false;
       i = j + 1;
@@ -174,7 +229,7 @@ bool writeNormalizedXhtml(const std::string& html, HalFile& file) {
     if (c == '&') {
       size_t entityEnd = 0;
       if (isEntityRef(html, i, &entityEnd)) {
-        if (!out.append(html.data() + i, entityEnd - i + 1)) return false;
+        if (!appendEntityRef(out, html.data() + i, entityEnd - i + 1)) return false;
         i = entityEnd + 1;
       } else {  // bare ampersand ("Tom & Jerry")
         if (!out.append("&amp;")) return false;
@@ -193,11 +248,15 @@ bool writeNormalizedXhtml(const std::string& html, HalFile& file) {
 
 bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definition, const uint16_t viewportWidth,
                               const uint16_t viewportHeight, std::vector<std::unique_ptr<Page>>& pagesOut) {
-  if (ESP.getFreeHeap() < MIN_STYLED_FREE_HEAP || ESP.getMaxAllocHeap() < MIN_STYLED_MAX_ALLOC) {
-    LOG_ERR("DHTML", "Low heap for styled definition (%u free, %u max block)", ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
+  const LayoutHeap entryHeap = layoutHeap();
+  if (entryHeap.freeBytes < MIN_STYLED_FREE_HEAP || entryHeap.largestBlockBytes < MIN_STYLED_MAX_ALLOC) {
+    LOG_ERR("DHTML", "Low heap for styled definition (%u free, %u max block)", entryHeap.freeBytes,
+            entryHeap.largestBlockBytes);
     return false;
   }
+
+  // Keeps the parser's working set and the returned pages out of internal DRAM where the board allows it.
+  [[maybe_unused]] const PsramMallocScope psramMalloc;
 
   {
     HalFile tmp = Storage.open(TMP_HTML_PATH, O_WRITE | O_CREAT | O_TRUNC);
@@ -232,6 +291,7 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
                                                               uint32_t) {
           if (limitReason) return;
           const size_t pageElements = page->elements.size();
+          const LayoutHeap heap = layoutHeap();
           // Name the limit that fired. The three causes mean different things --
           // the count caps say the definition is genuinely too big to hold,
           // while the heap floor says only that this moment was a bad one -- and
@@ -240,13 +300,13 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
             limitReason = "page count";
           } else if (pageElements > MAX_STYLED_PAGE_ELEMENTS - retainedElements) {
             limitReason = "element count";
-          } else if (ESP.getFreeHeap() < MIN_STYLED_RETAIN_HEAP || ESP.getMaxAllocHeap() < MIN_STYLED_RETAIN_ALLOC) {
+          } else if (heap.freeBytes < MIN_STYLED_RETAIN_HEAP || heap.largestBlockBytes < MIN_STYLED_RETAIN_ALLOC) {
             limitReason = "free heap";
           }
           if (limitReason != nullptr) {
             LOG_ERR("DHTML", "Styled definition stopped on %s (pages=%u elements=%u free=%u contig=%u)", limitReason,
                     static_cast<unsigned>(pagesOut.size()), static_cast<unsigned>(retainedElements + pageElements),
-                    ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+                    heap.freeBytes, heap.largestBlockBytes);
             pagesOut.clear();
             parser->requestStop();
             return;
@@ -277,5 +337,7 @@ bool buildDictionaryHtmlPages(GfxRenderer& renderer, const std::string& definiti
     pagesOut.clear();
     return false;
   }
+  LOG_DBG("DHTML", "Styled definition: pages=%u internal free=%u max block=%u", static_cast<unsigned>(pagesOut.size()),
+          ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   return true;
 }

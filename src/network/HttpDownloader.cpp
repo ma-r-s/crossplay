@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "DeviceReport.h"
+#include "PsramMallocScope.h"
 #include "WifiPowerSaveGuard.h"
 
 extern "C" void wolfSSL_Arduino_Serial_Print(const char* const msg) { LOG_DBG("WOLFSSL", "%s", msg); }
@@ -279,6 +280,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
 bool HttpDownloader::postForm(const std::string& url, const std::string& formBody, std::string& outResponse,
                               int* statusOut) {
   outResponse.clear();
+  const PsramMallocScope psramMalloc;
   if (!openRequest("POST", url)) {
     if (statusOut) *statusOut = 0;
     return false;
@@ -309,6 +311,7 @@ HttpDownloader::DownloadError HttpDownloader::postToFile(const std::string& url,
                                                          const std::string& contentType, const std::string& destPath,
                                                          ProgressCallback progress, const bool* cancelFlag) {
   LOG_DBG("HTTP", "POST download: %s -> %s", url.c_str(), destPath.c_str());
+  const PsramMallocScope psramMalloc;
   if (!openRequest("POST", url)) return HTTP_ERROR;
   WifiPowerSaveGuard psGuard;
 
@@ -384,6 +387,7 @@ HttpDownloader::DownloadError HttpDownloader::downloadToFile(const std::string& 
                                                              const std::vector<Header>& headers,
                                                              bool downgradeRedirectsToHttp) {
   LOG_DBG("HTTP", "Downloading: %s -> %s", url.c_str(), destPath.c_str());
+  const PsramMallocScope psramMalloc;
 
   // Stage in <dest>.part: a failed or cancelled download never replaces an
   // existing copy, and a partial file never sits under the real name.
