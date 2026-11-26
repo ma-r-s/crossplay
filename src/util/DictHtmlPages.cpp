@@ -1,9 +1,7 @@
 #include "DictHtmlPages.h"
 
 #include <Arduino.h>
-#if FREEINK_DEVICE_PICCO || FREEINK_DEVICE_X4PRO
 #include <Epub/htmlEntities.h>
-#endif
 #include <Epub/parsers/ChapterHtmlSlimParser.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -130,17 +128,28 @@ bool appendEntityRef(BufferedFileWriter& out, const char* ref, const size_t len)
       ref[1] == '#' || std::any_of(std::begin(XML_ENTITIES), std::end(XML_ENTITIES),
                                    [ref, len](const char* e) { return strlen(e) == len && strncmp(e, ref, len) == 0; });
   if (!isXml) {
-    if (const char* value = lookupHtmlEntity(ref, len)) {
-      for (; *value != '\0'; value++) {
-        const bool ok = *value == '<' ? out.append("&lt;") : *value == '&' ? out.append("&amp;") : out.append(*value);
-        if (!ok) return false;
-      }
-      return true;
-    }
+    // Only the XML names stand for markup characters or quotes, so a value needs no escaping.
+    if (const char* value = lookupHtmlEntity(ref, len)) return out.append(value);
     return out.append("&amp;") && out.append(ref + 1, len - 1);
   }
 #endif
   return out.append(ref, len);
+}
+
+// Copies a tag's attribute bytes [pos, end). expat checks references there too, and rejects a bare '&' or '<'.
+bool appendAttributes(BufferedFileWriter& out, const std::string& html, size_t pos, const size_t end) {
+  while (pos < end) {
+    size_t entityEnd = 0;
+    if (html[pos] == '&' && isEntityRef(html, pos, &entityEnd) && entityEnd < end) {
+      if (!appendEntityRef(out, html.data() + pos, entityEnd - pos + 1)) return false;
+      pos = entityEnd + 1;
+    } else {
+      const char c = html[pos++];
+      const bool ok = c == '&' ? out.append("&amp;") : c == '<' ? out.append("&lt;") : out.append(c);
+      if (!ok) return false;
+    }
+  }
+  return true;
 }
 
 // StarDict HTML is tag soup; expat is a strict XML parser. Produce a
@@ -206,7 +215,7 @@ bool writeNormalizedXhtml(const std::string& html, HalFile& file) {
       if (!out.append('<')) return false;
       if (closing && !out.append('/')) return false;
       if (!out.append(nameBuf, nameLen)) return false;
-      if (!out.append(html.data() + nameEnd, j - nameEnd)) return false;  // attributes verbatim
+      if (!appendAttributes(out, html, nameEnd, j)) return false;
       if (!closing && isVoid && html[j - 1] != '/' && !out.append('/')) return false;
       if (!out.append('>')) return false;
       i = j + 1;

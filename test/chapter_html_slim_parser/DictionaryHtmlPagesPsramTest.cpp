@@ -76,7 +76,12 @@ TEST_F(DictionaryHtmlPagesPsramTest, DefaultHeapRunningLowStopsParsingAndRestore
 TEST_F(DictionaryHtmlPagesPsramTest, HtmlEntityNamesKeepStyledPages) {
   for (const char* definition :
        {"<p>one&nbsp;<b>two</b> &mdash; three</p>", "<p>&amp; &lt; &gt; &quot; &#160; &#x2014;</p>",
-        "<p>an &unknownname; stays</p>", "<p>&LT;b&GT; &AMP;</p>"}) {
+        "<p>an &unknownname; stays</p>", "<p>&LT;b&GT; &AMP;</p>",
+        // expat checks references inside attribute values too, where a quote must not end the value.
+        "<p title=\"a&nbsp;b &mdash; &unknownname;\">one</p>",
+        "<p title=\"&quot;two&quot;\" lang='&apos;&amp;'>two</p>", "<p>one<br data-x=\"&nbsp;\">two</p>",
+        "<p><a href=\"https://example.com/book?id=1&edition=2\">here</a></p>", "<p title=\"Tom & Jerry\">one</p>",
+        "<p title=\"a<b\">one</p>"}) {
     SCOPED_TRACE(definition);
     pages.clear();
     EXPECT_TRUE(buildDictionaryHtmlPages(renderer, definition, 400, 600, pages));
